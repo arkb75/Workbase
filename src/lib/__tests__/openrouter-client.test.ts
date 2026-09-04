@@ -6,6 +6,7 @@ import {
   OpenRouterRequestError,
   resetOpenRouterPacingForTests,
   RetryableFallbackTextRuntime,
+  RetryableSameModelConverseTransport,
   RetryableSameModelTextRuntime,
 } from "@/src/lib/openrouter-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1173,6 +1174,134 @@ describe("RetryableFallbackTextRuntime", () => {
       }),
     ).rejects.toThrow("unavailable");
     expect(fallback.converse).not.toHaveBeenCalled();
+  });
+});
+
+describe("RetryableSameModelConverseTransport", () => {
+  const input = {
+    modelId: "ignored-by-transport",
+    messages: [
+      { role: "user" as const, content: [{ text: "Inspect it." }] },
+    ],
+  };
+
+  it("honors Retry-After, retries the main model, and preserves attempt usage", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(
+          JSON.stringify({ error: { message: "rate limited", code: 429 } }),
+          {
+            status: 429,
+            headers: {
+              "x-request-id": "req_agent_limited",
+              "retry-after": "4",
+            },
+          },
+        ))
+        .mockResolvedValueOnce(response({
+          model: "openai/gpt-5.6-terra",
+          provider: "openai",
+          choices: [{ finish_reason: "stop", message: { content: "Done." } }],
+          usage: {
+            prompt_tokens: 12,
+            completion_tokens: 2,
+            total_tokens: 14,
+            cost: 0.0003,
+          },
+        }));
+      const runtimeConfig = config({
+        baseUrl: "https://same-model-agent-retry.example/api/v1",
+      });
+      const transport = new RetryableSameModelConverseTransport(
+        new OpenRouterConverseTransport(
+          runtimeConfig,
+          undefined,
+          fetchMock,
+        ),
+        runtimeConfig,
+      );
+
+      const pending = transport.converse(input);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(3_999);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await pending;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls.map((call) =>
+        JSON.parse(String(call[1].body)).model
+      )).toEqual([
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-terra",
+      ]);
+      expect(result).toMatchObject({
+        modelId: "openai/gpt-5.6-terra",
+        usage: {
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 1,
+          failedAttempts: [expect.objectContaining({
+            modelId: "openai/gpt-5.6-terra",
+            requestId: "req_agent_limited",
+            httpStatus: 429,
+          })],
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops after one retry and aggregates both failures on the error", async () => {
+    vi.useFakeTimers();
+    try {
+      const unavailable = (requestId: string) => new Response(
+        JSON.stringify({ error: { message: "unavailable", code: 503 } }),
+        {
+          status: 503,
+          headers: { "x-request-id": requestId, "retry-after": "0" },
+        },
+      );
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(unavailable("req_agent_first"))
+        .mockResolvedValueOnce(unavailable("req_agent_second"));
+      const runtimeConfig = config({
+        baseUrl: "https://bounded-agent-retry.example/api/v1",
+      });
+      const transport = new RetryableSameModelConverseTransport(
+        new OpenRouterConverseTransport(
+          runtimeConfig,
+          undefined,
+          fetchMock,
+        ),
+        runtimeConfig,
+      );
+
+      const assertion = expect(transport.converse(input)).rejects.toMatchObject({
+        status: 503,
+        providerAttemptCount: 2,
+        unknownUsageAttempts: 2,
+        failedAttempts: [
+          expect.objectContaining({ requestId: "req_agent_first" }),
+          expect.objectContaining({ requestId: "req_agent_second" }),
+        ],
+        tokenUsage: {
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 2,
+        },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(2_500);
+      await assertion;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -1,0 +1,816 @@
+{
+  "schemaVersion": "repository-source-audit-score-v1",
+  "provenance": {
+    "packetSchemaVersion": "repository-source-audit-adjudication-packet-v1",
+    "packetDigest": "b25db8144c6e5809b72b5bf336fbc35b726d2c8ebc2116a236b85bf946e96b75",
+    "adjudicationDigest": "c16cb0ded979675150f7e662bf24889bf092beec389854502b225568583f0f82",
+    "manifestDigest": "9c860d9c174729928698e03a6ce6b6a87f045bfb71ca127f42ef6bab1954d186",
+    "sourceAuditDigest": "b1032ba50c2de20682335bab38b5a10957413543879e1b097741a7680fd84d97",
+    "auditDate": "2026-09-04",
+    "workItemId": "cmth3va8j00a021unzd2mcuup",
+    "fixtureId": "solopilot-agent-documents",
+    "repository": "arkb75/SoloPilot",
+    "commitSha": "46477b744db2aa61c53763c4832cad1b239e8ce5",
+    "sourceScope": "tracked_git_tree",
+    "sourceDigest": "154d8b310a6bc97ee54f39b95d14365aea7b62e15478aa59e41a8d30eee7dcf6"
+  },
+  "certification": {
+    "status": "historical_control",
+    "currentRunEligible": false,
+    "historicalControlOverrideUsed": true,
+    "executionIntegrity": {
+      "passed": false,
+      "issues": [
+        "5 capability synthesis generation(s) have no valid synthesis-phase attestation.",
+        "No audited capability synthesis generation ran.",
+        "No audited semantic extraction generation ran.",
+        "No audited semantic planning generation ran.",
+        "Repository refresh is missing its persisted semantic evidence universe; rerun the repository refresh before evaluation.",
+        "Repository semantic planning has no audited generation reference.",
+        "Repository semantic planning used its deterministic fallback.",
+        "capability_synthesis generation 1 ended with status provider_error.",
+        "capability_synthesis generation 1 has incomplete model-usage evidence.",
+        "capability_synthesis generation 1 has no provider request ID.",
+        "capability_synthesis generation 1 used model openai/gpt-5.6-luna; expected openai/gpt-5.6-terra.",
+        "capability_synthesis generation 5 ended with status provider_error.",
+        "capability_synthesis generation 5 has incomplete model-usage evidence.",
+        "capability_synthesis generation 5 has no provider request ID."
+      ],
+      "modelIdentities": [
+        "capability_synthesis:openrouter:openai/gpt-5.6-luna",
+        "capability_synthesis:openrouter:openai/gpt-5.6-terra"
+      ],
+      "policyVersions": [
+        "analyzerVersion=repository-coverage-v16",
+        "coveragePolicyVersion=repository-coverage-v8",
+        "lifecyclePolicyVersion=knowledge-lifecycle-v3",
+        "orchestration.policyVersion=repository-orchestration-v12",
+        "orchestrationPolicyVersion=repository-orchestration-v12",
+        "semanticAnalyzerVersion=repository-coverage-v18",
+        "synthesisPolicyVersion=repository-synthesis-v32"
+      ]
+    },
+    "sourceTreeVerification": {
+      "status": "verified",
+      "repositoryRoot": "/private/tmp/workbase-source-audit/solopilot",
+      "computedSourceDigest": "154d8b310a6bc97ee54f39b95d14365aea7b62e15478aa59e41a8d30eee7dcf6"
+    }
+  },
+  "diagnostics": {
+    "scoringUniverse": {
+      "knowledgeUnits": 31,
+      "unitsByState": {
+        "implemented": 22,
+        "partial": 3,
+        "planned": 1,
+        "absent": 5
+      },
+      "unitsByImportance": {
+        "major": 20,
+        "supporting": 11
+      },
+      "unitsByHighlightRelevance": {
+        "must": 10,
+        "should": 10,
+        "not_expected": 11
+      },
+      "userQuestions": 10,
+      "observedHighlights": 4
+    },
+    "savedOutputs": {
+      "highlights": 4,
+      "facts": 19,
+      "total": 23,
+      "evidenceReferences": 35,
+      "exactRangeAndQuoteReferences": 35,
+      "outputsWithoutEvidence": 0
+    },
+    "adjudication": {
+      "unitAdjudications": 31,
+      "highlightAdjudications": 4,
+      "questionAdjudications": 10,
+      "contradictedUnitIds": [
+        "solo.proposal-to-plan-export"
+      ],
+      "duplicateHighlightIds": [],
+      "lowValueHighlightIds": [
+        "cmth425q300mj21unizwbxgmi",
+        "cmth42cz900nd21unv17fmomx"
+      ],
+      "lessThanFullyAnswerableQuestions": [
+        "Do changed requirements or approved proposals actually reach planning, IDE export, or deployment, and what does the independent brief-to-code path generate and use as repository context?",
+        "How are proposal PDFs generated, stored, selected, attached, and visually revised, and how strong are their versioning and duplicate-suppression guarantees?",
+        "How do phase-aware drafting, manual versus auto reply modes, phase transitions, one-pass review and revision, and SES delivery failure timing interact?",
+        "How does a batched SES or S3 event become a threaded conversation, what related data expires or survives deletion, and what retry-idempotency guarantees exist?",
+        "What authentication and tenant boundary protects the management API, and which frontend and Lambda capabilities are actually represented by the checked-in API Gateway contract?",
+        "What does the document-rendering service implement, how is it used by proposals, and how complete or connected is its Stripe invoice path?",
+        "What exactly can the wireframe subsystem generate, edit, version, export, and share, including its screen limit and the different history semantics of direct and vision edits?",
+        "Which model-provider paths and error, usage, and cost behaviors are truly implemented, and what languages and outputs does the standalone reviewer actually cover?",
+        "Which project facts are inferred from conversation content, where does conversation phase come from, and which requirement mutation paths use optimistic versioning?",
+        "Which simulation, deployment, marketing, CodeWhisperer, and reply-inspection utilities are real, simulated, disconnected, partial, or placeholders?"
+      ]
+    },
+    "countNeutral": true
+  },
+  "semanticDetails": {
+    "units": [
+      {
+        "unitId": "solo.api-access-model",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "The checked-in management client sends one build-time VITE_API_KEY on every request and the API Gateway specification globally requires an API key; these seams contain no per-user identity, authorization, or tenant boundary.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "security",
+        "kind": "architecture",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.api-route-deployment-contract",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "The Lambda dispatcher and frontend implement conversation deletion, reply review and revision, proposal routes, and wireframe sharing, but the checked-in API Gateway specification omits those operations while exposing only the documented conversation, basic reply, attachment, and non-share wireframe routes.",
+        "state": "partial",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "operations",
+        "kind": "integration",
+        "uncertainty": "This establishes drift in the tracked deployment specification. Independently modified cloud API Gateway state cannot be established from the repository."
+      },
+      {
+        "unitId": "solo.brief-to-code-skeleton-cli",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "An independent CLI parses a project brief into a structured specification, plans milestones, and generates lint-assisted code, test, and README skeletons containing TODO foundations rather than complete production applications.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "software-delivery",
+        "kind": "workflow",
+        "uncertainty": "This CLI is independent of proposal approval and its generated artifacts intentionally remain skeleton/TODO foundations."
+      },
+      {
+        "unitId": "solo.client-deployment-prototype",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "A standalone deployment script can create private GitHub and Vercel resources and record a deployment, but it does not push generated client code, does not use requirements or the repository URL when triggering deployment, and passes the placeholder commit value initial.",
+        "state": "partial",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "software-delivery",
+        "kind": "integration",
+        "uncertainty": "The scripts are independently executable but are not called by the primary email, proposal, or brief-to-code workflows."
+      },
+      {
+        "unitId": "solo.client-simulation-harness",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Simulates phase-aware multi-turn client email scenarios, optionally over SES, and records batch outcomes.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "testing",
+        "kind": "capability",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.codewhisperer-real-integration",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "CodeWhisperer is backed by a live model or service integration.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "ai-runtime",
+        "kind": "constraint",
+        "uncertainty": "The implementation explicitly produces local sample snippets as a PoC/simulation."
+      },
+      {
+        "unitId": "solo.conversation-metadata-inference",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "The metadata extractor infers client and project information, proposal and meeting intent, sentiment, topics, next action, and confidence, while copying the caller-supplied current phase rather than inferring phase.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "project-understanding",
+        "kind": "capability",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.conversation-phase-transitions",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Conversation phase is persisted state: response action metadata can move a conversation into proposal or another suggested phase, and successful wireframe generation moves a proposal-phase conversation into design.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "project-understanding",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.conversation-retention-delete",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "none",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Conversation records receive a 30-day TTL refreshed on append; normal message mappings use 90 days while approval-created mappings use 30 days; deleting a conversation removes only its DynamoDB conversation item and does not cascade related mappings, S3 artifacts, version indexes, or jobs.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "data-lifecycle",
+        "kind": "constraint",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.document-rendering-service",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "A separate Node.js Lambda validates Markdown or named-template input, renders React-PDF output, stores the PDF in S3, and returns the PDF plus a 24-hour signed download URL; the proposal generator invokes this service.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "documents",
+        "kind": "integration",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.email-intake-retry-idempotency",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Inbound processing handles every record in a batched event and prevents a retried delivery of the same message from being appended twice.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "client-communication",
+        "kind": "constraint",
+        "uncertainty": "The handler reads only Records[0]. Optimistic sequence locking orders concurrent appends but does not test whether the same message_id is already present."
+      },
+      {
+        "unitId": "solo.email-intake-threading",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "The intake Lambda processes the first SES/S3 event record, loads and parses the stored email, resolves a conversation through Message-ID, In-Reply-To, and References, appends inbound history with optimistic locking, and stores message-ID mappings.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "client-communication",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.generation-provider-layer",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "The central provider factory supports Bedrock, fake, and simulated CodeWhisperer implementations; the planner separately implements a Bedrock-to-OpenAI fallback and email agents retain direct-Bedrock branches. Shared logging can estimate token counts but does not calculate USD cost, and the declared quota exception is not mapped by providers.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "ai-runtime",
+        "kind": "architecture",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.marketing-announcement-utility",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Generates and scores tweet-length milestone announcements from milestone artifacts.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "marketing",
+        "kind": "capability",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.phase-aware-email-drafting",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "The responder drafts client replies from conversation history, requirements, and current phase and emits proposal, meeting, action, and suggested-phase metadata.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "client-communication",
+        "kind": "capability",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.progressive-code-context",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "DevAgent supports selectable legacy, Chroma, and Serena context engines and feeds lint failures into regeneration, but the main brief-to-code loop asks the default context engine to inspect a newly created milestone output directory rather than an existing target repository.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "software-delivery",
+        "kind": "architecture",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.proposal-pdf-lifecycle",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "The proposal subsystem renders PDFs through the document Lambda, stores versioned PDF artifacts and metadata in S3 and DynamoDB, lists and retrieves versions, and can attach a selected or pre-generated version when an approved reply is sent.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "proposals",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.proposal-to-plan-export",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": false,
+        "qualifierCoverage": "none",
+        "contradictsAudit": true,
+        "claim": "Approved proposals automatically enter PRD/planning and IDE-specific export through an in-repository SQS consumer or approval-triggered bridge.",
+        "state": "planned",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "software-delivery",
+        "kind": "constraint",
+        "uncertainty": "The standalone planner exists, but the tracked tree has no export module, no consumer for the requirements queue, and no proposal-approval call into the planner."
+      },
+      {
+        "unitId": "solo.reply-delivery-atomicity",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "SES delivery, message-ID mapping, outbound-history append, and pending-reply status persistence form one idempotent atomic operation.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "human-in-the-loop",
+        "kind": "constraint",
+        "uncertainty": "SES send occurs before mapping, history, and final reply-state persistence. Mapping and history failures can be swallowed, and no delivery idempotency key is stored before sending."
+      },
+      {
+        "unitId": "solo.reply-prompt-and-attachment-retrieval",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Reply-prompt and attachment URL retrieval APIs return persisted production data.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "client-communication",
+        "kind": "constraint",
+        "uncertainty": "The handlers return explicit not-implemented or example placeholder content."
+      },
+      {
+        "unitId": "solo.reply-review-modes",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "New conversations default to manual reply mode, where generated drafts are queued for amendment, rejection, or approval; switching to auto mode bypasses human review and sends the generated response immediately.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "human-in-the-loop",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.reply-review-revise-loop",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "On explicit request, the API creates or returns one cached structured review, performs one successful revision with retries only for generation failure, reviews the revised response once, and caches that single revision.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "quality-control",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.requirements-change-sqs-producer",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "When the normal intake path changes requirements, it synchronously publishes the conversation, requirements version, participants, and source metadata to an SQS queue and fails the intake invocation if the send fails.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "software-delivery",
+        "kind": "integration",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.requirements-versioning",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "The normal intake path extracts and incrementally updates structured requirements, scope, pricing, timeline, and success criteria, persisting changes with an optimistic requirements-version check.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "project-understanding",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.standalone-code-review",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "An independently executable, Python-focused reviewer combines ruff, mypy, pytest, optional SonarCloud findings, and AI review into a structured pass/fail report; its AI file collection is limited to Python files and at most five are reviewed.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "quality-control",
+        "kind": "capability",
+        "uncertainty": "The reviewer is not invoked by the main brief-to-code runner."
+      },
+      {
+        "unitId": "solo.stripe-invoice-integration",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Direct document-service requests can optionally create a Stripe customer and draft invoice with line items and a document URL, but the normal proposal/email flow does not request invoicing and the Stripe file-upload helper returns a mock rather than attaching the PDF.",
+        "state": "partial",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "billing",
+        "kind": "integration",
+        "uncertainty": "No tracked caller outside the document service sets createInvoice. Runtime-only callers cannot be ruled out from source alone."
+      },
+      {
+        "unitId": "solo.visual-proposal-revision",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "The visual proposal endpoint converts annotated PDF pages and instructions into semantic requirement edits, renders a provenance-linked new proposal version, and performs best-effort duplicate suppression only when the latest version has the same request key and generated requirements hash.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "proposals",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.visual-requirements-optimistic-versioning",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Visual proposal edits participate in the same optimistic requirements-version check and increment used by normal intake updates.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "project-understanding",
+        "kind": "constraint",
+        "uncertainty": "The visual-edit endpoint directly sets requirements without checking or incrementing requirements_version."
+      },
+      {
+        "unitId": "solo.wireframe-edit-version-semantics",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Direct HTML editing overwrites a screen object inside the selected wireframe version, while vision-guided editing runs asynchronously and writes a newly allocated wireframe version.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "design",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.wireframe-export-share",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Wireframes can be exported as React components or HTML and the share handler can publish a standalone HTML preview to S3 and return an expiring presigned public URL.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "design",
+        "kind": "capability",
+        "uncertainty": null
+      },
+      {
+        "unitId": "solo.wireframe-generation",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Wireframe generation runs asynchronously with DynamoDB job tracking, creates and stores a versioned responsive HTML wireframe containing at most two screens, and exposes presigned retrieval URLs; active-job suppression is a non-atomic check followed by job creation.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "design",
+        "kind": "workflow",
+        "uncertainty": null
+      }
+    ],
+    "highlights": [
+      {
+        "highlightId": "cmth425q300mj21unizwbxgmi",
+        "matchedUnitIds": [
+          "solo.brief-to-code-skeleton-cli",
+          "solo.standalone-code-review"
+        ],
+        "salience": "low_value",
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth429e500mu21unjjzevvwb",
+        "matchedUnitIds": [
+          "solo.generation-provider-layer",
+          "solo.progressive-code-context"
+        ],
+        "salience": "supporting_insight",
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth42cz900nd21unv17fmomx",
+        "matchedUnitIds": [
+          "solo.email-intake-threading",
+          "solo.conversation-metadata-inference",
+          "solo.requirements-versioning",
+          "solo.phase-aware-email-drafting",
+          "solo.conversation-phase-transitions",
+          "solo.reply-review-modes",
+          "solo.reply-review-revise-loop",
+          "solo.proposal-pdf-lifecycle",
+          "solo.visual-proposal-revision",
+          "solo.document-rendering-service"
+        ],
+        "salience": "low_value",
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth42gml00np21undgxwh31s",
+        "matchedUnitIds": [
+          "solo.standalone-code-review"
+        ],
+        "salience": "supporting_insight",
+        "semanticDuplicateOf": null
+      }
+    ],
+    "questions": [
+      {
+        "question": "Do changed requirements or approved proposals actually reach planning, IDE export, or deployment, and what does the independent brief-to-code path generate and use as repository context?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "solo.requirements-change-sqs-producer",
+          "solo.brief-to-code-skeleton-cli",
+          "solo.progressive-code-context",
+          "solo.client-deployment-prototype",
+          "solo.proposal-to-plan-export"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": false,
+        "contradictsAudit": true
+      },
+      {
+        "question": "How are proposal PDFs generated, stored, selected, attached, and visually revised, and how strong are their versioning and duplicate-suppression guarantees?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "solo.proposal-pdf-lifecycle",
+          "solo.visual-proposal-revision",
+          "solo.document-rendering-service"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "How do phase-aware drafting, manual versus auto reply modes, phase transitions, one-pass review and revision, and SES delivery failure timing interact?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "solo.phase-aware-email-drafting",
+          "solo.conversation-phase-transitions",
+          "solo.reply-review-modes",
+          "solo.reply-review-revise-loop",
+          "solo.reply-delivery-atomicity"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "How does a batched SES or S3 event become a threaded conversation, what related data expires or survives deletion, and what retry-idempotency guarantees exist?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "solo.email-intake-threading",
+          "solo.conversation-retention-delete",
+          "solo.email-intake-retry-idempotency"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "What authentication and tenant boundary protects the management API, and which frontend and Lambda capabilities are actually represented by the checked-in API Gateway contract?",
+        "answerability": "none",
+        "supportingUnitIds": [],
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "What does the document-rendering service implement, how is it used by proposals, and how complete or connected is its Stripe invoice path?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "solo.document-rendering-service",
+          "solo.stripe-invoice-integration",
+          "solo.proposal-pdf-lifecycle"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "What exactly can the wireframe subsystem generate, edit, version, export, and share, including its screen limit and the different history semantics of direct and vision edits?",
+        "answerability": "none",
+        "supportingUnitIds": [],
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Which model-provider paths and error, usage, and cost behaviors are truly implemented, and what languages and outputs does the standalone reviewer actually cover?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "solo.generation-provider-layer",
+          "solo.standalone-code-review"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Which project facts are inferred from conversation content, where does conversation phase come from, and which requirement mutation paths use optimistic versioning?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "solo.conversation-metadata-inference",
+          "solo.requirements-versioning",
+          "solo.visual-requirements-optimistic-versioning"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Which simulation, deployment, marketing, CodeWhisperer, and reply-inspection utilities are real, simulated, disconnected, partial, or placeholders?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "solo.client-simulation-harness",
+          "solo.marketing-announcement-utility",
+          "solo.client-deployment-prototype",
+          "solo.codewhisperer-real-integration",
+          "solo.reply-prompt-and-attachment-retrieval"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      }
+    ]
+  },
+  "outcome": {
+    "weightedKnowledgeRecall": 0.256098,
+    "majorKnowledgeRecall": 0.265625,
+    "supportingKnowledgeRecall": 0.222222,
+    "mustHighlightRecall": 0.275,
+    "weightedHighlightRecall": 0.266667,
+    "matchedUnitGrounding": 1,
+    "stateCorrectness": 0.941176,
+    "qualifierPreservation": 0,
+    "constraintRecall": 0,
+    "constraintCorrectness": 0,
+    "contradictionRate": 0.032258,
+    "fullMajorUnitIds": [],
+    "missedMajorUnitIds": [
+      "solo.email-intake-threading",
+      "solo.conversation-retention-delete",
+      "solo.conversation-metadata-inference",
+      "solo.requirements-versioning",
+      "solo.phase-aware-email-drafting",
+      "solo.conversation-phase-transitions",
+      "solo.reply-review-modes",
+      "solo.reply-review-revise-loop",
+      "solo.proposal-pdf-lifecycle",
+      "solo.visual-proposal-revision",
+      "solo.wireframe-generation",
+      "solo.wireframe-edit-version-semantics",
+      "solo.wireframe-export-share",
+      "solo.api-access-model",
+      "solo.api-route-deployment-contract",
+      "solo.brief-to-code-skeleton-cli"
+    ],
+    "questionAnswerability": 0.275,
+    "fullyAnswerableQuestionRate": 0,
+    "highlightSalience": 0.25,
+    "majorHighlightAllocationRate": 0,
+    "duplicateHighlightRate": 0
+  }
+}

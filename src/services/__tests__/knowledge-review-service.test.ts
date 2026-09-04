@@ -93,6 +93,17 @@ describe("knowledge review lifecycle integrity", () => {
       status: "approved",
       sensitivityFlag: false,
       reviewNotes: null,
+      metadata: {
+        schemaVersion: "repository-knowledge-metadata-v1",
+        managedBy: "repository_knowledge_sync",
+        refreshRunId: "refresh-old",
+        subsystemKey: "ai_runtime",
+        synthesisKey: "ai_runtime#operation-call",
+        knowledgeRoles: ["implementation"],
+        implementationStates: ["partial"],
+        operationKeys: ["runtime.call"],
+        operationFacets: ["boundary"],
+      },
       subsystemKey: "ai_runtime",
       productImportance: 5,
       implementationBreadth: 4,
@@ -140,6 +151,7 @@ describe("knowledge review lifecycle integrity", () => {
         lifecycleStatus: "needs_validation",
         validatedThroughSha: null,
         lastValidatedAt: null,
+        metadata: projectFact.metadata,
       }),
     });
     expect(upsertProjectFactEmbeddingMock).toHaveBeenCalledWith({

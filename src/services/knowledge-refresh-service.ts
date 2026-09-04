@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import { z } from "zod";
+import { BedrockConverseProviderError } from "@/src/lib/bedrock-converse-agent";
 import {
   resolveActiveTextModelIdentity,
   resolveWorkbaseLlmProvider,
@@ -32,12 +33,32 @@ import {
   resolveRepositorySemanticPlannerMode,
 } from "@/src/services/repository-semantic-orchestrator-service";
 import {
+  REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
+  repositoryKnowledgeInvestigatorService,
+} from "@/src/services/repository-knowledge-investigator-service";
+import {
   isNewerKnowledgeRefreshGeneration,
   KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
   lockKnowledgeRefreshWorkItem,
 } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v76-bounded-verifier-failover";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION =
+  "repository-synthesis-v77-operation-state-source-audit";
+export type RepositoryInvestigationMode = "agentic" | "orchestrated";
+
+export function resolveRepositoryInvestigationMode(): RepositoryInvestigationMode {
+  const configured = process.env.WORKBASE_REPOSITORY_INVESTIGATION_MODE;
+  const mode = configured ?? (
+    resolveWorkbaseLlmProvider() === "mock" ? "orchestrated" : "agentic"
+  );
+  if (mode !== "agentic" && mode !== "orchestrated") {
+    throw new Error(
+      `WORKBASE_REPOSITORY_INVESTIGATION_MODE must be "agentic" or "orchestrated"; received ${JSON.stringify(mode)}.`,
+    );
+  }
+  return mode;
+}
+
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 const ACTIVE_KNOWLEDGE_REFRESH_STATUSES = [
   "queued",
@@ -78,6 +99,8 @@ function currentKnowledgeRefreshPolicyMetadata() {
     semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
     coveragePolicyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
     orchestrationPolicyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+    repositoryInvestigatorVersion: REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
+    repositoryInvestigationMode: resolveRepositoryInvestigationMode(),
     synthesisPolicyVersion: REPOSITORY_SYNTHESIS_POLICY_VERSION,
     lifecyclePolicyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
   };
@@ -117,6 +140,7 @@ function assertKnowledgeRefreshCanExecute(runId: string, status: string) {
 function requiresModelSemanticMainPath() {
   if (resolveWorkbaseLlmProvider() === "mock") return false;
   try {
+    if (resolveRepositoryInvestigationMode() === "agentic") return true;
     return resolveRepositorySemanticPlannerMode() === "model";
   } catch {
     // Invalid configuration must not opt a real provider into the degraded
@@ -128,6 +152,124 @@ function requiresModelSemanticMainPath() {
 
 function record(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+type KnowledgeCoverageRepairResult = {
+  repaired: number;
+  remainingGaps: string[];
+};
+
+const activeRepositoryInvestigations = new Map<
+  string,
+  Promise<KnowledgeCoverageRepairResult>
+>();
+const REPOSITORY_INVESTIGATION_JOIN_TIMEOUT_MS = 15 * 60 * 1_000;
+const REPOSITORY_INVESTIGATION_JOIN_POLL_MS = 1_000;
+
+function persistedRepositoryInvestigationResult(orchestrationValue: unknown) {
+  const orchestration = record(orchestrationValue);
+  const remainingGaps = Array.isArray(orchestration.remainingGaps)
+    ? orchestration.remainingGaps.filter(
+        (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+      )
+    : [];
+  return { repaired: 0, remainingGaps };
+}
+
+function retryableRepositoryInvestigationProviderError(error: unknown) {
+  return error instanceof BedrockConverseProviderError && error.retryable === true;
+}
+
+function interruptedRepositoryInvestigation(orchestrationValue: unknown) {
+  const orchestration = record(orchestrationValue);
+  return orchestration.terminalFailure !== undefined;
+}
+
+function resumedRepositoryInvestigationOrchestration(orchestrationValue: unknown) {
+  const orchestration = { ...record(orchestrationValue) };
+  delete orchestration.terminalFailure;
+  return orchestration;
+}
+
+async function terminallyCloseActiveRefreshAgentRuns(input: {
+  runId: string;
+  status: "failed" | "cancelled";
+  finishedAt: Date;
+  error?: Prisma.InputJsonValue;
+}) {
+  return prisma.agentRun.updateMany({
+    where: {
+      knowledgeRefreshRunId: input.runId,
+      status: { in: ["queued", "running", "awaiting_review"] },
+    },
+    data: input.status === "failed"
+      ? {
+          status: "failed",
+          error: input.error ?? toInputJson({ message: "Repository refresh failed." }),
+          finishedAt: input.finishedAt,
+        }
+      : {
+          status: "cancelled",
+          finishedAt: input.finishedAt,
+        },
+  });
+}
+
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForActiveRepositoryInvestigation(input: {
+  runId: string;
+  claimedAt: Date;
+}): Promise<
+  | { state: "completed"; result: KnowledgeCoverageRepairResult }
+  | { state: "stale"; claimedAt: Date }
+> {
+  let claimedAt = input.claimedAt;
+  while (true) {
+    const remainingLeaseMs = REPOSITORY_INVESTIGATION_JOIN_TIMEOUT_MS -
+      (Date.now() - claimedAt.getTime());
+    if (remainingLeaseMs <= 0) {
+      return { state: "stale", claimedAt };
+    }
+    const current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+      where: { id: input.runId },
+      select: { status: true, orchestration: true, updatedAt: true },
+    });
+    if (["auditing", "reconciling", "completed"].includes(current.status)) {
+      return {
+        state: "completed",
+        result: persistedRepositoryInvestigationResult(current.orchestration),
+      };
+    }
+    if (current.status === "failed" || current.status === "cancelled") {
+      await terminallyCloseActiveRefreshAgentRuns({
+        runId: input.runId,
+        status: current.status,
+        finishedAt: new Date(),
+        ...(current.status === "failed"
+          ? { error: toInputJson({ message: "Repository investigation failed." }) }
+          : {}),
+      });
+      assertKnowledgeRefreshCanExecute(input.runId, current.status);
+    }
+    if (current.status !== "semantic_analysis") {
+      throw new Error(
+        `Repository refresh ${input.runId} left semantic investigation in unexpected status ${current.status}.`,
+      );
+    }
+    if (current.updatedAt.getTime() > claimedAt.getTime()) {
+      claimedAt = current.updatedAt;
+    }
+    const currentRemainingLeaseMs = REPOSITORY_INVESTIGATION_JOIN_TIMEOUT_MS -
+      (Date.now() - claimedAt.getTime());
+    if (currentRemainingLeaseMs <= 0) continue;
+    await delay(Math.max(
+      0,
+      Math.min(REPOSITORY_INVESTIGATION_JOIN_POLL_MS, currentRemainingLeaseMs),
+    ));
+  }
 }
 
 function coverageRecords(value: unknown) {
@@ -314,6 +456,8 @@ function currentKnowledgeRefreshPolicyMatches(warningsValue: unknown) {
     warnings.semanticAnalyzerVersion === policy.semanticAnalyzerVersion &&
     warnings.coveragePolicyVersion === policy.coveragePolicyVersion &&
     warnings.orchestrationPolicyVersion === policy.orchestrationPolicyVersion &&
+    warnings.repositoryInvestigatorVersion === policy.repositoryInvestigatorVersion &&
+    warnings.repositoryInvestigationMode === policy.repositoryInvestigationMode &&
     warnings.synthesisPolicyVersion === policy.synthesisPolicyVersion &&
     warnings.lifecyclePolicyVersion === policy.lifecyclePolicyVersion;
 }
@@ -1045,14 +1189,109 @@ export async function analyzeKnowledgeRefreshChunk(input: {
   };
 }
 
-export async function repairKnowledgeCoverageGaps(runId: string) {
-  const current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+async function claimAgenticRepositoryInvestigation(runId: string) {
+  let current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
     where: { id: runId },
-    select: { status: true },
+    select: { status: true, orchestration: true, progress: true, updatedAt: true },
   });
-  assertKnowledgeRefreshCanExecute(runId, current.status);
+  while (true) {
+    assertKnowledgeRefreshCanExecute(runId, current.status);
+    if (["auditing", "reconciling", "completed"].includes(current.status)) {
+      return {
+        owner: false as const,
+        result: persistedRepositoryInvestigationResult(current.orchestration),
+      };
+    }
+    if (current.status === "semantic_analysis") {
+      const interrupted = interruptedRepositoryInvestigation(current.orchestration);
+      const joined = interrupted
+        ? { state: "stale" as const, claimedAt: current.updatedAt }
+        : await waitForActiveRepositoryInvestigation({
+            runId,
+            claimedAt: current.updatedAt,
+          });
+      if (joined.state === "completed") {
+        return { owner: false as const, result: joined.result };
+      }
+
+      // A workflow attempt can disappear after persisting an investigator
+      // checkpoint but before advancing the refresh. Refresh the stale lease
+      // with an exact compare-and-set so precisely one redelivery becomes the
+      // new owner and can enter the investigator's checkpoint replay path.
+      const reclaimedAt = new Date(Math.max(
+        Date.now(),
+        joined.claimedAt.getTime() + 1,
+      ));
+      const reclaimed = await prisma.knowledgeRefreshRun.updateMany({
+        where: {
+          id: runId,
+          status: "semantic_analysis",
+          updatedAt: joined.claimedAt,
+        },
+        data: {
+          status: "semantic_analysis",
+          updatedAt: reclaimedAt,
+          ...(interrupted
+            ? {
+                orchestration: toInputJson(
+                  resumedRepositoryInvestigationOrchestration(current.orchestration),
+                ),
+              }
+            : {}),
+        },
+      });
+      if (reclaimed.count === 1) {
+        return { owner: true as const, result: null };
+      }
+    } else {
+      const progress = record(current.progress);
+      if (current.status !== "analyzing" || progress.remainingFiles !== 0) {
+        throw new Error(
+          `Repository refresh ${runId} cannot begin semantic investigation until static analysis is complete.`,
+        );
+      }
+      const claimed = await prisma.knowledgeRefreshRun.updateMany({
+        where: { id: runId, status: "analyzing" },
+        data: { status: "semantic_analysis" },
+      });
+      if (claimed.count === 1) {
+        return { owner: true as const, result: null };
+      }
+    }
+
+    // Another owner won either the initial claim or stale-lease takeover.
+    // Re-read its durable state and join it rather than dispatching duplicate
+    // repository/model work.
+    current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: {
+        status: true,
+        orchestration: true,
+        progress: true,
+        updatedAt: true,
+      },
+    });
+  }
+}
+
+async function executeKnowledgeCoverageRepair(
+  runId: string,
+  mode: RepositoryInvestigationMode,
+): Promise<KnowledgeCoverageRepairResult> {
   try {
-    const result = await repositorySemanticOrchestratorService.orchestrate(runId);
+    let result: KnowledgeCoverageRepairResult;
+    if (mode === "agentic") {
+      const claim = await claimAgenticRepositoryInvestigation(runId);
+      if (!claim.owner) return claim.result;
+      result = await repositoryKnowledgeInvestigatorService.investigate(runId);
+    } else {
+      const current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+        where: { id: runId },
+        select: { status: true },
+      });
+      assertKnowledgeRefreshCanExecute(runId, current.status);
+      result = await repositorySemanticOrchestratorService.orchestrate(runId);
+    }
     const after = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
       where: { id: runId },
       select: { status: true },
@@ -1064,14 +1303,44 @@ export async function repairKnowledgeCoverageGaps(runId: string) {
       where: { id: runId },
       select: { status: true, orchestration: true, warnings: true },
     });
+    if (after.status === "failed" || after.status === "cancelled") {
+      await terminallyCloseActiveRefreshAgentRuns({
+        runId,
+        status: after.status,
+        finishedAt: new Date(),
+        ...(after.status === "failed"
+          ? {
+              error: toInputJson({
+                message: error instanceof Error
+                  ? error.message
+                  : "Repository investigation failed.",
+              }),
+            }
+          : {}),
+      });
+    }
     assertKnowledgeRefreshCanExecute(runId, after.status);
+    if (["auditing", "reconciling", "completed"].includes(after.status)) {
+      return persistedRepositoryInvestigationResult(after.orchestration);
+    }
+    if (
+      mode === "agentic" &&
+      after.status === "semantic_analysis" &&
+      retryableRepositoryInvestigationProviderError(error)
+    ) {
+      // The investigator has already persisted its terminal checkpoint while
+      // leaving the refresh in semantic_analysis. Propagate the provider error
+      // to the durable workflow without terminalizing the refresh; redelivery
+      // atomically clears that interruption marker and replays the checkpoint.
+      throw error;
+    }
     if (requiresModelSemanticMainPath()) {
       await failKnowledgeRefresh(runId, error);
       throw error;
     }
-    const gap = `Repository-derived semantic orchestration failed closed: ${error instanceof Error ? error.message.slice(0, 300) : "unknown orchestration failure"}.`;
-    await prisma.knowledgeRefreshRun.update({
-      where: { id: runId },
+    const gap = `Repository-derived semantic investigation failed closed: ${error instanceof Error ? error.message.slice(0, 300) : "unknown investigation failure"}.`;
+    const recorded = await prisma.knowledgeRefreshRun.updateMany({
+      where: { id: runId, status: after.status },
       data: {
         status: "auditing",
         orchestration: toInputJson({
@@ -1085,11 +1354,44 @@ export async function repairKnowledgeCoverageGaps(runId: string) {
         }),
       },
     });
+    if (recorded.count !== 1) {
+      const lostFence = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+        where: { id: runId },
+        select: { status: true },
+      });
+      assertKnowledgeRefreshCanExecute(runId, lostFence.status);
+      throw new Error(
+        `Repository refresh ${runId} lost its investigation generation fence before failure diagnostics could be recorded.`,
+      );
+    }
     return {
       repaired: 0,
       remainingGaps: [gap],
     };
   }
+}
+
+export function repairKnowledgeCoverageGaps(runId: string) {
+  let mode: RepositoryInvestigationMode;
+  try {
+    mode = resolveRepositoryInvestigationMode();
+  } catch (error) {
+    return (async () => {
+      await failKnowledgeRefresh(runId, error);
+      throw error;
+    })();
+  }
+  if (mode !== "agentic") return executeKnowledgeCoverageRepair(runId, mode);
+
+  const active = activeRepositoryInvestigations.get(runId);
+  if (active) return active;
+  const shared = executeKnowledgeCoverageRepair(runId, mode).finally(() => {
+    if (activeRepositoryInvestigations.get(runId) === shared) {
+      activeRepositoryInvestigations.delete(runId);
+    }
+  });
+  activeRepositoryInvestigations.set(runId, shared);
+  return shared;
 }
 
 export async function finalizeKnowledgeCoverage(runId: string) {
@@ -1529,7 +1831,11 @@ export async function completeKnowledgeRefresh(
 }
 
 export async function failKnowledgeRefresh(runId: string, error: unknown) {
-  await prisma.knowledgeRefreshRun.updateMany({
+  const finishedAt = new Date();
+  const failure = toInputJson({
+    message: error instanceof Error ? error.message : "Unknown repository refresh error.",
+  });
+  const failed = await prisma.knowledgeRefreshRun.updateMany({
     where: {
       id: runId,
       status: { in: [...ACTIVE_KNOWLEDGE_REFRESH_STATUSES] },
@@ -1537,11 +1843,32 @@ export async function failKnowledgeRefresh(runId: string, error: unknown) {
     data: {
       status: "failed",
       qualityStatus: "failed",
-      finishedAt: new Date(),
-      error: toInputJson({ message: error instanceof Error ? error.message : "Unknown repository refresh error." }),
+      finishedAt,
+      error: failure,
     },
   });
-  return prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: runId } });
+  const current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: runId } });
+  const agentTerminalStatus = failed.count || current.status === "failed"
+    ? "failed"
+    : current.status === "cancelled"
+      ? "cancelled"
+      : null;
+  if (agentTerminalStatus) {
+    const persistedFailure = record(current.error);
+    await terminallyCloseActiveRefreshAgentRuns({
+      runId,
+      status: agentTerminalStatus,
+      finishedAt,
+      ...(agentTerminalStatus === "failed"
+        ? {
+            error: !failed.count && Object.keys(persistedFailure).length
+              ? toInputJson(persistedFailure)
+              : failure,
+          }
+        : {}),
+    });
+  }
+  return current;
 }
 
 export const knowledgeRefreshService = {

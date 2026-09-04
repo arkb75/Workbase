@@ -1470,6 +1470,121 @@ export class OpenRouterConverseTransport implements BedrockConverseTransport {
   }
 }
 
+/**
+ * Retry one unbilled transient tool-agent failure on the same model before an
+ * explicitly configured cross-model fallback gets a chance to run.
+ */
+export class RetryableSameModelConverseTransport
+  implements BedrockConverseTransport
+{
+  constructor(
+    private readonly transport: BedrockConverseTransport,
+    private readonly config: OpenRouterTextConfig,
+    private readonly modelId = config.modelId,
+  ) {}
+
+  async converse(
+    input: ConverseCommandInput,
+    options?: { signal?: AbortSignal },
+  ): Promise<BedrockConverseTransportResponse> {
+    const attemptLimit = 2;
+    const failedAttempts: JsonValue[] = [];
+    const observedTokenUsage: JsonValue[] = [];
+    let unknownUsageAttempts = 0;
+    let providerAttemptCount = 0;
+
+    while (providerAttemptCount < attemptLimit) {
+      try {
+        const response = await this.transport.converse(input, options);
+        if (!providerAttemptCount) return response;
+        const responseAttemptCount = providerAttemptCountInTokenUsage(
+          response.usage,
+        );
+        return {
+          ...response,
+          usage: {
+            attempts: [
+              ...observedTokenUsage,
+              ...(response.usage == null
+                ? []
+                : [response.usage as unknown as JsonValue]),
+            ],
+            failedAttempts,
+            unknownUsageAttempts:
+              unknownUsageAttempts + (response.usage == null ? 1 : 0),
+            providerAttemptCount:
+              providerAttemptCount + responseAttemptCount,
+          } as unknown as TokenUsage,
+        };
+      } catch (error) {
+        if (options?.signal?.aborted) throw error;
+        if (!(error instanceof OpenRouterRequestError)) throw error;
+
+        providerAttemptCount += error.providerAttemptCount;
+        unknownUsageAttempts += error.unknownUsageAttempts;
+        if (error.tokenUsage != null) observedTokenUsage.push(error.tokenUsage);
+        failedAttempts.push(
+          ...error.failedAttempts,
+          openRouterFailureAttempt(error, this.modelId),
+        );
+
+        if (
+          !sameModelRetryEligible(error) ||
+          providerAttemptCount >= attemptLimit
+        ) {
+          if (providerAttemptCount === error.providerAttemptCount) throw error;
+          throw new OpenRouterRequestError(
+            error.message,
+            error.status,
+            error.retryable,
+            error.requestId,
+            {
+              cause: error,
+              failedAttempts,
+              unknownUsageAttempts,
+              providerAttemptCount,
+              code: error.code,
+              errorType: error.errorType,
+              retryAfter: error.retryAfter,
+              partialContent: error.partialContent,
+              tokenUsage: {
+                attempts: observedTokenUsage,
+                failedAttempts,
+                unknownUsageAttempts,
+                providerAttemptCount,
+              },
+            },
+          );
+        }
+
+        installOpenRouterCooldown({
+          config: this.config,
+          modelId: this.modelId,
+          retryAfter: error.retryAfter,
+        });
+      }
+    }
+
+    throw new OpenRouterRequestError(
+      "OpenRouter exhausted the bounded same-model tool-agent retry attempts.",
+      null,
+      false,
+      null,
+      {
+        failedAttempts,
+        unknownUsageAttempts,
+        providerAttemptCount,
+        tokenUsage: {
+          attempts: observedTokenUsage,
+          failedAttempts,
+          unknownUsageAttempts,
+          providerAttemptCount,
+        },
+      },
+    );
+  }
+}
+
 export class RetryableFallbackConverseTransport
   implements BedrockConverseTransport
 {

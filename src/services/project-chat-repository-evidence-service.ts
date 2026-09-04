@@ -4,6 +4,8 @@ export const PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION =
   "project-chat-repository-evidence-v2";
 export const LEGACY_PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION =
   "project-chat-repository-evidence-v1";
+export const PROJECT_REPOSITORY_REDACTION_POLICY_VERSION =
+  "repository-evidence-redaction-v1";
 export type ProjectRepositoryEvidenceVersion =
   | typeof PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION
   | typeof LEGACY_PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION;
@@ -17,6 +19,7 @@ export type ProjectRepositoryEvidenceTarget =
       kind: "blob" | "blame";
       commitSha: string;
       path: string;
+      blobSha?: string;
       startLine?: number;
       endLine?: number;
     }
@@ -93,10 +96,14 @@ export function readProjectRepositoryEvidenceTarget(
     const endLine = typeof target.endLine === "number" && Number.isInteger(target.endLine) && target.endLine >= (startLine ?? 1)
       ? target.endLine
       : undefined;
+    const blobSha = typeof target.blobSha === "string" && objectIdPattern.test(target.blobSha)
+      ? target.blobSha
+      : undefined;
     return {
       kind: target.kind,
       commitSha: target.commitSha,
       path: target.path,
+      ...(blobSha ? { blobSha } : {}),
       ...(startLine ? { startLine } : {}),
       ...(endLine ? { endLine } : {}),
     };
@@ -106,6 +113,7 @@ export function readProjectRepositoryEvidenceTarget(
 
 export interface ProjectRepositoryRawEvidence {
   version: ProjectRepositoryEvidenceVersion;
+  redactionPolicyVersion: string;
   evidenceId: string;
   sourceId: string;
   repository: string;
@@ -117,10 +125,12 @@ export interface ProjectRepositoryRawEvidence {
   outputHash: string;
   totalBytes: number;
   totalLines: number;
+  exitCode?: number;
 }
 
 export interface ProjectRepositoryEvidenceSegment {
   version: ProjectRepositoryEvidenceVersion;
+  redactionPolicyVersion: string;
   evidenceId: string;
   segmentId: string;
   sourceId: string;
@@ -230,6 +240,7 @@ function buildSegment(input: {
   const endLine = Math.min(input.endIndex + 1, startLine + excerptLineCount - 1);
   return {
     version: input.evidence.version,
+    redactionPolicyVersion: input.evidence.redactionPolicyVersion,
     evidenceId: input.evidence.evidenceId,
     segmentId: segmentId(input.evidence.evidenceId, startLine, endLine, excerpt),
     sourceId: input.evidence.sourceId,
@@ -260,12 +271,16 @@ export function createProjectRepositoryRawEvidence(input: {
   output: string;
   target?: ProjectRepositoryEvidenceTarget | null;
   version?: ProjectRepositoryEvidenceVersion;
+  redactionPolicyVersion?: string;
+  exitCode?: number;
 }): ProjectRepositoryRawEvidence {
   const version = input.version ?? PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION;
   const output = normalizeOutput(input.output);
+  const redactionPolicyVersion = input.redactionPolicyVersion ?? "none";
   const outputHash = createHash("sha256").update(output).digest("hex");
   const evidenceId = createHash("sha256")
     .update(version)
+    .update(redactionPolicyVersion)
     .update(input.sourceId)
     .update(input.commitSha)
     .update(JSON.stringify(input.args))
@@ -275,6 +290,7 @@ export function createProjectRepositoryRawEvidence(input: {
     .slice(0, 32);
   return {
     version,
+    redactionPolicyVersion,
     evidenceId,
     sourceId: input.sourceId,
     repository: input.repository,
@@ -286,6 +302,11 @@ export function createProjectRepositoryRawEvidence(input: {
     outputHash,
     totalBytes: Buffer.byteLength(output, "utf8"),
     totalLines: output ? output.split("\n").length : 0,
+    ...(typeof input.exitCode === "number" &&
+        Number.isSafeInteger(input.exitCode) &&
+        input.exitCode >= 0
+      ? { exitCode: input.exitCode }
+      : {}),
   };
 }
 

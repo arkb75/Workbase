@@ -60,17 +60,18 @@ Every OpenRouter request requires zero-data-retention routing and provider
 support for all supplied parameters. `WORKBASE_LLM_PROVIDER=bedrock` plus the
 retained `WORKBASE_BEDROCK_*` values provides the migration rollback switch.
 
-Production and representative cold-import runs exercise both configured model
-paths: `routing` for semantic work-package planning and `deep_synthesis` for
-repository knowledge synthesis:
+Production and representative cold-import runs use bounded source investigation
+followed by deep repository knowledge synthesis. The previous fixed-funnel
+orchestrator remains available only for paired comparison:
 
 ```bash
+WORKBASE_REPOSITORY_INVESTIGATION_MODE=agentic
 WORKBASE_REPOSITORY_SYNTHESIS_MODE=model
 WORKBASE_SEMANTIC_PLANNER_MODE=model
 ```
 
-The deterministic planner and synthesis modes are available only as explicit
-debug/degraded alternatives. Neither can pass the representative live gate.
+`WORKBASE_REPOSITORY_INVESTIGATION_MODE=orchestrated` selects the historical
+comparison path. It is not used as a fallback if agentic investigation fails.
 
 For proactive production refreshes, also set:
 

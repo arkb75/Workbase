@@ -3,6 +3,7 @@ import {
   REPOSITORY_COVERAGE_POLICY_VERSION,
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
+import { BedrockConverseProviderError } from "@/src/lib/bedrock-converse-agent";
 
 const prismaMock = vi.hoisted(() => ({
   knowledgeRefreshRun: {
@@ -11,7 +12,7 @@ const prismaMock = vi.hoisted(() => ({
     update: vi.fn(),
     updateMany: vi.fn(),
   },
-  agentRun: { findMany: vi.fn(), findUnique: vi.fn() },
+  agentRun: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
   repositoryCapabilityLedger: { upsert: vi.fn() },
   repositorySnapshot: { update: vi.fn() },
 }));
@@ -30,6 +31,7 @@ vi.mock("@/src/lib/llm-config", () => ({
 import {
   claimInlineKnowledgeRefreshExecution,
   completeKnowledgeRefresh,
+  failKnowledgeRefresh,
   finalizeKnowledgeCoverage,
   isReusableDegradedChatRefresh,
   isReusableKnowledgeRefresh,
@@ -40,6 +42,7 @@ import {
   REPOSITORY_SYNTHESIS_POLICY_VERSION,
   releaseInlineKnowledgeRefreshExecution,
   repairKnowledgeCoverageGaps,
+  resolveRepositoryInvestigationMode,
   repositoryReadExclusionReason,
   repositoryCapabilityPriority,
   repositoryOrchestrationCoverageGaps,
@@ -48,6 +51,10 @@ import {
   REPOSITORY_ORCHESTRATION_POLICY_VERSION,
   repositorySemanticOrchestratorService,
 } from "@/src/services/repository-semantic-orchestrator-service";
+import {
+  REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
+  repositoryKnowledgeInvestigatorService,
+} from "@/src/services/repository-knowledge-investigator-service";
 import {
   REPOSITORY_INVENTORY_POLICY_VERSION,
   REPOSITORY_SEMANTIC_ANALYZER_VERSION,
@@ -221,6 +228,7 @@ describe("latest-commit freshness barrier", () => {
     vi.clearAllMocks();
     llmProviderMock.mockReturnValue("mock");
     prismaMock.agentRun.findMany.mockResolvedValue([]);
+    prismaMock.agentRun.updateMany.mockResolvedValue({ count: 0 });
     prismaMock.repositoryCapabilityLedger.upsert.mockResolvedValue({});
     prismaMock.repositorySnapshot.update.mockResolvedValue({});
     prismaMock.knowledgeRefreshRun.update.mockResolvedValue({});
@@ -229,6 +237,18 @@ describe("latest-commit freshness barrier", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("uses agentic investigation for real providers and keeps orchestration explicit", () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    expect(resolveRepositoryInvestigationMode()).toBe("agentic");
+    vi.stubEnv("WORKBASE_REPOSITORY_INVESTIGATION_MODE", "orchestrated");
+    expect(resolveRepositoryInvestigationMode()).toBe("orchestrated");
+    vi.stubEnv("WORKBASE_REPOSITORY_INVESTIGATION_MODE", "agntic");
+    expect(() => resolveRepositoryInvestigationMode()).toThrow(
+      'WORKBASE_REPOSITORY_INVESTIGATION_MODE must be "agentic" or "orchestrated"',
+    );
   });
 
   it("keeps same-path analyses attached to their input repository by position", () => {
@@ -289,6 +309,8 @@ describe("latest-commit freshness barrier", () => {
       semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
       coveragePolicyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
       orchestrationPolicyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+      repositoryInvestigatorVersion: REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
+      repositoryInvestigationMode: "orchestrated",
       synthesisPolicyVersion: REPOSITORY_SYNTHESIS_POLICY_VERSION,
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
@@ -528,6 +550,8 @@ describe("latest-commit freshness barrier", () => {
       semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
       coveragePolicyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
       orchestrationPolicyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+      repositoryInvestigatorVersion: REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
+      repositoryInvestigationMode: "orchestrated",
       synthesisPolicyVersion: REPOSITORY_SYNTHESIS_POLICY_VERSION,
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
@@ -604,6 +628,7 @@ describe("latest-commit freshness barrier", () => {
 
   it("fails the refresh immediately when model semantic orchestration throws", async () => {
     llmProviderMock.mockReturnValue("bedrock");
+    vi.stubEnv("WORKBASE_REPOSITORY_INVESTIGATION_MODE", "orchestrated");
     vi.stubEnv("WORKBASE_SEMANTIC_PLANNER_MODE", "model");
     prismaMock.knowledgeRefreshRun.findUniqueOrThrow
       .mockResolvedValueOnce({ status: "semantic_analysis" })
@@ -624,8 +649,303 @@ describe("latest-commit freshness barrier", () => {
     expect(prismaMock.knowledgeRefreshRun.update).not.toHaveBeenCalled();
   });
 
+  it("routes a real-provider refresh through the agentic investigator without silent orchestration fallback", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        status: "analyzing",
+        orchestration: null,
+        progress: { remainingFiles: 0 },
+      })
+      .mockResolvedValueOnce({ status: "auditing" });
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 1 });
+    const agenticResult = { repaired: 12, remainingGaps: [] };
+    const investigate = vi.spyOn(repositoryKnowledgeInvestigatorService, "investigate")
+      .mockResolvedValueOnce(agenticResult);
+    const orchestrate = vi.spyOn(repositorySemanticOrchestratorService, "orchestrate");
+
+    await expect(repairKnowledgeCoverageGaps("refresh-1")).resolves.toEqual(agenticResult);
+
+    expect(investigate).toHaveBeenCalledWith("refresh-1");
+    expect(orchestrate).not.toHaveBeenCalled();
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledWith({
+      where: { id: "refresh-1", status: "analyzing" },
+      data: { status: "semantic_analysis" },
+    });
+  });
+
+  it("does not claim semantic investigation before static analysis reaches zero remaining files", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        status: "analyzing",
+        orchestration: null,
+        progress: { remainingFiles: 1 },
+      })
+      .mockResolvedValueOnce({ status: "analyzing", orchestration: null, warnings: null })
+      .mockResolvedValueOnce({ status: "failed" });
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 1 });
+    const investigate = vi.spyOn(repositoryKnowledgeInvestigatorService, "investigate");
+
+    await expect(repairKnowledgeCoverageGaps("refresh-incomplete")).rejects.toThrow(
+      "cannot begin semantic investigation until static analysis is complete",
+    );
+
+    expect(investigate).not.toHaveBeenCalled();
+    expect(prismaMock.knowledgeRefreshRun.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "semantic_analysis" } }),
+    );
+  });
+
+  it("joins duplicate in-process deliveries before spending on a second investigation", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        status: "analyzing",
+        orchestration: null,
+        progress: { remainingFiles: 0 },
+      })
+      .mockResolvedValueOnce({ status: "auditing" });
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 1 });
+    let finishInvestigation!: (result: { repaired: number; remainingGaps: string[] }) => void;
+    const pendingInvestigation = new Promise<{ repaired: number; remainingGaps: string[] }>(
+      (resolve) => { finishInvestigation = resolve; },
+    );
+    const investigate = vi.spyOn(repositoryKnowledgeInvestigatorService, "investigate")
+      .mockReturnValueOnce(pendingInvestigation);
+
+    const first = repairKnowledgeCoverageGaps("refresh-duplicate");
+    const second = repairKnowledgeCoverageGaps("refresh-duplicate");
+    finishInvestigation({ repaired: 9, remainingGaps: [] });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { repaired: 9, remainingGaps: [] },
+      { repaired: 9, remainingGaps: [] },
+    ]);
+    expect(investigate).toHaveBeenCalledOnce();
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledOnce();
+  });
+
+  it("joins a cross-process owner through durable status without triggering failure", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        status: "semantic_analysis",
+        orchestration: { executionMode: "agentic_investigator" },
+        updatedAt: new Date(),
+      })
+      .mockResolvedValueOnce({
+        status: "auditing",
+        orchestration: { remainingGaps: ["owner/repo: one bounded gap"] },
+      });
+    const investigate = vi.spyOn(repositoryKnowledgeInvestigatorService, "investigate");
+
+    await expect(repairKnowledgeCoverageGaps("refresh-owned")).resolves.toEqual({
+      repaired: 0,
+      remainingGaps: ["owner/repo: one bounded gap"],
+    });
+
+    expect(investigate).not.toHaveBeenCalled();
+    expect(prismaMock.knowledgeRefreshRun.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.agentRun.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("atomically reclaims a stale cross-process claim and re-enters checkpointed investigation", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    const staleClaimedAt = new Date(0);
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        status: "semantic_analysis",
+        orchestration: { executionMode: "agentic_investigator" },
+        progress: { remainingFiles: 0 },
+        updatedAt: staleClaimedAt,
+      })
+      .mockResolvedValueOnce({ status: "auditing" });
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 1 });
+    const replayedResult = { repaired: 7, remainingGaps: [] };
+    const investigate = vi.spyOn(repositoryKnowledgeInvestigatorService, "investigate")
+      .mockResolvedValueOnce(replayedResult);
+
+    await expect(repairKnowledgeCoverageGaps("refresh-stale")).resolves.toEqual(replayedResult);
+
+    expect(investigate).toHaveBeenCalledOnce();
+    expect(investigate).toHaveBeenCalledWith("refresh-stale");
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledOnce();
+    const reclaim = prismaMock.knowledgeRefreshRun.updateMany.mock.calls[0]![0];
+    expect(reclaim).toEqual({
+      where: {
+        id: "refresh-stale",
+        status: "semantic_analysis",
+        updatedAt: staleClaimedAt,
+      },
+      data: {
+        status: "semantic_analysis",
+        updatedAt: expect.any(Date),
+      },
+    });
+    expect((reclaim.data.updatedAt as Date).getTime()).toBeGreaterThan(
+      staleClaimedAt.getTime(),
+    );
+    expect(prismaMock.agentRun.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps a retryable provider interruption resumable and replays its checkpoint on redelivery", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    const interruptedAt = new Date();
+    const checkpointedOrchestration = {
+      executionMode: "agentic_investigator",
+      activeRepository: {
+        repository: "owner/repo",
+        checkpoint: { available: true, generationRunId: "generation-1" },
+      },
+      terminalFailure: {
+        stage: "verifier",
+        errorName: "BedrockConverseProviderError",
+      },
+    };
+    const retryableError = new BedrockConverseProviderError(
+      "OpenRouter request was rate limited.",
+      {
+        providerStatus: 429,
+        retryable: true,
+        cause: new Error("Too Many Requests"),
+      },
+    );
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        status: "analyzing",
+        orchestration: null,
+        progress: { remainingFiles: 0 },
+      })
+      .mockResolvedValueOnce({
+        status: "semantic_analysis",
+        orchestration: checkpointedOrchestration,
+        warnings: null,
+      })
+      .mockResolvedValueOnce({
+        status: "semantic_analysis",
+        orchestration: checkpointedOrchestration,
+        progress: { remainingFiles: 0 },
+        updatedAt: interruptedAt,
+      })
+      .mockResolvedValueOnce({ status: "auditing" });
+    prismaMock.knowledgeRefreshRun.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    const resumedResult = { repaired: 5, remainingGaps: [] };
+    const investigate = vi.spyOn(repositoryKnowledgeInvestigatorService, "investigate")
+      .mockRejectedValueOnce(retryableError)
+      .mockResolvedValueOnce(resumedResult);
+
+    await expect(repairKnowledgeCoverageGaps("refresh-retryable")).rejects.toBe(
+      retryableError,
+    );
+
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledOnce();
+    expect(prismaMock.knowledgeRefreshRun.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }),
+    );
+    expect(prismaMock.agentRun.updateMany).not.toHaveBeenCalled();
+
+    await expect(repairKnowledgeCoverageGaps("refresh-retryable")).resolves.toEqual(
+      resumedResult,
+    );
+
+    expect(investigate).toHaveBeenCalledTimes(2);
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledTimes(2);
+    const resumeClaim = prismaMock.knowledgeRefreshRun.updateMany.mock.calls[1]![0];
+    expect(resumeClaim).toEqual({
+      where: {
+        id: "refresh-retryable",
+        status: "semantic_analysis",
+        updatedAt: interruptedAt,
+      },
+      data: {
+        status: "semantic_analysis",
+        updatedAt: expect.any(Date),
+        orchestration: {
+          executionMode: "agentic_investigator",
+          activeRepository: checkpointedOrchestration.activeRepository,
+        },
+      },
+    });
+    expect(resumeClaim.data.orchestration).not.toHaveProperty("terminalFailure");
+    expect(prismaMock.agentRun.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("joins the winner when another delivery reclaims the same stale claim first", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    const staleClaimedAt = new Date(0);
+    const winnerClaimedAt = new Date();
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        status: "semantic_analysis",
+        orchestration: { executionMode: "agentic_investigator" },
+        progress: { remainingFiles: 0 },
+        updatedAt: staleClaimedAt,
+      })
+      .mockResolvedValueOnce({
+        status: "semantic_analysis",
+        orchestration: { executionMode: "agentic_investigator" },
+        progress: { remainingFiles: 0 },
+        updatedAt: winnerClaimedAt,
+      })
+      .mockResolvedValueOnce({
+        status: "auditing",
+        orchestration: { remainingGaps: ["owner/repo: bounded residual gap"] },
+        updatedAt: winnerClaimedAt,
+      });
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 0 });
+    const investigate = vi.spyOn(repositoryKnowledgeInvestigatorService, "investigate");
+
+    await expect(repairKnowledgeCoverageGaps("refresh-stale-race")).resolves.toEqual({
+      repaired: 0,
+      remainingGaps: ["owner/repo: bounded residual gap"],
+    });
+
+    expect(investigate).not.toHaveBeenCalled();
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledOnce();
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "refresh-stale-race",
+        status: "semantic_analysis",
+        updatedAt: staleClaimedAt,
+      },
+      data: {
+        status: "semantic_analysis",
+        updatedAt: expect.any(Date),
+      },
+    });
+    expect(prismaMock.agentRun.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not let an agentic result resume a refresh cancelled during investigation", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        status: "analyzing",
+        orchestration: null,
+        progress: { remainingFiles: 0 },
+      })
+      .mockResolvedValueOnce({ status: "cancelled" })
+      .mockResolvedValueOnce({ status: "cancelled", orchestration: null, warnings: null });
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 1 });
+    vi.spyOn(repositoryKnowledgeInvestigatorService, "investigate")
+      .mockResolvedValueOnce({ repaired: 8, remainingGaps: [] });
+
+    await expect(repairKnowledgeCoverageGaps("refresh-cancelled")).rejects.toThrow(
+      "Repository refresh refresh-cancelled is cancelled and cannot continue.",
+    );
+
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledOnce();
+    expect(prismaMock.agentRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "cancelled" }),
+    }));
+  });
+
   it("does not let an invalid planner-mode value escape the model-path failure barrier", async () => {
     llmProviderMock.mockReturnValue("bedrock");
+    vi.stubEnv("WORKBASE_REPOSITORY_INVESTIGATION_MODE", "orchestrated");
     vi.stubEnv("WORKBASE_SEMANTIC_PLANNER_MODE", "modle");
     prismaMock.knowledgeRefreshRun.findUniqueOrThrow
       .mockResolvedValueOnce({ status: "semantic_analysis" })
@@ -647,6 +967,105 @@ describe("latest-commit freshness barrier", () => {
       data: expect.objectContaining({ status: "failed", qualityStatus: "failed" }),
     }));
     expect(prismaMock.knowledgeRefreshRun.update).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a late cancellation while recording degraded investigation diagnostics", async () => {
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({ status: "inventorying" })
+      .mockResolvedValueOnce({ status: "semantic_analysis", orchestration: null, warnings: null })
+      .mockResolvedValueOnce({ status: "cancelled" });
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 0 });
+    vi.spyOn(repositorySemanticOrchestratorService, "orchestrate")
+      .mockRejectedValueOnce(new Error("diagnostic mode failed"));
+
+    await expect(repairKnowledgeCoverageGaps("refresh-cancelled")).rejects.toThrow(
+      "Repository refresh refresh-cancelled is cancelled and cannot continue.",
+    );
+
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "refresh-cancelled", status: "semantic_analysis" },
+        data: expect.objectContaining({ status: "auditing" }),
+      }),
+    );
+    expect(prismaMock.knowledgeRefreshRun.update).not.toHaveBeenCalled();
+  });
+
+  it("fails the refresh before terminally closing all active attached agent runs", async () => {
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 1 });
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValueOnce({
+      id: "refresh-failed",
+      status: "failed",
+      error: { message: "original persisted failure" },
+    });
+    prismaMock.agentRun.updateMany.mockResolvedValueOnce({ count: 3 });
+
+    await expect(failKnowledgeRefresh(
+      "refresh-failed",
+      new Error("investigator failed"),
+    )).resolves.toMatchObject({ status: "failed" });
+
+    expect(prismaMock.agentRun.updateMany).toHaveBeenCalledWith({
+      where: {
+        knowledgeRefreshRunId: "refresh-failed",
+        status: { in: ["queued", "running", "awaiting_review"] },
+      },
+      data: {
+        status: "failed",
+        error: { message: "investigator failed" },
+        finishedAt: expect.any(Date),
+      },
+    });
+    expect(
+      prismaMock.knowledgeRefreshRun.updateMany.mock.invocationCallOrder[0],
+    ).toBeLessThan(prismaMock.agentRun.updateMany.mock.invocationCallOrder[0]!);
+  });
+
+  it("preserves a cancellation that wins before refresh failure and cancels lingering agent runs", async () => {
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 0 });
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValueOnce({
+      id: "refresh-cancelled",
+      status: "cancelled",
+    });
+    prismaMock.agentRun.updateMany.mockResolvedValueOnce({ count: 2 });
+
+    await expect(failKnowledgeRefresh(
+      "refresh-cancelled",
+      new Error("late failure"),
+    )).resolves.toMatchObject({ status: "cancelled" });
+
+    expect(prismaMock.agentRun.updateMany).toHaveBeenCalledWith({
+      where: {
+        knowledgeRefreshRunId: "refresh-cancelled",
+        status: { in: ["queued", "running", "awaiting_review"] },
+      },
+      data: {
+        status: "cancelled",
+        finishedAt: expect.any(Date),
+      },
+    });
+  });
+
+  it("idempotently closes lingering active agent runs for an already-failed refresh", async () => {
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 0 });
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValueOnce({
+      id: "refresh-failed",
+      status: "failed",
+      error: { message: "original persisted failure" },
+    });
+    prismaMock.agentRun.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    await expect(failKnowledgeRefresh(
+      "refresh-failed",
+      new Error("original failure replayed"),
+    )).resolves.toMatchObject({ status: "failed" });
+
+    expect(prismaMock.agentRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "failed",
+        error: { message: "original persisted failure" },
+      }),
+    }));
   });
 
   it("propagates degraded semantic analysis into overall coverage and refresh quality", async () => {
@@ -816,6 +1235,7 @@ describe("latest-commit freshness barrier", () => {
 
   it("preserves explicitly selected deterministic planning as a degraded diagnostic mode", async () => {
     llmProviderMock.mockReturnValue("bedrock");
+    vi.stubEnv("WORKBASE_REPOSITORY_INVESTIGATION_MODE", "orchestrated");
     vi.stubEnv("WORKBASE_SEMANTIC_PLANNER_MODE", "deterministic");
     prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue(degradedSemanticRefreshRun());
 

@@ -6,6 +6,7 @@ import type {
   VisibilityLevel,
 } from "@/src/lib/options";
 import type { ProjectSubsystemKey } from "@/src/domain/project-subsystems";
+import type { RepositoryKnowledgeMetadata } from "@/src/domain/repository-knowledge";
 import type { ProjectRepositoryEvidenceTarget } from "@/src/services/project-chat-repository-evidence-service";
 
 export type ProjectKnowledgePurpose =
@@ -85,6 +86,8 @@ export interface ProjectKnowledgeHit {
   sensitivityFlag?: boolean;
   ownershipAuthority?: number;
   subsystemKey?: string | null;
+  /** Source-inspected repository semantics for durable facts and Highlights. */
+  repositoryKnowledge?: RepositoryKnowledgeMetadata | null;
   validatedThroughSha?: string | null;
   accomplishmentRanking?: {
     evidenceStrength: number;

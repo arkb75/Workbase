@@ -94,6 +94,41 @@ describe("structured generation audit usage", () => {
       });
   });
 
+  it("persists an opted-in replay attestation without depth truncation", async () => {
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-exact-attestation",
+      modelId,
+      tokenUsage: null,
+      resultRefs: null,
+      estimatedCostUsd: null,
+    });
+    const evidence = {
+      independentObservations: [{
+        kind: "boundary",
+        evidence: {
+          evidenceId: "evidence-1234567890",
+          lineStart: 10,
+          lineEnd: 20,
+        },
+      }],
+    };
+
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "coverage_audit",
+      idempotencyKey: "coverage:exact-attestation",
+      inputSummary: { phase: "verification" },
+      resultAttestation: () => ({ candidateDisclosure: evidence }),
+      preserveResultAttestationExactly: true,
+      execute: async () => structuredResult(null),
+    });
+
+    expect(
+      prismaMock.generationRun.update.mock.calls[0]![0].data.resultRefs
+        .resultAttestation.candidateDisclosure,
+    ).toEqual(evidence);
+  });
+
   it("fails closed when an exact projection exceeds its UTF-8 byte cap", async () => {
     prismaMock.generationRun.upsert.mockResolvedValue({
       id: "generation-oversized",
@@ -876,6 +911,10 @@ describe("structured generation audit usage", () => {
       profile: "verification",
       idempotencyKey: "public-artifact-verification:failure",
       inputSummary: { sourceCount: 1 },
+      failureResultAttestation: () => ({
+        sharedBudget: { used: { inspectionOperations: 7 } },
+      }),
+      preserveResultAttestationExactly: true,
       execute: async () => {
         throw failure;
       },
@@ -918,6 +957,9 @@ describe("structured generation audit usage", () => {
       }],
       requestIds: ["gen-failed"],
       message: "Structured generation provider request failed closed.",
+      resultAttestation: {
+        sharedBudget: { used: { inspectionOperations: 7 } },
+      },
     }));
   });
 

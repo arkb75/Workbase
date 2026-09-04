@@ -299,6 +299,10 @@ describe("monotonic repository staleness reconciliation", () => {
           reviewState: "pending_review",
           approvalSource: "automation",
           publicSafetyStatus: "not_eligible",
+          metadata: {
+            schemaVersion: "repository-knowledge-metadata-v1",
+            implementationStates: ["implemented"],
+          },
           validatedThroughSha: "head-old",
           validationHeads: { "source-1": "head-old" },
           lastValidatedAt: null,
@@ -365,7 +369,15 @@ describe("monotonic repository staleness reconciliation", () => {
     expect(mocks.factUpdateManyAndReturn).toHaveBeenCalledTimes(1);
     expect(mocks.factUpdateManyAndReturn).toHaveBeenCalledWith(expect.objectContaining({
       where: {
-        OR: [expect.objectContaining({ id: "fact-exact" })],
+        OR: [expect.objectContaining({
+          id: "fact-exact",
+          metadata: {
+            equals: {
+              schemaVersion: "repository-knowledge-metadata-v1",
+              implementationStates: ["implemented"],
+            },
+          },
+        })],
       },
       data: expect.objectContaining({ lifecycleStatus: "active", validatedThroughSha: "head-new" }),
     }));

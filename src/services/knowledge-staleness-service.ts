@@ -10,10 +10,12 @@ import {
   knowledgeSimilarity,
   recordContentAddressedRevalidations,
   recordChange,
+  repositoryKnowledgeIdentityRelation,
   STRONG_KNOWLEDGE_IDENTITY_THRESHOLD,
   KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
   withKnowledgeRefreshGenerationFence,
 } from "@/src/services/knowledge-reconciliation-service";
+import { parseRepositoryKnowledgeMetadata } from "@/src/domain/repository-knowledge";
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-sync-service";
 import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
@@ -39,6 +41,7 @@ type ProjectFactCasSnapshot = Pick<
   | "validatedThroughSha"
   | "lastValidatedAt"
   | "subsystemKey"
+  | "metadata"
   | "updatedAt"
 >;
 
@@ -99,6 +102,9 @@ function projectFactCasWhere(fact: ProjectFactCasSnapshot): Prisma.ProjectFactWh
     validatedThroughSha: fact.validatedThroughSha,
     lastValidatedAt: fact.lastValidatedAt,
     subsystemKey: fact.subsystemKey,
+    metadata: {
+      equals: fact.metadata === null ? Prisma.DbNull : fact.metadata,
+    },
     ...(fact.updatedAt ? { updatedAt: fact.updatedAt } : {}),
   };
 }
@@ -155,12 +161,30 @@ export function isStrongCanonicalReplacement(input: {
   priorId: string;
   priorText: string;
   priorSubsystemKey: string | null;
+  priorMetadata?: unknown;
+  priorEvidenceSourceIds?: readonly string[];
   candidateText: string;
   candidateSubsystemKey: string | null;
+  candidateMetadata?: unknown;
   candidateSupersedesId: string | null;
 }) {
   if (input.candidateSupersedesId === input.priorId) return true;
-  if (
+  const candidateMetadata = parseRepositoryKnowledgeMetadata(
+    input.candidateMetadata,
+  );
+  if (candidateMetadata) {
+    const identity = repositoryKnowledgeIdentityRelation({
+      priorMetadata: input.priorMetadata,
+      candidateMetadata,
+      priorEvidenceSourceIds: input.priorEvidenceSourceIds,
+    });
+    if (identity === "different") return false;
+    if (
+      identity !== "same_operation" &&
+      (!input.priorSubsystemKey ||
+        input.priorSubsystemKey !== input.candidateSubsystemKey)
+    ) return false;
+  } else if (
     !input.priorSubsystemKey ||
     input.priorSubsystemKey !== input.candidateSubsystemKey
   ) return false;
@@ -498,6 +522,7 @@ export async function reconcileStaleKnowledge(input: {
         id: true,
         statement: true,
         subsystemKey: true,
+        metadata: true,
         supersedesProjectFactId: true,
       },
     }),
@@ -584,8 +609,13 @@ export async function reconcileStaleKnowledge(input: {
       priorId: fact.id,
       priorText: fact.statement,
       priorSubsystemKey: fact.subsystemKey,
+      priorMetadata: fact.metadata,
+      priorEvidenceSourceIds: fact.evidence.map((entry) =>
+        entry.evidenceItem.sourceId
+      ),
       candidateText: candidate.statement,
       candidateSubsystemKey: candidate.subsystemKey,
+      candidateMetadata: candidate.metadata,
       candidateSupersedesId: candidate.supersedesProjectFactId,
     }));
     if (destructiveStalenessAllowed && fact.approvalSource === "automation" && fact.reviewState === "pending_review" && canonicalReplacement) {
@@ -837,8 +867,13 @@ export async function reconcileStaleKnowledge(input: {
         priorId: highlight.id,
         priorText: `${highlight.text} ${highlight.summary}`,
         priorSubsystemKey: subsystemKey,
+        priorMetadata: highlight.metadata,
+        priorEvidenceSourceIds: highlight.evidence.map((entry) =>
+          entry.evidenceItem.sourceId
+        ),
         candidateText: `${candidate.text} ${candidate.summary}`,
         candidateSubsystemKey,
+        candidateMetadata: candidate.metadata,
         candidateSupersedesId: candidate.supersedesHighlightId,
       });
     });

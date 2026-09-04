@@ -1,0 +1,472 @@
+{
+  "schemaVersion": "repository-source-audit-score-v1",
+  "provenance": {
+    "packetSchemaVersion": "repository-source-audit-adjudication-packet-v1",
+    "packetDigest": "617853560f59d1f2fa0898fb345a63facd15c0e6d25f036cef7e38b0c2a1a0dc",
+    "adjudicationDigest": "77acfdb0cf3bf0e5667635aa4c46a647ed769ebc470b073ef091873c2904b544",
+    "manifestDigest": "9c860d9c174729928698e03a6ce6b6a87f045bfb71ca127f42ef6bab1954d186",
+    "sourceAuditDigest": "1685740fd0869a0ba12373d7682b7fa2b83b177f19b16fefbd4054fbc4184ada",
+    "auditDate": "2026-09-04",
+    "workItemId": "cmth435y900oo21unrzvzptg9",
+    "fixtureId": "circlefund-fintech",
+    "repository": "arkb75/CircleFund",
+    "commitSha": "22d1968ff13f649ad6ce06a07714b3ecc279121f",
+    "sourceScope": "tracked_git_tree",
+    "sourceDigest": "520cbd4c269a0b05a4d85771db64536b2632506a8fef3bd4c30228906f7192b6"
+  },
+  "certification": {
+    "status": "historical_control",
+    "currentRunEligible": false,
+    "historicalControlOverrideUsed": true,
+    "executionIntegrity": {
+      "passed": false,
+      "issues": [
+        "3 capability synthesis generation(s) have no valid synthesis-phase attestation.",
+        "No audited capability synthesis generation ran.",
+        "No audited semantic extraction generation ran.",
+        "No audited semantic planning generation ran.",
+        "Repository refresh is missing its persisted semantic evidence universe; rerun the repository refresh before evaluation.",
+        "Repository semantic planning has no audited generation reference.",
+        "Repository semantic planning used its deterministic fallback.",
+        "capability_synthesis generation 1 ended with status provider_error.",
+        "capability_synthesis generation 1 has incomplete model-usage evidence.",
+        "capability_synthesis generation 1 has no provider request ID.",
+        "capability_synthesis generation 1 used model openai/gpt-5.6-luna; expected openai/gpt-5.6-terra."
+      ],
+      "modelIdentities": [
+        "capability_synthesis:openrouter:openai/gpt-5.6-luna",
+        "capability_synthesis:openrouter:openai/gpt-5.6-terra"
+      ],
+      "policyVersions": [
+        "analyzerVersion=repository-coverage-v16",
+        "coveragePolicyVersion=repository-coverage-v8",
+        "lifecyclePolicyVersion=knowledge-lifecycle-v3",
+        "orchestration.policyVersion=repository-orchestration-v12",
+        "orchestrationPolicyVersion=repository-orchestration-v12",
+        "semanticAnalyzerVersion=repository-coverage-v18",
+        "synthesisPolicyVersion=repository-synthesis-v32"
+      ]
+    },
+    "sourceTreeVerification": {
+      "status": "verified",
+      "repositoryRoot": "/private/tmp/workbase-source-audit/circlefund",
+      "computedSourceDigest": "520cbd4c269a0b05a4d85771db64536b2632506a8fef3bd4c30228906f7192b6"
+    }
+  },
+  "diagnostics": {
+    "scoringUniverse": {
+      "knowledgeUnits": 12,
+      "unitsByState": {
+        "implemented": 6,
+        "partial": 0,
+        "planned": 1,
+        "absent": 5
+      },
+      "unitsByImportance": {
+        "major": 7,
+        "supporting": 5
+      },
+      "unitsByHighlightRelevance": {
+        "must": 4,
+        "should": 2,
+        "not_expected": 6
+      },
+      "userQuestions": 12,
+      "observedHighlights": 2
+    },
+    "savedOutputs": {
+      "highlights": 2,
+      "facts": 15,
+      "total": 17,
+      "evidenceReferences": 23,
+      "exactRangeAndQuoteReferences": 23,
+      "outputsWithoutEvidence": 0
+    },
+    "adjudication": {
+      "unitAdjudications": 12,
+      "highlightAdjudications": 2,
+      "questionAdjudications": 12,
+      "contradictedUnitIds": [],
+      "duplicateHighlightIds": [],
+      "lowValueHighlightIds": [],
+      "lessThanFullyAnswerableQuestions": [
+        "Can contribution records be duplicated, future-dated, corrected, deleted, or reversed?",
+        "Does CircleFund transfer, verify, or settle money, or does it only persist manually declared contribution entries?",
+        "Does the monthly minimum enforce member behavior or only calculate a reporting target, and are reserve or borrowing policies applied to contributions?",
+        "How do invite codes behave for new, active, pending, and suspended memberships, and can a code expire, be recipient-bound, rotated, or revoked?",
+        "Is contribution cadence actually configurable despite the frequency enum and weekly-to-monthly product copy?",
+        "What does approvalMode actually govern today, and is it a membership-admission control or configuration for a future borrowing workflow?",
+        "What proves that a user owns an email, and can someone who knows an existing email sign in or overwrite that account's profile name?",
+        "Which loan approval, disbursement, repayment, default, membership-administration, and policy-edit operations exist today versus being planned or absent?",
+        "Which records are created atomically when a circle is created, and which borrowing-policy values are persisted?",
+        "Who can access the circle dashboard, and which invite, policy, roster, identity, and contribution details can pending and active members see?",
+        "Who may inspect another member's contribution history, including the history of pending or suspended members?",
+        "Who may record a contribution for whom, which target states are accepted, and what amount, date, transaction, and recorder-provenance checks apply?"
+      ]
+    },
+    "countNeutral": true
+  },
+  "semanticDetails": {
+    "units": [
+      {
+        "unitId": "circle.circle-policy-invite-lifecycle",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Lets authorized administrators edit circle or rule values and rotate or revoke the shared invite code after creation.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "circle-governance",
+        "kind": "constraint",
+        "uncertainty": "The repository and public API expose create, join, and read operations for circle policy; no update, delete, invite rotation, or invite revocation operation exists."
+      },
+      {
+        "unitId": "circle.configurable-contribution-cadence",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "none",
+        "evidenceSupported": true,
+        "stateCorrect": false,
+        "qualifierCoverage": "tangential",
+        "contradictsAudit": false,
+        "claim": "Applies selectable weekly, biweekly, or monthly contribution periods.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "contributions",
+        "kind": "constraint",
+        "uncertainty": "ContributionFrequency remains an unused enum and the landing page still says weekly to monthly, but the migration removed the rule field and the active policy and period calculation are hard-coded to the first day of each calendar month."
+      },
+      {
+        "unitId": "circle.contribution-governance-reconciliation",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": false,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Operationally enforces contribution and reserve policy through standing or eligibility effects and supports idempotent ingestion, duplicate prevention, correction, or reversal of ledger entries.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "contributions",
+        "kind": "constraint",
+        "uncertainty": "The write path checks positive amount, valid date, active memberships, and recorder role, while the monthly minimum only computes a non-negative reporting gap. Reserve and borrowing settings never affect contributions, and the append-only schema has no uniqueness or reconciliation mechanism."
+      },
+      {
+        "unitId": "circle.email-only-account-session",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "partial",
+        "contradictsAudit": false,
+        "claim": "Normalizes email, upserts or finds a user, and issues an HMAC-SHA256-signed HTTP-only, SameSite=Lax, 30-day cookie containing the user id.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "identity",
+        "kind": "workflow",
+        "uncertainty": "Neither signup nor login verifies a password, OTP, or email ownership. Signup for an existing unique email updates that user's name, and the signed token has no server-checked expiry or revocation state beyond the browser cookie lifetime."
+      },
+      {
+        "unitId": "circle.invite-code-membership",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "tangential",
+        "contradictsAudit": false,
+        "claim": "Lets an authenticated account join transactionally by normalized invite code, creates a new active member without duplicating an existing membership, and rejects suspended memberships.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "membership",
+        "kind": "workflow",
+        "uncertainty": "The code is a reusable circle-wide bearer credential shown to members, with no invite record, recipient binding, expiry, use limit, delivery event, or rotation. Existing pending membership returns success without becoming active; immediate activation for a new join is explicitly documented MVP behavior, not evidence that borrowing approvalMode governs admission."
+      },
+      {
+        "unitId": "circle.loan-review-repayment-lifecycle",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "partial",
+        "contradictsAudit": false,
+        "claim": "Provides loan requests, eligibility or standing checks, reviewer or administrator decisions, disbursement, repayment, and default handling.",
+        "state": "planned",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "lending",
+        "kind": "constraint",
+        "uncertainty": "The README explicitly describes loan, review, and repayment models as future work. Approval mode, membership duration, active-loan limit, and repayment-term fields are stored and displayed but no Loan, Review, Repayment, or reviewer-role model, service, route, or UI applies them."
+      },
+      {
+        "unitId": "circle.manual-contribution-ledger",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Transactionally records manually declared, dated contribution entries with exact-cent amounts, calendar-month buckets, and recorder provenance; active administrators may record for any active member, ordinary active members only for themselves, and active members may inspect per-member histories.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "contributions",
+        "kind": "workflow",
+        "uncertainty": "Entries are user assertions rather than verified movement of funds. The read path does not require the target member to be active or restrict access to self/admin, any valid date including a future date is accepted, and no idempotency, update, deletion, correction, or reversal operation exists."
+      },
+      {
+        "unitId": "circle.membership-administration",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "none",
+        "evidenceSupported": true,
+        "stateCorrect": false,
+        "qualifierCoverage": "tangential",
+        "contradictsAudit": false,
+        "claim": "Lets administrators promote, suspend, reactivate, or remove members after they join.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "membership",
+        "kind": "constraint",
+        "uncertainty": "Role and status fields are modeled, but normal creator and join paths explicitly create active memberships and the repository exposes membership creation only. Pending and suspended states therefore require an out-of-band database write in the current application."
+      },
+      {
+        "unitId": "circle.payment-settlement",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Transfers, verifies, or settles member contribution money or reserve funds through a payment provider, bank account, wallet, or balance ledger.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "payments",
+        "kind": "constraint",
+        "uncertainty": "The active path only creates a manual Contribution database row. Minimum reserve balance is a stored policy number, not a measured account balance, and no payment-provider dependency exists."
+      },
+      {
+        "unitId": "circle.policy-roster-dashboard",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "tangential",
+        "contradictsAudit": false,
+        "claim": "Shows a non-suspended member the shared invite code, configured policies, role-aware roster, and current calendar-month contribution totals and remaining target amounts.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "circle-operations",
+        "kind": "capability",
+        "uncertainty": "Pending members can enter the dashboard because only suspended membership is denied, while contribution reads and writes require active status. Dashboard viewers receive every member's name, email, role, status, and contribution summary."
+      },
+      {
+        "unitId": "circle.transactional-circle-setup",
+        "knowledgeCoverage": "substantial",
+        "highlightCoverage": "substantial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Creates a private circle, its borrowing-policy record, and an active administrator membership atomically, retrying random eight-character invite-code collisions up to six times.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "circle-governance",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "circle.transactional-postgres-domain",
+        "knowledgeCoverage": "substantial",
+        "highlightCoverage": "substantial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Persists circles, rules, memberships, and contribution provenance in a relational Postgres model with transactional creation and ledger writes.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "persistence",
+        "kind": "architecture",
+        "uncertainty": null
+      }
+    ],
+    "highlights": [
+      {
+        "highlightId": "cmth46txe00tg21un6qrc7nrs",
+        "matchedUnitIds": [
+          "circle.email-only-account-session",
+          "circle.transactional-circle-setup",
+          "circle.invite-code-membership",
+          "circle.policy-roster-dashboard"
+        ],
+        "salience": "major_operation",
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth46xkd00tw21un4orjlc49",
+        "matchedUnitIds": [
+          "circle.manual-contribution-ledger",
+          "circle.transactional-postgres-domain"
+        ],
+        "salience": "supporting_insight",
+        "semanticDuplicateOf": null
+      }
+    ],
+    "questions": [
+      {
+        "question": "Can contribution records be duplicated, future-dated, corrected, deleted, or reversed?",
+        "answerability": "none",
+        "supportingUnitIds": [],
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Does CircleFund transfer, verify, or settle money, or does it only persist manually declared contribution entries?",
+        "answerability": "none",
+        "supportingUnitIds": [],
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Does the monthly minimum enforce member behavior or only calculate a reporting target, and are reserve or borrowing policies applied to contributions?",
+        "answerability": "none",
+        "supportingUnitIds": [],
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "How do invite codes behave for new, active, pending, and suspended memberships, and can a code expire, be recipient-bound, rotated, or revoked?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "circle.invite-code-membership",
+          "circle.circle-policy-invite-lifecycle"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Is contribution cadence actually configurable despite the frequency enum and weekly-to-monthly product copy?",
+        "answerability": "none",
+        "supportingUnitIds": [],
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "What does approvalMode actually govern today, and is it a membership-admission control or configuration for a future borrowing workflow?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "circle.invite-code-membership",
+          "circle.loan-review-repayment-lifecycle"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "What proves that a user owns an email, and can someone who knows an existing email sign in or overwrite that account's profile name?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "circle.email-only-account-session"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Which loan approval, disbursement, repayment, default, membership-administration, and policy-edit operations exist today versus being planned or absent?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "circle.loan-review-repayment-lifecycle",
+          "circle.membership-administration",
+          "circle.circle-policy-invite-lifecycle"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Which records are created atomically when a circle is created, and which borrowing-policy values are persisted?",
+        "answerability": "substantial",
+        "supportingUnitIds": [
+          "circle.transactional-circle-setup",
+          "circle.transactional-postgres-domain"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Who can access the circle dashboard, and which invite, policy, roster, identity, and contribution details can pending and active members see?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "circle.policy-roster-dashboard"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Who may inspect another member's contribution history, including the history of pending or suspended members?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "circle.manual-contribution-ledger"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Who may record a contribution for whom, which target states are accepted, and what amount, date, transaction, and recorder-provenance checks apply?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "circle.manual-contribution-ledger",
+          "circle.transactional-postgres-domain"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      }
+    ]
+  },
+  "outcome": {
+    "weightedKnowledgeRecall": 0.525,
+    "majorKnowledgeRecall": 0.5,
+    "supportingKnowledgeRecall": 0.625,
+    "mustHighlightRecall": 0.4375,
+    "weightedHighlightRecall": 0.45,
+    "matchedUnitGrounding": 1,
+    "stateCorrectness": 0.7,
+    "qualifierPreservation": 0.2,
+    "constraintRecall": 0.083333,
+    "constraintCorrectness": 0.25,
+    "contradictionRate": 0,
+    "fullMajorUnitIds": [],
+    "missedMajorUnitIds": [
+      "circle.transactional-circle-setup",
+      "circle.invite-code-membership",
+      "circle.policy-roster-dashboard",
+      "circle.manual-contribution-ledger"
+    ],
+    "questionAnswerability": 0.3125,
+    "fullyAnswerableQuestionRate": 0,
+    "highlightSalience": 0.75,
+    "majorHighlightAllocationRate": 0.5,
+    "duplicateHighlightRate": 0
+  }
+}

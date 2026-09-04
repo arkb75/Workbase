@@ -137,6 +137,7 @@ async function createEditedSuccessor(input: {
         status: "approved",
         sensitivityFlag: typeof input.patch.sensitivityFlag === "boolean" ? input.patch.sensitivityFlag : change.projectFact.sensitivityFlag,
         reviewNotes: typeof input.patch.reviewNotes === "string" ? input.patch.reviewNotes : change.projectFact.reviewNotes,
+        metadata: change.projectFact.metadata ?? undefined,
         searchText: normalizeWhitespace([statement, category, typeof input.patch.reviewNotes === "string" ? input.patch.reviewNotes : change.projectFact.reviewNotes ?? ""].join(" ")),
         supersedesProjectFactId: change.projectFact.id,
         lifecycleStatus: "needs_validation",

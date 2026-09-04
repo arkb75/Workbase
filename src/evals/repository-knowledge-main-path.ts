@@ -83,6 +83,10 @@ function sumNumericProperty(value: unknown, property: string) {
   return total;
 }
 
+function sha256Digest(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/iu.test(value);
+}
+
 function requestIds(resultRefs: unknown) {
   const refs = record(resultRefs);
   return Array.isArray(refs?.requestIds)
@@ -90,6 +94,579 @@ function requestIds(resultRefs: unknown) {
         typeof value === "string" && Boolean(value.trim())
       )
     : [];
+}
+
+function completeExactSourceReadSet(value: unknown) {
+  return Array.isArray(value) && value.length > 0 && value.every((candidate) => {
+    const entry = record(candidate);
+    const lineStart = entry?.lineStart;
+    const lineEnd = entry?.lineEnd;
+    return typeof entry?.evidenceId === "string" && Boolean(entry.evidenceId.trim()) &&
+      typeof entry?.sourceId === "string" && Boolean(entry.sourceId.trim()) &&
+      typeof entry?.repository === "string" && Boolean(entry.repository.trim()) &&
+      typeof entry?.commitSha === "string" &&
+      /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/iu.test(entry.commitSha) &&
+      typeof entry?.path === "string" && Boolean(entry.path.trim()) &&
+      typeof entry?.blobSha === "string" &&
+      /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/iu.test(entry.blobSha) &&
+      typeof lineStart === "number" && Number.isInteger(lineStart) && lineStart > 0 &&
+      typeof lineEnd === "number" && Number.isInteger(lineEnd) && lineEnd >= lineStart &&
+      typeof entry?.excerptHash === "string" && /^[a-f0-9]{64}$/iu.test(entry.excerptHash) &&
+      typeof entry?.outputHash === "string" && /^[a-f0-9]{64}$/iu.test(entry.outputHash) &&
+      typeof entry?.evidenceVersion === "string" && Boolean(entry.evidenceVersion.trim()) &&
+      typeof entry?.redactionPolicyVersion === "string" &&
+      Boolean(entry.redactionPolicyVersion.trim());
+  });
+}
+
+function validVerifierTrace(value: unknown) {
+  if (!Array.isArray(value) || !value.length) return false;
+  const trace = value.flatMap((candidate) => {
+    const entry = record(candidate);
+    return entry ? [entry] : [];
+  });
+  const complete = trace.length === value.length && trace.every((entry) =>
+    typeof entry.evidenceId === "string" && Boolean(entry.evidenceId.trim()) &&
+    typeof entry.command === "string" && Boolean(entry.command.trim()) &&
+    Array.isArray(entry.args) && entry.args.every((argument) => typeof argument === "string") &&
+    (entry.operationKind === "discovery" || entry.operationKind === "exact_blob_read") &&
+    typeof entry.outputHash === "string" && /^[a-f0-9]{64}$/iu.test(entry.outputHash)
+  );
+  return complete ? trace : false;
+}
+
+function completeIndependentVerifierTrace(value: unknown) {
+  const trace = validVerifierTrace(value);
+  if (!trace) return false;
+  return trace.some((entry) =>
+      entry.operationKind === "discovery" &&
+      (entry.command === "grep" || entry.command === "ls-tree")
+    ) &&
+    trace.some((entry) => entry.operationKind === "exact_blob_read");
+}
+
+function completeCandidateVerifierTrace(value: unknown) {
+  const trace = validVerifierTrace(value);
+  return trace ? trace.some((entry) => entry.operationKind === "exact_blob_read") : false;
+}
+
+function verifierTraceCoversReadSet(traceValue: unknown, readSetValue: unknown) {
+  if (!Array.isArray(traceValue) || !Array.isArray(readSetValue)) return false;
+  const exactReads = traceValue.flatMap((candidate) => {
+    const entry = record(candidate);
+    return entry?.operationKind === "exact_blob_read" &&
+        entry.command === "show" &&
+        Array.isArray(entry.args) &&
+        typeof entry.args[0] === "string" &&
+        typeof entry.evidenceId === "string" &&
+        typeof entry.outputHash === "string"
+      ? [{
+          evidenceId: entry.evidenceId,
+          revisionPath: entry.args[0],
+          outputHash: entry.outputHash.toLocaleLowerCase(),
+        }]
+      : [];
+  });
+  return readSetValue.every((candidate) => {
+    const entry = record(candidate);
+    if (
+      typeof entry?.evidenceId !== "string" ||
+      typeof entry.commitSha !== "string" ||
+      typeof entry.path !== "string" ||
+      typeof entry.outputHash !== "string"
+    ) return false;
+    const evidenceId = entry.evidenceId;
+    const revisionPaths = new Set([
+      `HEAD:${entry.path}`,
+      `${entry.commitSha}:${entry.path}`,
+    ]);
+    const outputHash = entry.outputHash.toLocaleLowerCase();
+    return exactReads.some((read) =>
+      read.evidenceId === evidenceId &&
+      read.outputHash === outputHash &&
+      revisionPaths.has(read.revisionPath)
+    );
+  });
+}
+
+function verifierIntegrityDigest(value: unknown) {
+  return createHash("sha256")
+    .update(typeof value === "string" ? value : JSON.stringify(value))
+    .digest("hex");
+}
+
+function normalizedVerifierTrace(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const entries = value.map((candidate) => {
+    const entry = record(candidate);
+    if (
+      !entry ||
+      typeof entry.evidenceId !== "string" ||
+      typeof entry.command !== "string" ||
+      !Array.isArray(entry.args) ||
+      !entry.args.every((argument) => typeof argument === "string") ||
+      (entry.operationKind !== "discovery" &&
+        entry.operationKind !== "exact_blob_read") ||
+      !sha256Digest(entry.outputHash)
+    ) return null;
+    return {
+      evidenceId: entry.evidenceId,
+      command: entry.command,
+      args: entry.args,
+      operationKind: entry.operationKind,
+      outputHash: entry.outputHash,
+    };
+  });
+  return entries.every((entry) => entry !== null)
+    ? entries as Array<NonNullable<(typeof entries)[number]>>
+    : null;
+}
+
+function normalizedVerifierReadSet(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const entries = value.map((candidate) => {
+    const entry = record(candidate);
+    const lineStart = entry?.lineStart;
+    const lineEnd = entry?.lineEnd;
+    if (
+      !entry ||
+      typeof entry.evidenceId !== "string" ||
+      typeof entry.sourceId !== "string" ||
+      typeof entry.repository !== "string" ||
+      typeof entry.commitSha !== "string" ||
+      !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/iu.test(entry.commitSha) ||
+      typeof entry.path !== "string" ||
+      typeof entry.blobSha !== "string" ||
+      !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/iu.test(entry.blobSha) ||
+      typeof lineStart !== "number" || !Number.isInteger(lineStart) || lineStart < 1 ||
+      typeof lineEnd !== "number" || !Number.isInteger(lineEnd) || lineEnd < lineStart ||
+      !sha256Digest(entry.excerptHash) ||
+      !sha256Digest(entry.outputHash) ||
+      typeof entry.evidenceVersion !== "string" ||
+      typeof entry.redactionPolicyVersion !== "string"
+    ) return null;
+    return {
+      evidenceId: entry.evidenceId,
+      sourceId: entry.sourceId,
+      repository: entry.repository,
+      commitSha: entry.commitSha,
+      path: entry.path,
+      blobSha: entry.blobSha,
+      lineStart,
+      lineEnd,
+      excerptHash: entry.excerptHash,
+      outputHash: entry.outputHash,
+      evidenceVersion: entry.evidenceVersion,
+      redactionPolicyVersion: entry.redactionPolicyVersion,
+    };
+  });
+  return entries.every((entry) => entry !== null)
+    ? entries as Array<NonNullable<(typeof entries)[number]>>
+    : null;
+}
+
+function normalizedIndependentObservations(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const allowedKinds = new Set([
+    "operation",
+    "state_transition",
+    "integration",
+    "side_effect",
+    "boundary",
+    "open_lead",
+  ]);
+  const observations = value.map((candidate) => {
+    const observation = record(candidate);
+    const evidence = record(observation?.evidence);
+    if (
+      !observation ||
+      typeof observation.kind !== "string" ||
+      !allowedKinds.has(observation.kind) ||
+      typeof observation.statement !== "string" ||
+      typeof evidence?.evidenceId !== "string" ||
+      typeof evidence.lineStart !== "number" ||
+      !Number.isInteger(evidence.lineStart) || evidence.lineStart < 1 ||
+      typeof evidence.lineEnd !== "number" ||
+      !Number.isInteger(evidence.lineEnd) || evidence.lineEnd < evidence.lineStart
+    ) return null;
+    return {
+      kind: observation.kind,
+      statement: observation.statement,
+      evidence: {
+        evidenceId: evidence.evidenceId,
+        lineStart: evidence.lineStart,
+        lineEnd: evidence.lineEnd,
+      },
+    };
+  });
+  return observations.every((observation) => observation !== null)
+    ? observations as Array<NonNullable<(typeof observations)[number]>>
+    : null;
+}
+
+function verifierCitationHasEnclosingRead(
+  readSet: NonNullable<ReturnType<typeof normalizedVerifierReadSet>>,
+  value: unknown,
+) {
+  const citation = record(value);
+  const evidenceId = typeof citation?.evidenceId === "string"
+    ? citation.evidenceId
+    : null;
+  const lineStart = typeof citation?.lineStart === "number"
+    ? citation.lineStart
+    : null;
+  const lineEnd = typeof citation?.lineEnd === "number"
+    ? citation.lineEnd
+    : null;
+  return evidenceId !== null &&
+    lineStart !== null && Number.isInteger(lineStart) &&
+    lineEnd !== null && Number.isInteger(lineEnd) &&
+    readSet.some((read) =>
+      read.evidenceId === evidenceId &&
+      read.lineStart <= lineStart &&
+      read.lineEnd >= lineEnd
+    );
+}
+
+/**
+ * Verifies the durable blind-review -> candidate-audit chain without depending
+ * on a live repository. Malformed or pre-split historical records are returned
+ * as explicit issues so evaluation remains inspectable instead of throwing.
+ */
+export function repositoryVerifierTwoPhaseIntegrityIssues(input: {
+  repositoryAttestation: unknown;
+  generationRuns: ReadonlyArray<{
+    id: string;
+    kind: string;
+    status?: unknown;
+    inputSummary?: unknown;
+    parsedOutput?: unknown;
+    resultRefs?: unknown;
+  }>;
+}) {
+  const issues: string[] = [];
+  const repository = record(input.repositoryAttestation);
+  const label = typeof repository?.repository === "string"
+    ? repository.repository
+    : "Agentic repository";
+  const sourceId = typeof repository?.sourceId === "string"
+    ? repository.sourceId
+    : null;
+  const repositoryName = typeof repository?.repository === "string"
+    ? repository.repository
+    : null;
+  const commitSha = typeof repository?.commitSha === "string" &&
+      /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/iu.test(repository.commitSha)
+    ? repository.commitSha
+    : null;
+  const scopeDigest = sha256Digest(repository?.snapshotScopeDigest)
+    ? repository.snapshotScopeDigest
+    : null;
+  if (!sourceId || !repositoryName || !commitSha || !scopeDigest) {
+    issues.push(`${label} two-phase verifier is not bound to an exact repository snapshot identity.`);
+  }
+
+  const independentReviewId = typeof repository?.verifierIndependentReviewGenerationRunId ===
+      "string" && repository.verifierIndependentReviewGenerationRunId.trim()
+    ? repository.verifierIndependentReviewGenerationRunId
+    : null;
+  const independentMatches = independentReviewId
+    ? input.generationRuns.filter((run) =>
+        run.id === independentReviewId && run.kind === "coverage_audit"
+      )
+    : [];
+  if (independentMatches.length !== 1) {
+    issues.push(`${label} has no uniquely referenced blind independent-review generation.`);
+    return issues;
+  }
+  const independentRun = independentMatches[0]!;
+  const independentSummary = record(independentRun.inputSummary);
+  if (
+    independentRun.status !== "success" ||
+    independentSummary?.phase !== "repository_independent_review" ||
+    independentSummary.candidateAvailable !== false ||
+    independentSummary.sourceId !== sourceId ||
+    independentSummary.repository !== repositoryName ||
+    independentSummary.commitSha !== commitSha ||
+    independentSummary.snapshotScopeDigest !== scopeDigest
+  ) {
+    issues.push(`${label} blind independent review does not certify candidate-hidden execution on the exact snapshot.`);
+  }
+
+  const rawCheckpoint = record(independentRun.parsedOutput);
+  const sourceInspection = record(rawCheckpoint?.sourceInspection);
+  const sourceSearchTrace = normalizedVerifierTrace(sourceInspection?.sourceSearchTrace);
+  const independentReadSet = normalizedVerifierReadSet(sourceInspection?.readSet);
+  const independentObservations = normalizedIndependentObservations(
+    rawCheckpoint?.independentObservations,
+  );
+  const normalizedSourceInspection = sourceSearchTrace && independentReadSet
+    ? { sourceSearchTrace, readSet: independentReadSet }
+    : null;
+  const checkpointShapeValid =
+    rawCheckpoint?.schemaVersion === "repository-verifier-independent-review-v1" &&
+    rawCheckpoint.sourceId === sourceId &&
+    rawCheckpoint.repository === repositoryName &&
+    rawCheckpoint.commitSha === commitSha &&
+    rawCheckpoint.snapshotScopeDigest === scopeDigest &&
+    normalizedSourceInspection !== null &&
+    completeIndependentVerifierTrace(sourceSearchTrace) &&
+    completeExactSourceReadSet(independentReadSet) &&
+    verifierTraceCoversReadSet(sourceSearchTrace, independentReadSet) &&
+    independentReadSet?.every((read) =>
+      read.sourceId === sourceId &&
+      read.repository === repositoryName &&
+      read.commitSha === commitSha
+    ) === true &&
+    independentObservations !== null && independentObservations.length > 0 &&
+    (rawCheckpoint.observationCapacityReached === undefined ||
+      rawCheckpoint.observationCapacityReached === true) &&
+    typeof rawCheckpoint.inspectionToolCalls === "number" &&
+    Number.isInteger(rawCheckpoint.inspectionToolCalls) &&
+    rawCheckpoint.inspectionToolCalls > 0;
+  if (!checkpointShapeValid) {
+    issues.push(`${label} blind independent-review checkpoint is incomplete or not snapshot-bound.`);
+    return issues;
+  }
+  if (
+    !sourceSearchTrace || !independentReadSet || !independentObservations ||
+    !normalizedSourceInspection
+  ) return issues;
+
+  const sourceInspectionDigest = verifierIntegrityDigest(normalizedSourceInspection);
+  const independentObservationDigest = verifierIntegrityDigest(independentObservations);
+  const normalizedCheckpointPayload = {
+    schemaVersion: "repository-verifier-independent-review-v1",
+    sourceId,
+    repository: repositoryName,
+    commitSha,
+    snapshotScopeDigest: scopeDigest,
+    sourceInspection: normalizedSourceInspection,
+    sourceInspectionDigest,
+    independentObservations,
+    independentObservationDigest,
+    ...(rawCheckpoint.observationCapacityReached === true
+      ? { observationCapacityReached: true }
+      : {}),
+    inspectionToolCalls: rawCheckpoint.inspectionToolCalls,
+  };
+  const checkpointDigest = verifierIntegrityDigest(normalizedCheckpointPayload);
+  if (
+    rawCheckpoint.sourceInspectionDigest !== sourceInspectionDigest ||
+    rawCheckpoint.independentObservationDigest !== independentObservationDigest ||
+    rawCheckpoint.checkpointDigest !== checkpointDigest ||
+    new Set(independentObservations.map(verifierIntegrityDigest)).size !==
+      independentObservations.length ||
+    !independentObservations.every((observation) =>
+      verifierCitationHasEnclosingRead(independentReadSet, observation.evidence)
+    )
+  ) {
+    issues.push(`${label} blind independent-review checkpoint failed digest or cited-read integrity.`);
+  }
+  const independentAttestation = record(
+    record(independentRun.resultRefs)?.resultAttestation,
+  );
+  if (
+    independentAttestation?.executionMode !==
+      "agentic_investigator_verifier_independent_review" ||
+    independentAttestation.fallbackUsed !== false ||
+    independentAttestation.snapshotScopeDigest !== scopeDigest ||
+    independentAttestation.checkpointDigest !== checkpointDigest ||
+    independentAttestation.sourceInspectionDigest !== sourceInspectionDigest
+  ) {
+    issues.push(`${label} blind independent-review generation does not attest its exact checkpoint.`);
+  }
+
+  const verifierId = typeof repository?.verifierGenerationRunId === "string" &&
+      repository.verifierGenerationRunId.trim()
+    ? repository.verifierGenerationRunId
+    : null;
+  const verifierMatches = verifierId
+    ? input.generationRuns.filter((run) =>
+        run.id === verifierId && run.kind === "coverage_audit"
+      )
+    : [];
+  if (verifierMatches.length !== 1) {
+    issues.push(`${label} has no uniquely referenced candidate-audit generation.`);
+    return issues;
+  }
+  const verifierRun = verifierMatches[0]!;
+  const verifierSummary = record(verifierRun.inputSummary);
+  const verifierPolicy = record(verifierSummary?.verifierToolPolicy);
+  if (
+    verifierRun.status !== "success" ||
+    verifierSummary?.phase !== "repository_candidate_coverage_audit" ||
+    verifierSummary.sourceId !== sourceId ||
+    verifierSummary.repository !== repositoryName ||
+    verifierSummary.commitSha !== commitSha ||
+    verifierSummary.snapshotScopeDigest !== scopeDigest ||
+    verifierSummary.independentReviewGenerationRunId !== independentReviewId ||
+    verifierSummary.independentReviewCheckpointDigest !== checkpointDigest ||
+    verifierPolicy?.durableBlindReview !== true ||
+    verifierPolicy.representativeCheck !== true
+  ) {
+    issues.push(`${label} candidate audit is not linked to the exact blind checkpoint or fresh-read contract.`);
+  }
+  const verifierAttestation = record(record(verifierRun.resultRefs)?.resultAttestation);
+  const preDisclosureInspection = record(
+    verifierAttestation?.preDisclosureSourceInspection,
+  );
+  const normalizedPreDisclosureTrace = normalizedVerifierTrace(
+    preDisclosureInspection?.sourceSearchTrace,
+  );
+  const normalizedPreDisclosureReadSet = normalizedVerifierReadSet(
+    preDisclosureInspection?.readSet,
+  );
+  const normalizedPreDisclosureInspection = normalizedPreDisclosureTrace &&
+      normalizedPreDisclosureReadSet
+    ? {
+        sourceSearchTrace: normalizedPreDisclosureTrace,
+        readSet: normalizedPreDisclosureReadSet,
+      }
+    : null;
+  const candidateDisclosure = record(verifierAttestation?.candidateDisclosure);
+  const disclosedObservations = normalizedIndependentObservations(
+    candidateDisclosure?.independentObservations,
+  );
+  const discoveryIds = Array.isArray(
+      candidateDisclosure?.preDisclosureDiscoveryEvidenceIds,
+    )
+    ? candidateDisclosure.preDisclosureDiscoveryEvidenceIds.filter(
+        (value): value is string => typeof value === "string" && Boolean(value),
+      )
+    : [];
+  const exactReadIds = Array.isArray(
+      candidateDisclosure?.preDisclosureExactReadEvidenceIds,
+    )
+    ? candidateDisclosure.preDisclosureExactReadEvidenceIds.filter(
+        (value): value is string => typeof value === "string" && Boolean(value),
+      )
+    : [];
+  const selectedPreDisclosureInspection = {
+    sourceSearchTrace: sourceSearchTrace.filter((entry) =>
+      discoveryIds.includes(entry.evidenceId)
+    ),
+    readSet: independentReadSet.filter((entry) =>
+      exactReadIds.includes(entry.evidenceId)
+    ),
+  };
+  if (
+    verifierAttestation?.independentReviewGenerationRunId !== independentReviewId ||
+    verifierAttestation.independentReviewCheckpointDigest !== checkpointDigest ||
+    verifierAttestation.preDisclosureSourceInspectionDigest !== sourceInspectionDigest ||
+    !normalizedPreDisclosureInspection ||
+    verifierIntegrityDigest(normalizedPreDisclosureInspection) !== sourceInspectionDigest ||
+    candidateDisclosure?.inspectionToolCallsAtReveal !== rawCheckpoint.inspectionToolCalls ||
+    !discoveryIds.length || new Set(discoveryIds).size !== discoveryIds.length ||
+    !exactReadIds.length || new Set(exactReadIds).size !== exactReadIds.length ||
+    selectedPreDisclosureInspection.sourceSearchTrace.length !== discoveryIds.length ||
+    selectedPreDisclosureInspection.readSet.length !== exactReadIds.length ||
+    !selectedPreDisclosureInspection.sourceSearchTrace.every((entry) =>
+      entry.operationKind === "discovery" &&
+      (entry.command === "grep" || entry.command === "ls-tree")
+    ) ||
+    candidateDisclosure?.preDisclosureAttestationDigest !==
+      verifierIntegrityDigest(selectedPreDisclosureInspection) ||
+    !disclosedObservations ||
+    verifierIntegrityDigest(disclosedObservations) !== independentObservationDigest ||
+    candidateDisclosure?.independentObservationDigest !== independentObservationDigest ||
+    !disclosedObservations.every((observation) =>
+      verifierCitationHasEnclosingRead(
+        selectedPreDisclosureInspection.readSet,
+        observation.evidence,
+      )
+    )
+  ) {
+    issues.push(`${label} candidate disclosure is not an exact continuation of the blind checkpoint.`);
+  }
+
+  const candidateTrace = normalizedVerifierTrace(verifierAttestation?.toolTrace);
+  const candidateReadSet = normalizedVerifierReadSet(verifierAttestation?.readSet);
+  const parsedAudit = record(verifierRun.parsedOutput);
+  const capabilityChecks = Array.isArray(parsedAudit?.capabilityChecks)
+    ? parsedAudit.capabilityChecks
+    : null;
+  const independentChecks = Array.isArray(parsedAudit?.independentObservationChecks)
+    ? parsedAudit.independentObservationChecks
+    : null;
+  const missingOperations = Array.isArray(parsedAudit?.missingOperations)
+    ? parsedAudit.missingOperations
+    : null;
+  let freshReadContractValid = candidateTrace !== null && candidateReadSet !== null &&
+    completeCandidateVerifierTrace(candidateTrace) &&
+    completeExactSourceReadSet(candidateReadSet) &&
+    verifierTraceCoversReadSet(candidateTrace, candidateReadSet) &&
+    candidateReadSet.every((read) =>
+      read.sourceId === sourceId &&
+      read.repository === repositoryName &&
+      read.commitSha === commitSha
+    ) &&
+    verifierAttestation?.postDisclosureSourceInspectionDigest ===
+      verifierIntegrityDigest({
+        sourceSearchTrace: candidateTrace,
+        readSet: candidateReadSet,
+      }) &&
+    capabilityChecks !== null && independentChecks !== null &&
+    missingOperations !== null;
+  if (freshReadContractValid) {
+    const citedOutputs = [
+      ...capabilityChecks!,
+      ...independentChecks!,
+      ...missingOperations!,
+    ];
+    const expectedObservationDigests = new Map(independentObservations.map((observation) => [
+      verifierIntegrityDigest(observation),
+      observation,
+    ]));
+    const seenObservationDigests = new Set<string>();
+    freshReadContractValid = citedOutputs.every((value) =>
+      verifierCitationHasEnclosingRead(candidateReadSet!, record(value)?.evidence)
+    ) && independentChecks!.length === expectedObservationDigests.size &&
+      independentChecks!.every((value) => {
+        const check = record(value);
+        const digest = typeof check?.observationDigest === "string"
+          ? check.observationDigest
+          : "";
+        const observation = expectedObservationDigests.get(digest);
+        const candidateCitation = record(check?.evidence);
+        const candidateEvidenceId = typeof candidateCitation?.evidenceId === "string"
+          ? candidateCitation.evidenceId
+          : null;
+        const candidateLineStart = typeof candidateCitation?.lineStart === "number"
+          ? candidateCitation.lineStart
+          : null;
+        const candidateLineEnd = typeof candidateCitation?.lineEnd === "number"
+          ? candidateCitation.lineEnd
+          : null;
+        const candidateRead = candidateReadSet!.find((read) =>
+          candidateEvidenceId !== null && candidateLineStart !== null &&
+          candidateLineEnd !== null &&
+          read.evidenceId === candidateEvidenceId &&
+          read.lineStart <= candidateLineStart &&
+          read.lineEnd >= candidateLineEnd
+        );
+        const independentRead = observation
+          ? independentReadSet.find((read) =>
+              read.evidenceId === observation.evidence.evidenceId &&
+              read.lineStart <= observation.evidence.lineStart &&
+              read.lineEnd >= observation.evidence.lineEnd
+            )
+          : null;
+        if (!digest || seenObservationDigests.has(digest)) return false;
+        seenObservationDigests.add(digest);
+        return Boolean(
+          observation && candidateRead && independentRead &&
+          candidateRead.path === independentRead.path &&
+          candidateRead.blobSha === independentRead.blobSha &&
+          candidateCitation?.lineStart === observation.evidence.lineStart &&
+          candidateCitation?.lineEnd === observation.evidence.lineEnd,
+        );
+      });
+  }
+  if (!freshReadContractValid) {
+    issues.push(`${label} candidate audit does not certify fresh representative exact-source reads.`);
+  }
+  return issues;
 }
 
 type RepositorySynthesisGenerationPhase =
@@ -1638,12 +2215,17 @@ function expectedIdentityFor(
 export function evaluateRepositoryKnowledgeMainPath(input: {
   generationRuns: readonly RepositoryKnowledgeGenerationAuditRecord[];
   expectedIdentities: Partial<Record<RepositoryKnowledgeModelGenerationKind, RepositoryKnowledgeExpectedModelIdentity>>;
+  /** Agentic investigators use the primary-answer profile, not legacy code extraction. */
+  expectedAgenticInvestigatorIdentity?: RepositoryKnowledgeExpectedModelIdentity;
   expectedSynthesisCriticIdentity?: RepositoryKnowledgeExpectedModelIdentity;
   coverage: unknown;
   orchestration: unknown;
   warnings: unknown;
 }) {
   const issues: string[] = [];
+  const orchestration = record(input.orchestration);
+  const agenticInvestigation =
+    orchestration?.executionMode === "agentic_investigator";
   const capabilitySynthesisRuns = input.generationRuns.filter((run) =>
     run.kind === "capability_synthesis"
   );
@@ -1677,7 +2259,7 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     highlightSelection: highlightSelectionRuns.length,
     highlightTitleCritic: highlightCriticRuns.length,
   };
-  if (!requiredCounts.semanticPlanning) {
+  if (!requiredCounts.semanticPlanning && !agenticInvestigation) {
     issues.push("No audited semantic planning generation ran.");
   }
   if (!requiredCounts.semanticExtraction) {
@@ -2411,7 +2993,9 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     const label = `${run.kind} generation ${index + 1}`;
     const refs = record(run.resultRefs);
     const phase = repositorySynthesisGenerationPhase(run.inputSummary);
-    const expected = run.kind === "capability_synthesis" &&
+    const expected = agenticInvestigation && run.kind === "semantic_extraction"
+      ? input.expectedAgenticInvestigatorIdentity
+      : run.kind === "capability_synthesis" &&
         (phase === "entailment_critic" || phase === "repository_highlight_critic")
       ? input.expectedSynthesisCriticIdentity ?? expectedIdentityFor(run.kind, input.expectedIdentities)
       : expectedIdentityFor(run.kind, input.expectedIdentities);
@@ -2470,7 +3054,6 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       `${deterministicSemanticPathCount} semantic path(s) used deterministic fallback analysis.`,
     );
   }
-  const orchestration = record(input.orchestration);
   const plannerFallbackAttested = typeof orchestration?.fallbackUsed === "boolean";
   const plannerFallbackUsed = orchestration?.fallbackUsed === true;
   const plannerGenerationRunId = typeof orchestration?.generationRunId === "string" &&
@@ -2478,17 +3061,150 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     ? orchestration.generationRunId.trim()
     : null;
   if (plannerFallbackUsed) {
-    issues.push("Repository semantic planning used its deterministic fallback.");
+    issues.push(agenticInvestigation
+      ? "Repository investigation used a fallback path."
+      : "Repository semantic planning used its deterministic fallback.");
   }
   if (!plannerFallbackAttested) {
-    issues.push("Repository semantic planning has no valid fallback attestation.");
+    issues.push(agenticInvestigation
+      ? "Repository investigation has no valid fallback attestation."
+      : "Repository semantic planning has no valid fallback attestation.");
   }
-  if (!plannerGenerationRunId) {
-    issues.push("Repository semantic planning has no audited generation reference.");
-  } else if (!input.generationRuns.some((run) =>
-    run.id === plannerGenerationRunId && run.kind === "execution_routing"
-  )) {
-    issues.push("Repository semantic planning does not reference its audited routing generation.");
+  if (!agenticInvestigation) {
+    if (!plannerGenerationRunId) {
+      issues.push("Repository semantic planning has no audited generation reference.");
+    } else if (!input.generationRuns.some((run) =>
+      run.id === plannerGenerationRunId && run.kind === "execution_routing"
+    )) {
+      issues.push("Repository semantic planning does not reference its audited routing generation.");
+    }
+  } else {
+    const repositories = Array.isArray(orchestration?.repositories)
+      ? orchestration.repositories.flatMap((value) => {
+          const repository = record(value);
+          return repository ? [repository] : [];
+        })
+      : [];
+    if (!repositories.length) {
+      issues.push("Agentic repository investigation attests no repository results.");
+    }
+    for (const repository of repositories) {
+      const label = typeof repository.repository === "string"
+        ? repository.repository
+        : "an investigated repository";
+      issues.push(...repositoryVerifierTwoPhaseIntegrityIssues({
+        repositoryAttestation: repository,
+        generationRuns: input.generationRuns,
+      }));
+      const investigatorIds = Array.isArray(repository.investigatorGenerationRunIds)
+        ? repository.investigatorGenerationRunIds.filter(
+            (value): value is string => typeof value === "string" && value.length > 0,
+          )
+        : [];
+      if (!investigatorIds.length) {
+        issues.push(`${label} has no audited investigator generation reference.`);
+      }
+      for (const generationRunId of investigatorIds) {
+        const matches = input.generationRuns.filter((run) =>
+          run.id === generationRunId && run.kind === "semantic_extraction"
+        );
+        if (matches.length !== 1) {
+          issues.push(`${label} does not resolve investigator generation ${generationRunId} exactly once.`);
+          continue;
+        }
+        const run = matches[0]!;
+        const parsed = record(run.parsedOutput);
+        const attestation = record(record(run.resultRefs)?.resultAttestation);
+        const terminationReason = attestation?.terminationReason;
+        const validTermination = [
+          "investigator_done",
+          "investigator_checkpoint_yield",
+          "agent_phase_budget_exhausted",
+          "shared_budget_exhausted",
+        ].includes(String(terminationReason));
+        const terminalNotebook = terminationReason === "investigator_done";
+        if (
+          attestation?.executionMode !== "agentic_investigator" ||
+          attestation?.fallbackUsed !== false ||
+          !validTermination ||
+          typeof attestation?.snapshotScopeDigest !== "string" ||
+          typeof attestation?.notebookDigest !== "string" ||
+          parsed?.notebookDigest !== attestation.notebookDigest ||
+          parsed?.done !== terminalNotebook ||
+          !Array.isArray(attestation?.toolTrace) ||
+          attestation.toolTrace.length === 0 ||
+          !Array.isArray(attestation?.readSet) ||
+          attestation.readSet.length === 0
+        ) {
+          issues.push(`${label} investigator generation ${generationRunId} lacks a complete source-inspection attestation.`);
+        }
+        if (
+          typeof repository.snapshotScopeDigest === "string" &&
+          attestation?.snapshotScopeDigest !== repository.snapshotScopeDigest
+        ) {
+          issues.push(`${label} investigator generation ${generationRunId} is bound to a different snapshot scope.`);
+        }
+      }
+      const finalInvestigator = investigatorIds.length
+        ? input.generationRuns.find((run) =>
+            run.id === investigatorIds[investigatorIds.length - 1] &&
+            run.kind === "semantic_extraction"
+          )
+        : null;
+      const finalInvestigatorParsed = record(finalInvestigator?.parsedOutput);
+      const finalInvestigatorAttestation = record(
+        record(finalInvestigator?.resultRefs)?.resultAttestation,
+      );
+      if (
+        !sha256Digest(repository.notebookDigest) ||
+        finalInvestigatorAttestation?.terminationReason !== "investigator_done" ||
+        finalInvestigatorParsed?.done !== true ||
+        finalInvestigatorParsed?.notebookDigest !== repository.notebookDigest ||
+        finalInvestigatorAttestation?.notebookDigest !== repository.notebookDigest
+      ) {
+        issues.push(`${label} has no terminal investigator generation matching its final notebook.`);
+      }
+      const verifierGenerationRunId = typeof repository.verifierGenerationRunId === "string"
+        ? repository.verifierGenerationRunId
+        : null;
+      const verifier = verifierGenerationRunId
+        ? input.generationRuns.find((run) =>
+            run.id === verifierGenerationRunId && run.kind === "coverage_audit"
+          )
+        : null;
+      const verifierAttestation = record(record(verifier?.resultRefs)?.resultAttestation);
+      const verifierInputNotebookDigest = sha256Digest(repository.verifierInputNotebookDigest)
+        ? repository.verifierInputNotebookDigest
+        : null;
+      const verifierTerminationReason = verifierAttestation?.terminationReason;
+      const validVerifierTermination = verifierTerminationReason === "verifier_complete" ||
+        verifierTerminationReason === "verifier_phase_budget_exhausted" ||
+        verifierTerminationReason === "shared_budget_exhausted";
+      if (
+        !verifier ||
+        !verifierInputNotebookDigest ||
+        verifierInputNotebookDigest !== repository.notebookDigest ||
+        verifierAttestation?.executionMode !== "agentic_investigator_verifier" ||
+        verifierAttestation?.fallbackUsed !== false ||
+        !validVerifierTermination ||
+        !sha256Digest(repository.snapshotScopeDigest) ||
+        verifierAttestation?.snapshotScopeDigest !== repository.snapshotScopeDigest ||
+        verifierAttestation?.notebookDigest !== verifierInputNotebookDigest ||
+        !sha256Digest(repository.verifierDigest) ||
+        verifierAttestation.auditDigest !== repository.verifierDigest ||
+        !completeCandidateVerifierTrace(verifierAttestation?.toolTrace) ||
+        !completeExactSourceReadSet(verifierAttestation?.readSet) ||
+        !verifierTraceCoversReadSet(
+          verifierAttestation?.toolTrace,
+          verifierAttestation?.readSet,
+        )
+      ) {
+        issues.push(`${label} has no matching independently audited coverage generation.`);
+      }
+      if (validVerifierTermination && verifierTerminationReason !== "verifier_complete") {
+        issues.push(`${label} coverage verification ended at ${verifierTerminationReason}.`);
+      }
+    }
   }
   const warningText = strings(input.warnings).join("\n");
   const deterministicSynthesis = /used deterministic subsystem synthesis|finalized deterministically/iu
@@ -2514,6 +3230,7 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       providerAttemptCount,
       schemaRepairRunCount,
       deterministicSemanticPathCount,
+      ...(agenticInvestigation ? { agenticInvestigation: true } : {}),
       plannerFallbackAttested,
       plannerFallbackUsed,
       deterministicSynthesis,

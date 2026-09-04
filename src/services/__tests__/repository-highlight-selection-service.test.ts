@@ -45,6 +45,7 @@ function notebook(index: number, overrides: Partial<SynthesisNotebookEntry> = {}
     implementationBreadth: 3,
     technicalDifficulty: 3,
     changeType: "unchanged",
+    knowledgeRole: "implementation",
     semanticStatus: "succeeded",
     semanticKind: "user_capability",
     semanticSignals: [`product_surface.feature_${index}`],
@@ -113,6 +114,36 @@ describe("repository-wide Highlight selection", () => {
       factIndex,
     }))).toEqual([{ candidateId: "HC1", factIndex: 0 }]);
     expect(repositoryHighlightCandidates(synthesis(1, { approvalEligible: false }))).toEqual([]);
+  });
+
+  it("keeps limitation-only facts out of the Highlight candidate pool", () => {
+    const input = synthesis(1);
+    input[0]!.notebook[0] = notebook(1, {
+      knowledgeRole: "limitation",
+      semanticSignals: ["limitation"],
+    });
+
+    expect(repositoryHighlightCandidates(input)).toEqual([]);
+  });
+
+  it("fails closed when source-inspected state conflicts with an implementation role", () => {
+    const input = synthesis(2);
+    input[0]!.notebook[0] = notebook(1, {
+      implementationState: "planned",
+      knowledgeRole: "implementation",
+      semanticSignals: ["implementation_state:planned"],
+    });
+    input[0]!.notebook[1] = notebook(2, {
+      implementationState: "implemented",
+      knowledgeRole: "implementation",
+    });
+    // A mixed-state citation set must also stay out of the promotion lane.
+    input[0]!.facts[1] = {
+      ...input[0]!.facts[1]!,
+      citationIndexes: [1, 2],
+    };
+
+    expect(repositoryHighlightCandidates(input)).toEqual([]);
   });
 
   it("keeps candidate references distinct across sibling operation communities", () => {

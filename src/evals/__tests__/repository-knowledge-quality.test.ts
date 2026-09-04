@@ -2045,4 +2045,23 @@ describe("generalized repository knowledge evaluation", () => {
       runs: [{ ...run, unexpected: true }],
     })).toThrow();
   });
+
+  it("parses partial and bounded-absence states without coercing them", () => {
+    const fixture = repositoryKnowledgeFixture("circlefund-fintech")!;
+    const run = representativeRun(fixture);
+    const states = ["partial", "bounded_absence"] as const;
+    const items = run.items.map((item, index) => ({
+      ...item,
+      ...(states[index] ? { claimState: states[index] } : {}),
+    }));
+
+    const [parsed] = parseRepositoryKnowledgeEvaluationRuns({
+      runs: [{ ...run, items }],
+    });
+
+    expect(parsed?.items.slice(0, 2).map((item) => item.claimState)).toEqual([
+      "partial",
+      "bounded_absence",
+    ]);
+  });
 });

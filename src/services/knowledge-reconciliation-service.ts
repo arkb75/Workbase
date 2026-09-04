@@ -10,6 +10,11 @@ import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import {
+  buildRepositoryKnowledgeMetadata,
+  parseRepositoryKnowledgeMetadata,
+  type RepositoryKnowledgeMetadata,
+} from "@/src/domain/repository-knowledge";
+import {
   recordAutoResolvedKnowledgeChanges,
   recordAutoResolvedKnowledgeChangesInTransaction,
   upsertReviewableKnowledgeChange,
@@ -33,6 +38,7 @@ import {
 } from "@/src/services/repository-coverage-service";
 import {
   materializeSynthesisCitations,
+  repositoryKnowledgeRole,
   synthesisNotebookReferenceKey,
   synthesizeRepositoryKnowledge,
   type SynthesizedKnowledge,
@@ -282,6 +288,125 @@ export function allowsCanonicalKnowledgeReplacement(qualityStatus: unknown) {
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function repositoryClaimMetadata(input: {
+  runId: string;
+  subsystem: Pick<SynthesizedKnowledge, "subsystemKey" | "synthesisKey">;
+  sourceEntries: readonly SynthesisNotebookEntry[];
+}): RepositoryKnowledgeMetadata {
+  return buildRepositoryKnowledgeMetadata({
+    refreshRunId: input.runId,
+    subsystemKey: input.subsystem.subsystemKey,
+    synthesisKey: input.subsystem.synthesisKey ?? null,
+    sources: input.sourceEntries.map((entry) => ({
+      sourceId: entry.sourceId,
+      knowledgeRole: repositoryKnowledgeRole(entry),
+      implementationState: entry.implementationState,
+      operationKey: entry.operationKey,
+      operationFacet: entry.operationFacet,
+    })),
+  });
+}
+
+function mergeRepositoryClaimMetadata(
+  current: unknown,
+  repositoryMetadata: RepositoryKnowledgeMetadata,
+) {
+  const currentRecord = current && typeof current === "object" && !Array.isArray(current)
+    ? current as Record<string, unknown>
+    : {};
+  return toInputJson({ ...currentRecord, ...repositoryMetadata });
+}
+
+function repositoryClaimMetadataDigest(metadata: RepositoryKnowledgeMetadata) {
+  return hash(JSON.stringify({
+    schemaVersion: metadata.schemaVersion,
+    managedBy: metadata.managedBy,
+    sourceIds: metadata.sourceIds,
+    subsystemKey: metadata.subsystemKey,
+    synthesisKey: metadata.synthesisKey,
+    knowledgeRoles: metadata.knowledgeRoles,
+    implementationStates: metadata.implementationStates,
+    operationKeys: metadata.operationKeys,
+    operationFacets: metadata.operationFacets,
+  })).slice(0, 16);
+}
+
+function stringSetsOverlap(left: readonly string[], right: readonly string[]) {
+  const rightValues = new Set(right);
+  return left.some((value) => rightValues.has(value));
+}
+
+export type RepositoryKnowledgeIdentityRelation =
+  | "same_operation"
+  | "compatible_legacy"
+  | "different";
+
+/**
+ * Compare stable repository semantics before using lexical similarity.
+ * Evidence-derived source IDs let early v1 rows (which omitted sourceIds)
+ * recover safely without allowing two attached repositories that use the same
+ * subsystem or operation label to overwrite one another.
+ */
+export function repositoryKnowledgeIdentityRelation(input: {
+  priorMetadata: unknown;
+  candidateMetadata: RepositoryKnowledgeMetadata;
+  priorEvidenceSourceIds?: readonly string[];
+}): RepositoryKnowledgeIdentityRelation {
+  const prior = parseRepositoryKnowledgeMetadata(input.priorMetadata);
+  const priorSourceIds = prior?.sourceIds.length
+    ? prior.sourceIds
+    : Array.from(new Set(input.priorEvidenceSourceIds ?? []));
+  const candidateSourceIds = input.candidateMetadata.sourceIds;
+  if (
+    priorSourceIds.length &&
+    candidateSourceIds.length &&
+    !stringSetsOverlap(priorSourceIds, candidateSourceIds)
+  ) return "different";
+
+  if (!prior) return "compatible_legacy";
+
+  if (prior.operationKeys.length && input.candidateMetadata.operationKeys.length) {
+    return stringSetsOverlap(
+      prior.operationKeys,
+      input.candidateMetadata.operationKeys,
+    )
+      ? "same_operation"
+      : "different";
+  }
+  if (
+    prior.synthesisKey &&
+    input.candidateMetadata.synthesisKey &&
+    prior.synthesisKey === input.candidateMetadata.synthesisKey
+  ) return "same_operation";
+  return "compatible_legacy";
+}
+
+/** Unknown legacy state may be upgraded, but an explicit state/role change is
+ * a new semantic revision and must not be revalidated in place. */
+export function repositoryKnowledgeStateMatches(input: {
+  priorMetadata: unknown;
+  candidateMetadata: RepositoryKnowledgeMetadata;
+}) {
+  const prior = parseRepositoryKnowledgeMetadata(input.priorMetadata);
+  if (!prior) return true;
+  if (
+    prior.implementationStates.length &&
+    input.candidateMetadata.implementationStates.length
+  ) {
+    if (
+      JSON.stringify(prior.implementationStates) !==
+        JSON.stringify(input.candidateMetadata.implementationStates)
+    ) return false;
+  }
+  if (prior.knowledgeRoles.length && input.candidateMetadata.knowledgeRoles.length) {
+    if (
+      JSON.stringify(prior.knowledgeRoles) !==
+        JSON.stringify(input.candidateMetadata.knowledgeRoles)
+    ) return false;
+  }
+  return true;
 }
 
 function stringArray(value: unknown) {
@@ -778,6 +903,7 @@ type ProjectFactReconciliationSnapshot = {
   lifecycleStatus: string;
   reviewState: string;
   approvalSource: string;
+  metadata?: unknown;
   supersedesProjectFactId?: string | null;
   updatedAt?: Date;
 };
@@ -841,20 +967,33 @@ export function hasPromotedReconciliationEvidence(evidenceIds: string[]) {
 
 function closestProjectFact(input: {
   candidate: SynthesizedKnowledge["facts"][number];
+  candidateMetadata: RepositoryKnowledgeMetadata;
   subsystemKey: string;
   existing: ExistingProjectFactForReconciliation[];
 }) {
   return input.existing
+    .filter((fact) => {
+      const identity = repositoryKnowledgeIdentityRelation({
+        priorMetadata: fact.metadata,
+        candidateMetadata: input.candidateMetadata,
+        priorEvidenceSourceIds: fact.evidence.map((entry) =>
+          entry.evidenceItem.sourceId
+        ),
+      });
+      return identity === "same_operation" ||
+        (identity === "compatible_legacy" &&
+          fact.subsystemKey === input.subsystemKey);
+    })
     .map((fact) => ({
       fact,
       score: knowledgeSimilarity(input.candidate.statement, fact.statement),
     }))
-    .sort((left, right) => right.score - left.score)
-    .find((entry) => entry.fact.subsystemKey === input.subsystemKey) ?? null;
+    .sort((left, right) => right.score - left.score)[0] ?? null;
 }
 
 function closestHighlight(input: {
   text: string;
+  candidateMetadata: RepositoryKnowledgeMetadata;
   subsystemKey: string;
   existing: ExistingHighlightForReconciliation[];
 }) {
@@ -865,9 +1004,17 @@ function closestHighlight(input: {
         !Array.isArray(highlight.metadata)
         ? highlight.metadata as Record<string, unknown>
         : null;
-      return repositoryMayReconcileHighlight(highlight)
-        ? metadata?.subsystemKey === input.subsystemKey
-        : true;
+      if (!repositoryMayReconcileHighlight(highlight)) return true;
+      const identity = repositoryKnowledgeIdentityRelation({
+        priorMetadata: highlight.metadata,
+        candidateMetadata: input.candidateMetadata,
+        priorEvidenceSourceIds: highlight.evidence.map((entry) =>
+          entry.evidenceItem.sourceId
+        ),
+      });
+      return identity === "same_operation" ||
+        (identity === "compatible_legacy" &&
+          metadata?.subsystemKey === input.subsystemKey);
     })
     .map((highlight) => ({
       highlight,
@@ -893,6 +1040,15 @@ export function projectFactReconciliationCasWhere(
     lifecycleStatus: fact.lifecycleStatus as Prisma.EnumKnowledgeLifecycleStatusFilter,
     reviewState: fact.reviewState as Prisma.EnumKnowledgeReviewStateFilter,
     approvalSource: fact.approvalSource as Prisma.EnumKnowledgeApprovalSourceFilter,
+    ...(fact.metadata !== undefined
+      ? {
+          metadata: {
+            equals: fact.metadata === null
+              ? Prisma.DbNull
+              : fact.metadata as Prisma.InputJsonValue,
+          },
+        }
+      : {}),
     supersedesProjectFactId: fact.supersedesProjectFactId ?? null,
     ...(fact.updatedAt ? { updatedAt: fact.updatedAt } : {}),
   };
@@ -937,6 +1093,7 @@ export async function applyFact(input: {
   enqueueEmbedding?: (task: KnowledgeEmbeddingTask) => void;
 }) {
   if (!hasPromotedReconciliationEvidence(input.evidenceIds)) return null;
+  const metadata = repositoryClaimMetadata(input);
   const existing = await prisma.projectFact.findMany({
     where: {
       workItemId: input.workItemId,
@@ -946,6 +1103,7 @@ export async function applyFact(input: {
   });
   const closest = closestProjectFact({
     candidate: input.candidate,
+    candidateMetadata: metadata,
     subsystemKey: input.subsystem.subsystemKey,
     existing,
   });
@@ -954,9 +1112,16 @@ export async function applyFact(input: {
     candidate: input.candidate,
     sources: input.sourceEntries,
   });
-  const exact = closest && closest.score >= 0.9 && normalizeWhitespace(closest.fact.statement).toLowerCase() === normalizeWhitespace(input.candidate.statement).toLowerCase();
+  const stateMatches = closest
+    ? repositoryKnowledgeStateMatches({
+        priorMetadata: closest.fact.metadata,
+        candidateMetadata: metadata,
+      })
+    : false;
+  const exact = closest && stateMatches && closest.score >= 0.9 && normalizeWhitespace(closest.fact.statement).toLowerCase() === normalizeWhitespace(input.candidate.statement).toLowerCase();
   const validatesUserEdit = Boolean(
     closest &&
+    stateMatches &&
     closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD &&
     closest.fact.approvalSource === "user" &&
     closest.fact.lifecycleStatus === "needs_validation" &&
@@ -981,6 +1146,8 @@ export async function applyFact(input: {
           validationHeads: toInputJson(input.validationHeads),
           autoAppliedAt: validatedAt,
           rejectionReason: null,
+          metadata: toInputJson(metadata),
+          subsystemKey: input.subsystem.subsystemKey,
           productImportance: input.candidate.productImportance,
           implementationBreadth: input.candidate.implementationBreadth,
           technicalDifficulty: input.candidate.technicalDifficulty,
@@ -999,48 +1166,53 @@ export async function applyFact(input: {
       await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
       await recordAutoResolvedKnowledgeChangesInTransaction([
         reconciliationKnowledgeChangeInput({
-        workItemId: input.workItemId,
-        refreshRunId: input.runId,
-        entityKind: "project_fact",
-        action: "revalidated",
-        entityId: closest.fact.id,
-        beforeSnapshot: {
-          id: closest.fact.id,
-          statement: closest.fact.statement,
-          status: closest.fact.status,
-          lifecycleStatus: closest.fact.lifecycleStatus,
-          reviewState: closest.fact.reviewState,
-          approvalSource: closest.fact.approvalSource,
-          publicSafetyStatus: closest.fact.publicSafetyStatus,
-          validatedThroughSha: closest.fact.validatedThroughSha,
-          validationHeads: closest.fact.validationHeads,
-          lastValidatedAt: closest.fact.lastValidatedAt,
-          autoAppliedAt: closest.fact.autoAppliedAt,
-          evidenceItemIds: closest.fact.evidence.map((entry) => entry.evidenceItemId),
-        },
-        afterSnapshot: {
-          id: closest.fact.id,
-          statement: closest.fact.statement,
-          status: "approved",
-          lifecycleStatus: "active",
-          reviewState: closest.fact.reviewState,
-          approvalSource: closest.fact.approvalSource,
-          publicSafetyStatus: closest.fact.publicSafetyStatus,
-          validatedThroughSha: input.commitSha,
-          validationHeads: input.validationHeads,
-          lastValidatedAt: validatedAt,
-          autoAppliedAt: validatedAt,
-          evidenceItemIds: input.evidenceIds,
-        },
-        reason: validatesUserEdit
-          ? "Current repository evidence revalidated the user-edited Project Fact without replacing its wording."
-          : "Current repository evidence revalidated this Project Fact.",
-        provenance: {
-          evidenceIds: input.evidenceIds,
-          commitSha: input.commitSha,
-          preservedUserEdit: validatesUserEdit,
-        },
-          suffix: `${closest.fact.id}:${input.commitSha}`,
+          workItemId: input.workItemId,
+          refreshRunId: input.runId,
+          entityKind: "project_fact",
+          action: "revalidated",
+          entityId: closest.fact.id,
+          beforeSnapshot: {
+            id: closest.fact.id,
+            statement: closest.fact.statement,
+            status: closest.fact.status,
+            lifecycleStatus: closest.fact.lifecycleStatus,
+            reviewState: closest.fact.reviewState,
+            approvalSource: closest.fact.approvalSource,
+            metadata: closest.fact.metadata,
+            subsystemKey: closest.fact.subsystemKey,
+            publicSafetyStatus: closest.fact.publicSafetyStatus,
+            validatedThroughSha: closest.fact.validatedThroughSha,
+            validationHeads: closest.fact.validationHeads,
+            lastValidatedAt: closest.fact.lastValidatedAt,
+            autoAppliedAt: closest.fact.autoAppliedAt,
+            evidenceItemIds: closest.fact.evidence.map((entry) => entry.evidenceItemId),
+          },
+          afterSnapshot: {
+            id: closest.fact.id,
+            statement: closest.fact.statement,
+            status: "approved",
+            lifecycleStatus: "active",
+            reviewState: closest.fact.reviewState,
+            approvalSource: closest.fact.approvalSource,
+            metadata,
+            subsystemKey: input.subsystem.subsystemKey,
+            publicSafetyStatus: closest.fact.publicSafetyStatus,
+            validatedThroughSha: input.commitSha,
+            validationHeads: input.validationHeads,
+            lastValidatedAt: validatedAt,
+            autoAppliedAt: validatedAt,
+            evidenceItemIds: input.evidenceIds,
+          },
+          reason: validatesUserEdit
+            ? "Current repository evidence revalidated the user-edited Project Fact without replacing its wording."
+            : "Current repository evidence revalidated this Project Fact.",
+          provenance: {
+            evidenceIds: input.evidenceIds,
+            commitSha: input.commitSha,
+            preservedUserEdit: validatesUserEdit,
+            repositoryKnowledge: metadata,
+          },
+          suffix: `${closest.fact.id}:${input.commitSha}:${repositoryClaimMetadataDigest(metadata)}`,
         }),
       ], tx);
       return true;
@@ -1107,6 +1279,7 @@ async function applyHighlight(input: {
   enqueueEmbedding?: (task: KnowledgeEmbeddingTask) => void;
 }) {
   if (!hasPromotedReconciliationEvidence(input.evidenceIds)) return null;
+  const repositoryMetadata = repositoryClaimMetadata(input);
   const unsafe = isSynthesizedCandidateUnsafe({
     approvalEligible: input.subsystem.approvalEligible,
     candidate: input.candidate,
@@ -1125,16 +1298,25 @@ async function applyHighlight(input: {
   });
   const closest = closestHighlight({
     text,
+    candidateMetadata: repositoryMetadata,
     subsystemKey: input.subsystem.subsystemKey,
     existing,
   });
+  const stateMatches = closest
+    ? repositoryKnowledgeStateMatches({
+        priorMetadata: closest.highlight.metadata,
+        candidateMetadata: repositoryMetadata,
+      })
+    : false;
   const exact = Boolean(
     closest &&
+    stateMatches &&
     closest.score >= 0.9 &&
     normalizeWhitespace(closest.highlight.text).toLowerCase() === normalizeWhitespace(text).toLowerCase(),
   );
   const validatesUserEdit = Boolean(
     closest &&
+    stateMatches &&
     closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD &&
     closest.highlight.approvalSource === "user" &&
     closest.highlight.lifecycleStatus === "needs_validation" &&
@@ -1159,6 +1341,10 @@ async function applyHighlight(input: {
     closest &&
     ownershipDecision === "repository_reconcile"
   ) {
+    const metadata = mergeRepositoryClaimMetadata(
+      closest.highlight.metadata,
+      repositoryMetadata,
+    );
     const applied = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
       const validatedAt = new Date();
       const claimed = await tx.highlight.updateMany({
@@ -1172,6 +1358,7 @@ async function applyHighlight(input: {
           validationHeads: toInputJson(input.validationHeads),
           autoAppliedAt: validatedAt,
           rejectionReason: null,
+          metadata,
         },
       });
       if (claimed.count !== 1) return false;
@@ -1186,48 +1373,51 @@ async function applyHighlight(input: {
       await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
       await recordAutoResolvedKnowledgeChangesInTransaction([
         reconciliationKnowledgeChangeInput({
-        workItemId: input.workItemId,
-        refreshRunId: input.runId,
-        entityKind: "highlight",
-        action: "revalidated",
-        entityId: closest.highlight.id,
-        beforeSnapshot: {
-          id: closest.highlight.id,
-          text: closest.highlight.text,
-          verificationStatus: closest.highlight.verificationStatus,
-          lifecycleStatus: closest.highlight.lifecycleStatus,
-          reviewState: closest.highlight.reviewState,
-          approvalSource: closest.highlight.approvalSource,
-          publicSafetyStatus: closest.highlight.publicSafetyStatus,
-          validatedThroughSha: closest.highlight.validatedThroughSha,
-          validationHeads: closest.highlight.validationHeads,
-          lastValidatedAt: closest.highlight.lastValidatedAt,
-          autoAppliedAt: closest.highlight.autoAppliedAt,
-          evidenceItemIds: closest.highlight.evidence.map((entry) => entry.evidenceItemId),
-        },
-        afterSnapshot: {
-          id: closest.highlight.id,
-          text: closest.highlight.text,
-          verificationStatus: "approved",
-          lifecycleStatus: "active",
-          reviewState: closest.highlight.reviewState,
-          approvalSource: closest.highlight.approvalSource,
-          publicSafetyStatus: closest.highlight.publicSafetyStatus,
-          validatedThroughSha: input.commitSha,
-          validationHeads: input.validationHeads,
-          lastValidatedAt: validatedAt,
-          autoAppliedAt: validatedAt,
-          evidenceItemIds: input.evidenceIds,
-        },
-        reason: validatesUserEdit
-          ? "Current repository evidence revalidated the user-edited Highlight without replacing its wording."
-          : "Current repository evidence revalidated this Highlight.",
-        provenance: {
-          evidenceIds: input.evidenceIds,
-          commitSha: input.commitSha,
-          preservedUserEdit: validatesUserEdit,
-        },
-          suffix: `${closest.highlight.id}:${input.commitSha}`,
+          workItemId: input.workItemId,
+          refreshRunId: input.runId,
+          entityKind: "highlight",
+          action: "revalidated",
+          entityId: closest.highlight.id,
+          beforeSnapshot: {
+            id: closest.highlight.id,
+            text: closest.highlight.text,
+            verificationStatus: closest.highlight.verificationStatus,
+            lifecycleStatus: closest.highlight.lifecycleStatus,
+            reviewState: closest.highlight.reviewState,
+            approvalSource: closest.highlight.approvalSource,
+            metadata: closest.highlight.metadata,
+            publicSafetyStatus: closest.highlight.publicSafetyStatus,
+            validatedThroughSha: closest.highlight.validatedThroughSha,
+            validationHeads: closest.highlight.validationHeads,
+            lastValidatedAt: closest.highlight.lastValidatedAt,
+            autoAppliedAt: closest.highlight.autoAppliedAt,
+            evidenceItemIds: closest.highlight.evidence.map((entry) => entry.evidenceItemId),
+          },
+          afterSnapshot: {
+            id: closest.highlight.id,
+            text: closest.highlight.text,
+            verificationStatus: "approved",
+            lifecycleStatus: "active",
+            reviewState: closest.highlight.reviewState,
+            approvalSource: closest.highlight.approvalSource,
+            metadata,
+            publicSafetyStatus: closest.highlight.publicSafetyStatus,
+            validatedThroughSha: input.commitSha,
+            validationHeads: input.validationHeads,
+            lastValidatedAt: validatedAt,
+            autoAppliedAt: validatedAt,
+            evidenceItemIds: input.evidenceIds,
+          },
+          reason: validatesUserEdit
+            ? "Current repository evidence revalidated the user-edited Highlight without replacing its wording."
+            : "Current repository evidence revalidated this Highlight.",
+          provenance: {
+            evidenceIds: input.evidenceIds,
+            commitSha: input.commitSha,
+            preservedUserEdit: validatesUserEdit,
+            repositoryKnowledge: repositoryMetadata,
+          },
+          suffix: `${closest.highlight.id}:${input.commitSha}:${repositoryClaimMetadataDigest(repositoryMetadata)}`,
         }),
       ], tx);
       return true;
@@ -1354,6 +1544,7 @@ function newProjectFactPlan(
 ) {
   const id = randomUUID();
   const validatedAt = new Date();
+  const metadata = repositoryClaimMetadata(input);
   const data = {
     id,
     workItemId: input.workItemId,
@@ -1367,6 +1558,7 @@ function newProjectFactPlan(
     publicSafetyStatus: "not_eligible" as const,
     sensitivityFlag: input.candidate.sensitivityFlag,
     reviewNotes: input.candidate.reviewNotes,
+    metadata: toInputJson(metadata),
     searchText: normalizeWhitespace([
       input.candidate.statement,
       input.candidate.category,
@@ -1397,6 +1589,7 @@ function newProjectFactPlan(
       statement: data.statement,
       category: data.category,
       confidence: data.confidence,
+      metadata,
       lifecycleStatus: data.lifecycleStatus,
     },
     reason: options.unsafe
@@ -1408,11 +1601,12 @@ function newProjectFactPlan(
       evidenceIds: input.evidenceIds,
       commitSha: input.commitSha,
       subsystemKey: input.subsystem.subsystemKey,
+      repositoryKnowledge: metadata,
     },
     suffix: `${repositoryKnowledgeChangeScopeDigest(
       input.subsystem,
       data.statement,
-    )}:${input.commitSha}`,
+    )}:${input.commitSha}:${repositoryClaimMetadataDigest(metadata)}`,
   });
   const embeddingTask: KnowledgeEmbeddingTask = {
     entityKind: "project_fact",
@@ -1459,6 +1653,7 @@ function newHighlightPlan(
   const id = randomUUID();
   const validatedAt = new Date();
   const presentation = options.presentation ?? newHighlightPresentation(input, options.unsafe);
+  const repositoryMetadata = repositoryClaimMetadata(input);
   const data = {
     id,
     workItemId: input.workItemId,
@@ -1487,9 +1682,7 @@ function newHighlightPlan(
     risksSummary: presentation.publicVerification.reasons.join(" ").slice(0, 1_000) || null,
     verificationNotes: presentation.verificationNotes,
     metadata: toInputJson({
-      managedBy: "repository_knowledge_sync",
-      refreshRunId: input.runId,
-      subsystemKey: input.subsystem.subsystemKey,
+      ...repositoryMetadata,
       scores: {
         productImportance: input.candidate.productImportance,
         implementationBreadth: input.candidate.implementationBreadth,
@@ -1517,6 +1710,7 @@ function newHighlightPlan(
       id,
       text: data.text,
       summary: data.summary,
+      metadata: data.metadata,
       lifecycleStatus: data.lifecycleStatus,
       publicSafetyStatus: data.publicSafetyStatus,
     },
@@ -1529,11 +1723,12 @@ function newHighlightPlan(
       evidenceIds: input.evidenceIds,
       commitSha: input.commitSha,
       subsystemKey: input.subsystem.subsystemKey,
+      repositoryKnowledge: repositoryMetadata,
     },
     suffix: `${repositoryKnowledgeChangeScopeDigest(
       input.subsystem,
       data.text,
-    )}:${input.commitSha}`,
+    )}:${input.commitSha}:${repositoryClaimMetadataDigest(repositoryMetadata)}`,
   });
   const embeddingTask: KnowledgeEmbeddingTask = {
     entityKind: "highlight",
@@ -1789,11 +1984,23 @@ export async function revalidateExistingKnowledge(input: {
   const claimedHighlightIds = new Set<string>();
   const factMatches = input.facts.flatMap((entry) => {
     if (!hasPromotedReconciliationEvidence(entry.evidenceIds)) return [];
+    const candidateMetadata = repositoryClaimMetadata({
+      runId: input.runId,
+      subsystem: entry.subsystem,
+      sourceEntries: entry.sourceEntries,
+    });
     const closest = closestProjectFact({
       candidate: entry.candidate,
+      candidateMetadata,
       subsystemKey: entry.subsystem.subsystemKey,
       existing: input.existingFacts,
     });
+    const stateMatches = closest
+      ? repositoryKnowledgeStateMatches({
+          priorMetadata: closest.fact.metadata,
+          candidateMetadata,
+        })
+      : false;
     const unsafe = isSynthesizedCandidateUnsafe({
       approvalEligible: entry.subsystem.approvalEligible,
       candidate: entry.candidate,
@@ -1801,12 +2008,14 @@ export async function revalidateExistingKnowledge(input: {
     });
     const exact = Boolean(
       closest &&
+      stateMatches &&
       closest.score >= 0.9 &&
       normalizeWhitespace(closest.fact.statement).toLowerCase() ===
         normalizeWhitespace(entry.candidate.statement).toLowerCase(),
     );
     const validatesUserEdit = Boolean(
       closest &&
+      stateMatches &&
       closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD &&
       closest.fact.approvalSource === "user" &&
       closest.fact.lifecycleStatus === "needs_validation" &&
@@ -1827,6 +2036,11 @@ export async function revalidateExistingKnowledge(input: {
   });
   const highlightMatches = input.highlights.flatMap((entry) => {
     if (!hasPromotedReconciliationEvidence(entry.evidenceIds)) return [];
+    const candidateMetadata = repositoryClaimMetadata({
+      runId: input.runId,
+      subsystem: entry.subsystem,
+      sourceEntries: entry.sourceEntries,
+    });
     const unsafe = isSynthesizedCandidateUnsafe({
       approvalEligible: entry.subsystem.approvalEligible,
       candidate: entry.candidate,
@@ -1838,17 +2052,26 @@ export async function revalidateExistingKnowledge(input: {
       : entry.candidate.text;
     const closest = closestHighlight({
       text,
+      candidateMetadata,
       subsystemKey: entry.subsystem.subsystemKey,
       existing: input.existingHighlights,
     });
+    const stateMatches = closest
+      ? repositoryKnowledgeStateMatches({
+          priorMetadata: closest.highlight.metadata,
+          candidateMetadata,
+        })
+      : false;
     const exact = Boolean(
       closest &&
+      stateMatches &&
       closest.score >= 0.9 &&
       normalizeWhitespace(closest.highlight.text).toLowerCase() ===
         normalizeWhitespace(text).toLowerCase(),
     );
     const validatesUserEdit = Boolean(
       closest &&
+      stateMatches &&
       closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD &&
       closest.highlight.approvalSource === "user" &&
       closest.highlight.lifecycleStatus === "needs_validation" &&
@@ -1891,6 +2114,11 @@ export async function revalidateExistingKnowledge(input: {
     const highlightEvidenceRows: Array<{ highlightId: string; evidenceItemId: string }> = [];
 
     for (const { entry, closest, validatesUserEdit } of factMatches) {
+      const metadata = repositoryClaimMetadata({
+        runId: input.runId,
+        subsystem: entry.subsystem,
+        sourceEntries: entry.sourceEntries,
+      });
       const claimed = await tx.projectFact.updateMany({
         where: projectFactReconciliationCasWhere(closest.fact),
         data: {
@@ -1902,6 +2130,8 @@ export async function revalidateExistingKnowledge(input: {
           validationHeads: toInputJson(entry.validationHeads),
           autoAppliedAt: validatedAt,
           rejectionReason: null,
+          metadata: toInputJson(metadata),
+          subsystemKey: entry.subsystem.subsystemKey,
           productImportance: entry.candidate.productImportance,
           implementationBreadth: entry.candidate.implementationBreadth,
           technicalDifficulty: entry.candidate.technicalDifficulty,
@@ -1927,6 +2157,8 @@ export async function revalidateExistingKnowledge(input: {
           lifecycleStatus: closest.fact.lifecycleStatus,
           reviewState: closest.fact.reviewState,
           approvalSource: closest.fact.approvalSource,
+          metadata: closest.fact.metadata,
+          subsystemKey: closest.fact.subsystemKey,
           validatedThroughSha: closest.fact.validatedThroughSha,
         },
         afterSnapshot: {
@@ -1936,6 +2168,8 @@ export async function revalidateExistingKnowledge(input: {
           lifecycleStatus: "active",
           reviewState: closest.fact.reviewState,
           approvalSource: closest.fact.approvalSource,
+          metadata,
+          subsystemKey: entry.subsystem.subsystemKey,
           validatedThroughSha: entry.commitSha,
         },
         reason: validatesUserEdit
@@ -1945,18 +2179,29 @@ export async function revalidateExistingKnowledge(input: {
           evidenceIds: entry.evidenceIds,
           commitSha: entry.commitSha,
           preservedUserEdit: validatesUserEdit,
+          repositoryKnowledge: metadata,
         },
         policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
         modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
         idempotencyKey: `project_fact:content-addressed:${closest.fact.id}:${hash([
           closest.fact.statement,
           entry.commitSha,
+          repositoryClaimMetadataDigest(metadata),
           ...entry.evidenceIds.slice().sort(),
         ].join("|")).slice(0, 24)}`,
       });
     }
 
     for (const { entry, closest, validatesUserEdit } of highlightMatches) {
+      const repositoryMetadata = repositoryClaimMetadata({
+        runId: input.runId,
+        subsystem: entry.subsystem,
+        sourceEntries: entry.sourceEntries,
+      });
+      const metadata = mergeRepositoryClaimMetadata(
+        closest.highlight.metadata,
+        repositoryMetadata,
+      );
       const claimed = await tx.highlight.updateMany({
         where: highlightReconciliationCasWhere(closest.highlight),
         data: {
@@ -1968,6 +2213,7 @@ export async function revalidateExistingKnowledge(input: {
           validationHeads: toInputJson(entry.validationHeads),
           autoAppliedAt: validatedAt,
           rejectionReason: null,
+          metadata,
         },
       });
       if (claimed.count !== 1) continue;
@@ -1989,6 +2235,7 @@ export async function revalidateExistingKnowledge(input: {
           lifecycleStatus: closest.highlight.lifecycleStatus,
           reviewState: closest.highlight.reviewState,
           approvalSource: closest.highlight.approvalSource,
+          metadata: closest.highlight.metadata,
           validatedThroughSha: closest.highlight.validatedThroughSha,
         },
         afterSnapshot: {
@@ -1998,6 +2245,7 @@ export async function revalidateExistingKnowledge(input: {
           lifecycleStatus: "active",
           reviewState: closest.highlight.reviewState,
           approvalSource: closest.highlight.approvalSource,
+          metadata,
           validatedThroughSha: entry.commitSha,
         },
         reason: validatesUserEdit
@@ -2007,12 +2255,14 @@ export async function revalidateExistingKnowledge(input: {
           evidenceIds: entry.evidenceIds,
           commitSha: entry.commitSha,
           preservedUserEdit: validatesUserEdit,
+          repositoryKnowledge: repositoryMetadata,
         },
         policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
         modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
         idempotencyKey: `highlight:content-addressed:${closest.highlight.id}:${hash([
           closest.highlight.text,
           entry.commitSha,
+          repositoryClaimMetadataDigest(repositoryMetadata),
           ...entry.evidenceIds.slice().sort(),
         ].join("|")).slice(0, 24)}`,
       });

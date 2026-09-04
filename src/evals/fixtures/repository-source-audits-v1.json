@@ -1,0 +1,2603 @@
+{
+  "schemaVersion": "repository-source-audit-v1",
+  "auditDate": "2026-09-04",
+  "method": "README text and filenames were search hypotheses only. Each implemented unit is backed by a reachable handler, route, UI flow, executable entry point, or durable service seam in the clean pinned checkout. Relative anchors resolve against the repository source_root below.",
+  "repositories": [
+    {
+      "fixtureId": "solopilot-agent-documents",
+      "repository": "arkb75/SoloPilot",
+      "commitSha": "46477b744db2aa61c53763c4832cad1b239e8ce5",
+      "sourceScope": "tracked_git_tree",
+      "sourceDigest": "154d8b310a6bc97ee54f39b95d14365aea7b62e15478aa59e41a8d30eee7dcf6",
+      "knowledgeUnits": [
+        {
+          "id": "solo.email-intake-threading",
+          "claim": "The intake Lambda processes the first SES/S3 event record, loads and parses the stored email, resolves a conversation through Message-ID, In-Reply-To, and References, appends inbound history with optimistic locking, and stores message-ID mappings.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "client-communication",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 199,
+              "lineEnd": 305
+            },
+            {
+              "path": "src/agents/email_intake/email_parser.py",
+              "lineStart": 116,
+              "lineEnd": 146
+            },
+            {
+              "path": "src/agents/email_intake/utils.py",
+              "lineStart": 88,
+              "lineEnd": 187
+            },
+            {
+              "path": "src/agents/email_intake/conversation_state.py",
+              "lineStart": 399,
+              "lineEnd": 489
+            }
+          ]
+        },
+        {
+          "id": "solo.conversation-retention-delete",
+          "claim": "Conversation records receive a 30-day TTL refreshed on append; normal message mappings use 90 days while approval-created mappings use 30 days; deleting a conversation removes only its DynamoDB conversation item and does not cascade related mappings, S3 artifacts, version indexes, or jobs.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "should",
+          "domain": "data-lifecycle",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/conversation_state.py",
+              "lineStart": 85,
+              "lineEnd": 140
+            },
+            {
+              "path": "src/agents/email_intake/conversation_state.py",
+              "lineStart": 445,
+              "lineEnd": 465
+            },
+            {
+              "path": "src/agents/email_intake/conversation_state.py",
+              "lineStart": 909,
+              "lineEnd": 932
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 728,
+              "lineEnd": 775
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 1858,
+              "lineEnd": 1888
+            }
+          ]
+        },
+        {
+          "id": "solo.email-intake-retry-idempotency",
+          "claim": "Inbound processing handles every record in a batched event and prevents a retried delivery of the same message from being appended twice.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "client-communication",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 199,
+              "lineEnd": 265
+            },
+            {
+              "path": "src/agents/email_intake/conversation_state.py",
+              "lineStart": 399,
+              "lineEnd": 489
+            }
+          ],
+          "uncertainty": "The handler reads only Records[0]. Optimistic sequence locking orders concurrent appends but does not test whether the same message_id is already present."
+        },
+        {
+          "id": "solo.conversation-metadata-inference",
+          "claim": "The metadata extractor infers client and project information, proposal and meeting intent, sentiment, topics, next action, and confidence, while copying the caller-supplied current phase rather than inferring phase.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "should",
+          "domain": "project-understanding",
+          "kind": "capability",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/metadata_extractor.py",
+              "lineStart": 137,
+              "lineEnd": 188
+            },
+            {
+              "path": "src/agents/email_intake/metadata_extractor.py",
+              "lineStart": 275,
+              "lineEnd": 294
+            }
+          ]
+        },
+        {
+          "id": "solo.requirements-versioning",
+          "claim": "The normal intake path extracts and incrementally updates structured requirements, scope, pricing, timeline, and success criteria, persisting changes with an optimistic requirements-version check.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "project-understanding",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/requirement_extractor.py",
+              "lineStart": 88,
+              "lineEnd": 217
+            },
+            {
+              "path": "src/agents/email_intake/requirement_extractor.py",
+              "lineStart": 228,
+              "lineEnd": 267
+            },
+            {
+              "path": "src/agents/email_intake/conversation_state.py",
+              "lineStart": 530,
+              "lineEnd": 600
+            },
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 306,
+              "lineEnd": 375
+            }
+          ]
+        },
+        {
+          "id": "solo.visual-requirements-optimistic-versioning",
+          "claim": "Visual proposal edits participate in the same optimistic requirements-version check and increment used by normal intake updates.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "project-understanding",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/conversation_state.py",
+              "lineStart": 530,
+              "lineEnd": 585
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 1804,
+              "lineEnd": 1815
+            }
+          ],
+          "uncertainty": "The visual-edit endpoint directly sets requirements without checking or incrementing requirements_version."
+        },
+        {
+          "id": "solo.phase-aware-email-drafting",
+          "claim": "The responder drafts client replies from conversation history, requirements, and current phase and emits proposal, meeting, action, and suggested-phase metadata.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "client-communication",
+          "kind": "capability",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/conversational_responder.py",
+              "lineStart": 72,
+              "lineEnd": 135
+            },
+            {
+              "path": "src/agents/email_intake/conversational_responder.py",
+              "lineStart": 217,
+              "lineEnd": 273
+            },
+            {
+              "path": "src/agents/email_intake/conversational_responder.py",
+              "lineStart": 331,
+              "lineEnd": 372
+            },
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 376,
+              "lineEnd": 390
+            }
+          ]
+        },
+        {
+          "id": "solo.conversation-phase-transitions",
+          "claim": "Conversation phase is persisted state: response action metadata can move a conversation into proposal or another suggested phase, and successful wireframe generation moves a proposal-phase conversation into design.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "should",
+          "domain": "project-understanding",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 642,
+              "lineEnd": 654
+            },
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 1047,
+              "lineEnd": 1055
+            }
+          ]
+        },
+        {
+          "id": "solo.reply-review-modes",
+          "claim": "New conversations default to manual reply mode, where generated drafts are queued for amendment, rejection, or approval; switching to auto mode bypasses human review and sends the generated response immediately.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "human-in-the-loop",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/conversation_state.py",
+              "lineStart": 127,
+              "lineEnd": 130
+            },
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 387,
+              "lineEnd": 390
+            },
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 527,
+              "lineEnd": 638
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 493,
+              "lineEnd": 557
+            }
+          ]
+        },
+        {
+          "id": "solo.reply-delivery-atomicity",
+          "claim": "SES delivery, message-ID mapping, outbound-history append, and pending-reply status persistence form one idempotent atomic operation.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "human-in-the-loop",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 670,
+              "lineEnd": 825
+            },
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 610,
+              "lineEnd": 640
+            }
+          ],
+          "uncertainty": "SES send occurs before mapping, history, and final reply-state persistence. Mapping and history failures can be swallowed, and no delivery idempotency key is stored before sending."
+        },
+        {
+          "id": "solo.reply-review-revise-loop",
+          "claim": "On explicit request, the API creates or returns one cached structured review, performs one successful revision with retries only for generation failure, reviews the revised response once, and caches that single revision.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "should",
+          "domain": "quality-control",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/reviewer.py",
+              "lineStart": 68,
+              "lineEnd": 175
+            },
+            {
+              "path": "src/agents/email_intake/response_reviser.py",
+              "lineStart": 186,
+              "lineEnd": 237
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 984,
+              "lineEnd": 1233
+            }
+          ]
+        },
+        {
+          "id": "solo.proposal-pdf-lifecycle",
+          "claim": "The proposal subsystem renders PDFs through the document Lambda, stores versioned PDF artifacts and metadata in S3 and DynamoDB, lists and retrieves versions, and can attach a selected or pre-generated version when an approved reply is sent.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "proposals",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/pdf_generator.py",
+              "lineStart": 59,
+              "lineEnd": 302
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 131,
+              "lineEnd": 142
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 547,
+              "lineEnd": 681
+            },
+            {
+              "path": "frontend/email-intake/src/components/ProposalViewer.tsx",
+              "lineStart": 52,
+              "lineEnd": 135
+            },
+            {
+              "path": "frontend/email-intake/src/components/ProposalViewer.tsx",
+              "lineStart": 179,
+              "lineEnd": 277
+            }
+          ]
+        },
+        {
+          "id": "solo.visual-proposal-revision",
+          "claim": "The visual proposal endpoint converts annotated PDF pages and instructions into semantic requirement edits, renders a provenance-linked new proposal version, and performs best-effort duplicate suppression only when the latest version has the same request key and generated requirements hash.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "proposals",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "frontend/email-intake/src/components/PDFAnnotator.tsx",
+              "lineStart": 79,
+              "lineEnd": 187
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 1479,
+              "lineEnd": 1606
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 1624,
+              "lineEnd": 1830
+            }
+          ]
+        },
+        {
+          "id": "solo.wireframe-generation",
+          "claim": "Wireframe generation runs asynchronously with DynamoDB job tracking, creates and stores a versioned responsive HTML wireframe containing at most two screens, and exposes presigned retrieval URLs; active-job suppression is a non-atomic check followed by job creation.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "design",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/wireframe_generator.py",
+              "lineStart": 45,
+              "lineEnd": 132
+            },
+            {
+              "path": "src/agents/email_intake/wireframe_generator.py",
+              "lineStart": 174,
+              "lineEnd": 241
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 1945,
+              "lineEnd": 2128
+            },
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 962,
+              "lineEnd": 1073
+            },
+            {
+              "path": "src/storage/wireframe_job_store.py",
+              "lineStart": 183,
+              "lineEnd": 216
+            }
+          ]
+        },
+        {
+          "id": "solo.wireframe-edit-version-semantics",
+          "claim": "Direct HTML editing overwrites a screen object inside the selected wireframe version, while vision-guided editing runs asynchronously and writes a newly allocated wireframe version.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "design",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 2131,
+              "lineEnd": 2297
+            },
+            {
+              "path": "src/storage/s3_wireframe_store.py",
+              "lineStart": 177,
+              "lineEnd": 210
+            },
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 1087,
+              "lineEnd": 1222
+            }
+          ]
+        },
+        {
+          "id": "solo.wireframe-export-share",
+          "claim": "Wireframes can be exported as React components or HTML and the share handler can publish a standalone HTML preview to S3 and return an expiring presigned public URL.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "design",
+          "kind": "capability",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 2299,
+              "lineEnd": 2461
+            },
+            {
+              "path": "frontend/email-intake/src/components/WireframeViewer.tsx",
+              "lineStart": 177,
+              "lineEnd": 237
+            }
+          ]
+        },
+        {
+          "id": "solo.api-access-model",
+          "claim": "The checked-in management client sends one build-time VITE_API_KEY on every request and the API Gateway specification globally requires an API key; these seams contain no per-user identity, authorization, or tenant boundary.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "should",
+          "domain": "security",
+          "kind": "architecture",
+          "anchors": [
+            {
+              "path": "frontend/email-intake/src/api/client.ts",
+              "lineStart": 4,
+              "lineEnd": 12
+            },
+            {
+              "path": "src/agents/email_intake/api/api_gateway_config.yaml",
+              "lineStart": 15,
+              "lineEnd": 23
+            }
+          ]
+        },
+        {
+          "id": "solo.api-route-deployment-contract",
+          "claim": "The Lambda dispatcher and frontend implement conversation deletion, reply review and revision, proposal routes, and wireframe sharing, but the checked-in API Gateway specification omits those operations while exposing only the documented conversation, basic reply, attachment, and non-share wireframe routes.",
+          "state": "partial",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "operations",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 106,
+              "lineEnd": 175
+            },
+            {
+              "path": "frontend/email-intake/src/api/client.ts",
+              "lineStart": 46,
+              "lineEnd": 53
+            },
+            {
+              "path": "frontend/email-intake/src/api/client.ts",
+              "lineStart": 108,
+              "lineEnd": 131
+            },
+            {
+              "path": "frontend/email-intake/src/api/client.ts",
+              "lineStart": 173,
+              "lineEnd": 235
+            },
+            {
+              "path": "frontend/email-intake/src/api/client.ts",
+              "lineStart": 330,
+              "lineEnd": 338
+            },
+            {
+              "path": "src/agents/email_intake/api/api_gateway_config.yaml",
+              "lineStart": 25,
+              "lineEnd": 529
+            }
+          ],
+          "uncertainty": "This establishes drift in the tracked deployment specification. Independently modified cloud API Gateway state cannot be established from the repository."
+        },
+        {
+          "id": "solo.document-rendering-service",
+          "claim": "A separate Node.js Lambda validates Markdown or named-template input, renders React-PDF output, stores the PDF in S3, and returns the PDF plus a 24-hour signed download URL; the proposal generator invokes this service.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "documents",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "doc-service/lambda/src/index.js",
+              "lineStart": 73,
+              "lineEnd": 131
+            },
+            {
+              "path": "doc-service/lambda/src/index.js",
+              "lineStart": 259,
+              "lineEnd": 385
+            },
+            {
+              "path": "doc-service/lambda/src/index.js",
+              "lineStart": 465,
+              "lineEnd": 480
+            },
+            {
+              "path": "src/agents/email_intake/pdf_generator.py",
+              "lineStart": 59,
+              "lineEnd": 158
+            }
+          ]
+        },
+        {
+          "id": "solo.stripe-invoice-integration",
+          "claim": "Direct document-service requests can optionally create a Stripe customer and draft invoice with line items and a document URL, but the normal proposal/email flow does not request invoicing and the Stripe file-upload helper returns a mock rather than attaching the PDF.",
+          "state": "partial",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "billing",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "doc-service/lambda/src/index.js",
+              "lineStart": 387,
+              "lineEnd": 451
+            },
+            {
+              "path": "doc-service/lambda/src/stripe-helpers.js",
+              "lineStart": 116,
+              "lineEnd": 140
+            },
+            {
+              "path": "doc-service/lambda/src/stripe-helpers.js",
+              "lineStart": 198,
+              "lineEnd": 279
+            }
+          ],
+          "uncertainty": "No tracked caller outside the document service sets createInvoice. Runtime-only callers cannot be ruled out from source alone."
+        },
+        {
+          "id": "solo.requirements-change-sqs-producer",
+          "claim": "When the normal intake path changes requirements, it synchronously publishes the conversation, requirements version, participants, and source metadata to an SQS queue and fails the intake invocation if the send fails.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "software-delivery",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 373,
+              "lineEnd": 375
+            },
+            {
+              "path": "src/agents/email_intake/lambda_function.py",
+              "lineStart": 682,
+              "lineEnd": 736
+            }
+          ]
+        },
+        {
+          "id": "solo.brief-to-code-skeleton-cli",
+          "claim": "An independent CLI parses a project brief into a structured specification, plans milestones, and generates lint-assisted code, test, and README skeletons containing TODO foundations rather than complete production applications.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "software-delivery",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "scripts/run_solopilot.py",
+              "lineStart": 51,
+              "lineEnd": 220
+            },
+            {
+              "path": "scripts/run_analyser.py",
+              "lineStart": 37,
+              "lineEnd": 123
+            },
+            {
+              "path": "src/agents/analyser/parser.py",
+              "lineStart": 403,
+              "lineEnd": 590
+            },
+            {
+              "path": "src/agents/planning/planner.py",
+              "lineStart": 135,
+              "lineEnd": 216
+            },
+            {
+              "path": "src/agents/dev/dev_agent.py",
+              "lineStart": 378,
+              "lineEnd": 515
+            }
+          ],
+          "uncertainty": "This CLI is independent of proposal approval and its generated artifacts intentionally remain skeleton/TODO foundations."
+        },
+        {
+          "id": "solo.generation-provider-layer",
+          "claim": "The central provider factory supports Bedrock, fake, and simulated CodeWhisperer implementations; the planner separately implements a Bedrock-to-OpenAI fallback and email agents retain direct-Bedrock branches. Shared logging can estimate token counts but does not calculate USD cost, and the declared quota exception is not mapped by providers.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "ai-runtime",
+          "kind": "architecture",
+          "anchors": [
+            {
+              "path": "src/providers/base.py",
+              "lineStart": 19,
+              "lineEnd": 108
+            },
+            {
+              "path": "src/providers/base.py",
+              "lineStart": 158,
+              "lineEnd": 205
+            },
+            {
+              "path": "src/providers/factory.py",
+              "lineStart": 17,
+              "lineEnd": 60
+            },
+            {
+              "path": "src/providers/bedrock.py",
+              "lineStart": 157,
+              "lineEnd": 238
+            },
+            {
+              "path": "src/agents/planning/planner.py",
+              "lineStart": 26,
+              "lineEnd": 108
+            },
+            {
+              "path": "src/agents/email_intake/metadata_extractor.py",
+              "lineStart": 253,
+              "lineEnd": 269
+            }
+          ]
+        },
+        {
+          "id": "solo.progressive-code-context",
+          "claim": "DevAgent supports selectable legacy, Chroma, and Serena context engines and feeds lint failures into regeneration, but the main brief-to-code loop asks the default context engine to inspect a newly created milestone output directory rather than an existing target repository.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "software-delivery",
+          "kind": "architecture",
+          "anchors": [
+            {
+              "path": "src/agents/dev/dev_agent.py",
+              "lineStart": 185,
+              "lineEnd": 247
+            },
+            {
+              "path": "src/agents/dev/dev_agent.py",
+              "lineStart": 378,
+              "lineEnd": 425
+            },
+            {
+              "path": "src/agents/dev/context_packer.py",
+              "lineStart": 18,
+              "lineEnd": 81
+            },
+            {
+              "path": "src/agents/dev/context_engine/__init__.py",
+              "lineStart": 116,
+              "lineEnd": 162
+            }
+          ]
+        },
+        {
+          "id": "solo.standalone-code-review",
+          "claim": "An independently executable, Python-focused reviewer combines ruff, mypy, pytest, optional SonarCloud findings, and AI review into a structured pass/fail report; its AI file collection is limited to Python files and at most five are reviewed.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "quality-control",
+          "kind": "capability",
+          "anchors": [
+            {
+              "path": "src/agents/review/reviewer_agent.py",
+              "lineStart": 125,
+              "lineEnd": 134
+            },
+            {
+              "path": "src/agents/review/reviewer_agent.py",
+              "lineStart": 230,
+              "lineEnd": 368
+            },
+            {
+              "path": "src/agents/review/reviewer_agent.py",
+              "lineStart": 460,
+              "lineEnd": 475
+            },
+            {
+              "path": "src/agents/review/reviewer_agent.py",
+              "lineStart": 546,
+              "lineEnd": 605
+            }
+          ],
+          "uncertainty": "The reviewer is not invoked by the main brief-to-code runner."
+        },
+        {
+          "id": "solo.client-simulation-harness",
+          "claim": "Simulates phase-aware multi-turn client email scenarios, optionally over SES, and records batch outcomes.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "testing",
+          "kind": "capability",
+          "anchors": [
+            {
+              "path": "scripts/run_client_simulation.py",
+              "lineStart": 1,
+              "lineEnd": 20
+            },
+            {
+              "path": "scripts/run_client_simulation.py",
+              "lineStart": 51,
+              "lineEnd": 186
+            },
+            {
+              "path": "scripts/run_client_simulation.py",
+              "lineStart": 293,
+              "lineEnd": 320
+            },
+            {
+              "path": "scripts/simulation/conversation_engine.py",
+              "lineStart": 24,
+              "lineEnd": 68
+            },
+            {
+              "path": "scripts/simulation/conversation_engine.py",
+              "lineStart": 97,
+              "lineEnd": 233
+            }
+          ]
+        },
+        {
+          "id": "solo.marketing-announcement-utility",
+          "claim": "Generates and scores tweet-length milestone announcements from milestone artifacts.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "marketing",
+          "kind": "capability",
+          "anchors": [
+            {
+              "path": "src/agents/marketing/poster.py",
+              "lineStart": 15,
+              "lineEnd": 81
+            },
+            {
+              "path": "src/agents/marketing/poster.py",
+              "lineStart": 158,
+              "lineEnd": 219
+            },
+            {
+              "path": "src/agents/marketing/poster.py",
+              "lineStart": 283,
+              "lineEnd": 359
+            }
+          ]
+        },
+        {
+          "id": "solo.client-deployment-prototype",
+          "claim": "A standalone deployment script can create private GitHub and Vercel resources and record a deployment, but it does not push generated client code, does not use requirements or the repository URL when triggering deployment, and passes the placeholder commit value initial.",
+          "state": "partial",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "software-delivery",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "scripts/deploy_client_project.py",
+              "lineStart": 67,
+              "lineEnd": 120
+            },
+            {
+              "path": "scripts/deploy_client_project.py",
+              "lineStart": 281,
+              "lineEnd": 309
+            },
+            {
+              "path": "scripts/deploy_client_project.py",
+              "lineStart": 360,
+              "lineEnd": 420
+            },
+            {
+              "path": "scripts/deploy_to_vercel.py",
+              "lineStart": 77,
+              "lineEnd": 108
+            }
+          ],
+          "uncertainty": "The scripts are independently executable but are not called by the primary email, proposal, or brief-to-code workflows."
+        },
+        {
+          "id": "solo.proposal-to-plan-export",
+          "claim": "Approved proposals automatically enter PRD/planning and IDE-specific export through an in-repository SQS consumer or approval-triggered bridge.",
+          "state": "planned",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "software-delivery",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "README.md",
+              "lineStart": 1,
+              "lineEnd": 23
+            },
+            {
+              "path": "README.md",
+              "lineStart": 39,
+              "lineEnd": 47
+            },
+            {
+              "path": "README.md",
+              "lineStart": 63,
+              "lineEnd": 80
+            },
+            {
+              "path": "README.md",
+              "lineStart": 115,
+              "lineEnd": 127
+            }
+          ],
+          "uncertainty": "The standalone planner exists, but the tracked tree has no export module, no consumer for the requirements queue, and no proposal-approval call into the planner."
+        },
+        {
+          "id": "solo.codewhisperer-real-integration",
+          "claim": "CodeWhisperer is backed by a live model or service integration.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "ai-runtime",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "src/providers/codewhisperer.py",
+              "lineStart": 19,
+              "lineEnd": 56
+            },
+            {
+              "path": "src/providers/codewhisperer.py",
+              "lineStart": 124,
+              "lineEnd": 165
+            }
+          ],
+          "uncertainty": "The implementation explicitly produces local sample snippets as a PoC/simulation."
+        },
+        {
+          "id": "solo.reply-prompt-and-attachment-retrieval",
+          "claim": "Reply-prompt and attachment URL retrieval APIs return persisted production data.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "client-communication",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 963,
+              "lineEnd": 977
+            },
+            {
+              "path": "src/agents/email_intake/api/lambda_api.py",
+              "lineStart": 1246,
+              "lineEnd": 1264
+            }
+          ],
+          "uncertainty": "The handlers return explicit not-implemented or example placeholder content."
+        }
+      ],
+      "userQuestions": [
+        "How does a batched SES or S3 event become a threaded conversation, what related data expires or survives deletion, and what retry-idempotency guarantees exist?",
+        "Which project facts are inferred from conversation content, where does conversation phase come from, and which requirement mutation paths use optimistic versioning?",
+        "How do phase-aware drafting, manual versus auto reply modes, phase transitions, one-pass review and revision, and SES delivery failure timing interact?",
+        "How are proposal PDFs generated, stored, selected, attached, and visually revised, and how strong are their versioning and duplicate-suppression guarantees?",
+        "What exactly can the wireframe subsystem generate, edit, version, export, and share, including its screen limit and the different history semantics of direct and vision edits?",
+        "What authentication and tenant boundary protects the management API, and which frontend and Lambda capabilities are actually represented by the checked-in API Gateway contract?",
+        "What does the document-rendering service implement, how is it used by proposals, and how complete or connected is its Stripe invoice path?",
+        "Do changed requirements or approved proposals actually reach planning, IDE export, or deployment, and what does the independent brief-to-code path generate and use as repository context?",
+        "Which model-provider paths and error, usage, and cost behaviors are truly implemented, and what languages and outputs does the standalone reviewer actually cover?",
+        "Which simulation, deployment, marketing, CodeWhisperer, and reply-inspection utilities are real, simulated, disconnected, partial, or placeholders?"
+      ]
+    },
+    {
+      "fixtureId": "backer-marketplace",
+      "repository": "arkb75/Backer",
+      "commitSha": "b5e8e6574545475420b7d51f3b7c50e2a3602e5c",
+      "sourceScope": "tracked_git_tree",
+      "sourceDigest": "9841d457c5e53b7575eef410af3fbea141336c36e785bf9ada00443c29051f93",
+      "knowledgeUnits": [
+        {
+          "id": "backer.role-auth",
+          "claim": "Registers founders and investors with credentials and propagates role-bearing authenticated sessions into protected routes.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "should",
+          "domain": "identity",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/register/route.ts",
+              "lineStart": 6,
+              "lineEnd": 45
+            },
+            {
+              "path": "lib/auth.ts",
+              "lineStart": 7,
+              "lineEnd": 70
+            },
+            {
+              "path": "lib/db/repository.ts",
+              "lineStart": 153,
+              "lineEnd": 223
+            }
+          ],
+          "uncertainty": "Email uniqueness is enforced by a query followed by a conditional write on a random item ID, so concurrent registration is not race-safe."
+        },
+        {
+          "id": "backer.founder-profile",
+          "claim": "Onboards founders, persists rich editable profiles, and renders public founder identities with company and engagement statistics.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "marketplace-profiles",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/onboarding/founder/route.ts",
+              "lineStart": 11,
+              "lineEnd": 79
+            },
+            {
+              "path": "app/api/profile/founder/route.ts",
+              "lineStart": 22,
+              "lineEnd": 99
+            },
+            {
+              "path": "app/founder/[id]/page.tsx",
+              "lineStart": 19,
+              "lineEnd": 99
+            }
+          ]
+        },
+        {
+          "id": "backer.investor-profile",
+          "claim": "Onboards investors with stage/tag preferences and portfolio history and exposes editable investor profiles.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "marketplace-profiles",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/onboarding/investor/route.ts",
+              "lineStart": 7,
+              "lineEnd": 71
+            },
+            {
+              "path": "app/api/profile/investor/route.ts",
+              "lineStart": 22,
+              "lineEnd": 95
+            },
+            {
+              "path": "app/investor/[id]/page.tsx",
+              "lineStart": 13,
+              "lineEnd": 42
+            }
+          ]
+        },
+        {
+          "id": "backer.company-lifecycle",
+          "claim": "Lets founders create, update, and delete startup/company pitches and links the creator as a team member.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "startup-pitches",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/company/route.ts",
+              "lineStart": 47,
+              "lineEnd": 115
+            },
+            {
+              "path": "lib/db/repository.ts",
+              "lineStart": 616,
+              "lineEnd": 748
+            },
+            {
+              "path": "app/api/product/[id]/route.ts",
+              "lineStart": 65,
+              "lineEnd": 190
+            }
+          ],
+          "uncertainty": "Edit and delete authorize any FounderProduct membership; the free-form membership role is not used to distinguish an owner from an invited collaborator."
+        },
+        {
+          "id": "backer.personalized-reels-feed",
+          "claim": "Builds an investor reels feed from startup/founder pitch videos and ranks it with preference, text, popularity, freshness, seen-penalty, and exploration features.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "discovery",
+          "kind": "capability",
+          "anchors": [
+            {
+              "path": "app/investor/feed/page.tsx",
+              "lineStart": 18,
+              "lineEnd": 111
+            },
+            {
+              "path": "lib/feed/ranking.ts",
+              "lineStart": 23,
+              "lineEnd": 83
+            },
+            {
+              "path": "lib/feed/mlFeatures.ts",
+              "lineStart": 223,
+              "lineEnd": 277
+            }
+          ],
+          "uncertainty": "Candidate assembly selects at most one product per founder and requires a pitch video. Request-time ranking consumes interests, while fresh feed events only enter later operator-run training."
+        },
+        {
+          "id": "backer.interest-lifecycle",
+          "claim": "Lets investors like startups, promote an existing interest to COMMITTED, and preserve committed state against a later unlike action.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "investor-engagement",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "lib/db/repository.ts",
+              "lineStart": 1309,
+              "lineEnd": 1392
+            },
+            {
+              "path": "app/api/product/[id]/like/route.ts",
+              "lineStart": 18,
+              "lineEnd": 77
+            },
+            {
+              "path": "app/api/interest/like/route.ts",
+              "lineStart": 14,
+              "lineEnd": 110
+            }
+          ],
+          "uncertainty": "The interest endpoint can label an interest COMMITTED without creating an Investment row, incrementing product amountRaised, or opening a conversation."
+        },
+        {
+          "id": "backer.investment-commitment-ledger",
+          "claim": "Records investment commitments, increments displayed amount raised, creates committed interest when none exists, and opens an automatic founder conversation.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "investment-intent",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/investments/commit/route.ts",
+              "lineStart": 17,
+              "lineEnd": 139
+            },
+            {
+              "path": "lib/db/repository.ts",
+              "lineStart": 1839,
+              "lineEnd": 1867
+            },
+            {
+              "path": "lib/db/repository.ts",
+              "lineStart": 1923,
+              "lineEnd": 1936
+            }
+          ],
+          "uncertainty": "This records intent only and does not move or settle money. Its sequential writes are neither transactional nor idempotent, and an existing LIKED interest is not promoted or updated by this route."
+        },
+        {
+          "id": "backer.role-aware-messaging",
+          "claim": "Supports founder-investor conversations with participant authorization, founder contact preconditions, message delivery, and unread tracking.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "messaging",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/messages/conversations/route.ts",
+              "lineStart": 18,
+              "lineEnd": 145
+            },
+            {
+              "path": "app/api/messages/send/route.ts",
+              "lineStart": 14,
+              "lineEnd": 102
+            },
+            {
+              "path": "app/api/messages/[conversationId]/route.ts",
+              "lineStart": 16,
+              "lineEnd": 57
+            }
+          ],
+          "uncertainty": "Conversation creation validates founder and product independently without verifying their association. Founder-initiated eligibility is founder-wide rather than product-specific, and query-then-put creation does not enforce composite uniqueness across random-ID items."
+        },
+        {
+          "id": "backer.cofounder-invitations",
+          "claim": "Supports member-created co-founder invitations, optional SES delivery, in-app listing, accept/decline, and automatic linking during onboarding.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "teams",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/company/invite/route.ts",
+              "lineStart": 19,
+              "lineEnd": 95
+            },
+            {
+              "path": "lib/email.ts",
+              "lineStart": 32,
+              "lineEnd": 100
+            },
+            {
+              "path": "app/api/invitations/route.ts",
+              "lineStart": 12,
+              "lineEnd": 30
+            },
+            {
+              "path": "app/api/invitations/[id]/respond/route.ts",
+              "lineStart": 19,
+              "lineEnd": 67
+            },
+            {
+              "path": "app/api/onboarding/founder/route.ts",
+              "lineStart": 67,
+              "lineEnd": 79
+            }
+          ],
+          "uncertainty": "Any founder with a product membership may invite; no owner role is enforced. Invites have no expiration or revoke workflow, and acceptance writes membership before separately updating invite status."
+        },
+        {
+          "id": "backer.media-upload",
+          "claim": "Uploads validated image/video assets to S3 for profile and pitch surfaces.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "media",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "app/api/upload/route.ts",
+              "lineStart": 7,
+              "lineEnd": 9
+            },
+            {
+              "path": "app/api/upload/route.ts",
+              "lineStart": 101,
+              "lineEnd": 161
+            },
+            {
+              "path": "components/onboarding/PhotoUploadGrid.tsx",
+              "lineStart": 19,
+              "lineEnd": 45
+            }
+          ],
+          "uncertainty": "The route contains no code-level authentication or ownership check."
+        },
+        {
+          "id": "backer.feed-event-ml-pipeline",
+          "claim": "Captures investor feed interactions and provides an offline logistic-regression training pipeline whose artifact can be loaded by the runtime ranker.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "discovery",
+          "kind": "data",
+          "anchors": [
+            {
+              "path": "app/api/feed/events/route.ts",
+              "lineStart": 11,
+              "lineEnd": 21
+            },
+            {
+              "path": "app/api/feed/events/route.ts",
+              "lineStart": 30,
+              "lineEnd": 76
+            },
+            {
+              "path": "scripts/train-feed-model.ts",
+              "lineStart": 69,
+              "lineEnd": 283
+            },
+            {
+              "path": "lib/feed/model.ts",
+              "lineStart": 32,
+              "lineEnd": 77
+            }
+          ],
+          "uncertainty": "The checked-in artifact contains only 48 examples (41 train/7 test), 16 investors, 9 products, and zero feed events at lib/feed/model/feed-model.json:22-49; training is operator-run, not online."
+        },
+        {
+          "id": "backer.dynamodb-runtime",
+          "claim": "Uses a DynamoDB repository as the active runtime data path for profiles, relationships, feed state, invitations, messaging, and investments.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "persistence",
+          "kind": "architecture",
+          "anchors": [
+            {
+              "path": "lib/db/config.ts",
+              "lineStart": 8,
+              "lineEnd": 31
+            },
+            {
+              "path": "lib/db/repository.ts",
+              "lineStart": 1,
+              "lineEnd": 1936
+            }
+          ]
+        },
+        {
+          "id": "backer.payment-processing",
+          "claim": "Processes or settles investment payments.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "payments",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/investments/commit/route.ts",
+              "lineStart": 17,
+              "lineEnd": 139
+            },
+            {
+              "path": "lib/db/repository.ts",
+              "lineStart": 1839,
+              "lineEnd": 1867
+            }
+          ],
+          "uncertainty": "No Stripe, payment, settlement, or escrow integration exists; current code records commitments only."
+        },
+        {
+          "id": "backer.online-model-training",
+          "claim": "Retrains the feed model continuously from live events.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "discovery",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/investor/feed/page.tsx",
+              "lineStart": 83,
+              "lineEnd": 111
+            },
+            {
+              "path": "scripts/train-feed-model.ts",
+              "lineStart": 237,
+              "lineEnd": 283
+            },
+            {
+              "path": "lib/feed/model.ts",
+              "lineStart": 32,
+              "lineEnd": 77
+            }
+          ],
+          "uncertainty": "Training is an operator-run script and runtime loads a checked-in file artifact."
+        },
+        {
+          "id": "backer.consistent-role-ownership-authorization",
+          "claim": "Enforces the registered founder or investor role during onboarding and distinguishes startup owners from invited collaborators for destructive and administrative actions.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "authorization",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/onboarding/founder/route.ts",
+              "lineStart": 11,
+              "lineEnd": 65
+            },
+            {
+              "path": "app/api/onboarding/investor/route.ts",
+              "lineStart": 7,
+              "lineEnd": 69
+            },
+            {
+              "path": "app/api/product/[id]/route.ts",
+              "lineStart": 65,
+              "lineEnd": 77
+            },
+            {
+              "path": "app/api/company/invite/route.ts",
+              "lineStart": 55,
+              "lineEnd": 59
+            }
+          ],
+          "uncertainty": "Both onboarding routes require a session but do not check the registered userType, while product administration and invitations treat any founder-product membership as ownership."
+        },
+        {
+          "id": "backer.atomic-idempotent-domain-workflows",
+          "claim": "Applies commitment, invitation acceptance, and product deletion as atomic and idempotent domain operations with complete related-record cleanup.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "data-integrity",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/investments/commit/route.ts",
+              "lineStart": 71,
+              "lineEnd": 131
+            },
+            {
+              "path": "lib/db/repository.ts",
+              "lineStart": 1105,
+              "lineEnd": 1153
+            },
+            {
+              "path": "lib/db/repository.ts",
+              "lineStart": 1211,
+              "lineEnd": 1307
+            }
+          ],
+          "uncertainty": "A commitment retry can duplicate both its Investment row and amountRaised increment. Invite acceptance and deletion are multi-step, and deletion omits investments, feed events, and S3 assets."
+        },
+        {
+          "id": "backer.account-verification-recovery",
+          "claim": "Verifies account email ownership and supports forgotten-password recovery or password reset.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "identity",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/register/route.ts",
+              "lineStart": 6,
+              "lineEnd": 45
+            },
+            {
+              "path": "lib/auth.ts",
+              "lineStart": 7,
+              "lineEnd": 71
+            }
+          ],
+          "uncertainty": "The tracked authentication surface contains credential registration and login but no verification or recovery route."
+        }
+      ],
+      "userQuestions": [
+        "How do founder and investor registration and sessions work, and is the selected role actually enforced during onboarding?",
+        "What profile data exists for founders and investors, and which fields drive feed matching?",
+        "How are startup pitches created, and who is authorized to edit, delete, or invite collaborators to them?",
+        "How is the reels candidate set built: can every product appear, does it require video, and which signals determine rank?",
+        "Do impression and watch events affect the next request or only a later operator-run model retrain?",
+        "What differs among a heart like, a COMMITTED interest, and the investment commit route?",
+        "Does committing move money, and are its ledger, amount, interest, and message writes atomic and idempotent?",
+        "Can a conversation associate an unrelated founder and product, and what enables a founder to contact an investor?",
+        "How do co-founder invitations expire, revoke, accept, and link membership, and can acceptance leave partial state?",
+        "What records and uploaded assets remain after a product is deleted?",
+        "Are media uploads authenticated and tied to an owner?",
+        "Does account identity support email verification, password recovery, and race-safe email uniqueness?",
+        "Which runtime store is authoritative, DynamoDB or Prisma?"
+      ]
+    },
+    {
+      "fixtureId": "circlefund-fintech",
+      "repository": "arkb75/CircleFund",
+      "commitSha": "22d1968ff13f649ad6ce06a07714b3ecc279121f",
+      "sourceScope": "tracked_git_tree",
+      "sourceDigest": "520cbd4c269a0b05a4d85771db64536b2632506a8fef3bd4c30228906f7192b6",
+      "knowledgeUnits": [
+        {
+          "id": "circle.email-only-account-session",
+          "claim": "Normalizes email, upserts or finds a user, and issues an HMAC-SHA256-signed HTTP-only, SameSite=Lax, 30-day cookie containing the user id.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "identity",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/server/services/auth-service.ts",
+              "lineStart": 13,
+              "lineEnd": 79
+            },
+            {
+              "path": "src/server/data/circle-repository.ts",
+              "lineStart": 11,
+              "lineEnd": 39
+            },
+            {
+              "path": "src/lib/session.ts",
+              "lineStart": 10,
+              "lineEnd": 74
+            }
+          ],
+          "uncertainty": "Neither signup nor login verifies a password, OTP, or email ownership. Signup for an existing unique email updates that user's name, and the signed token has no server-checked expiry or revocation state beyond the browser cookie lifetime."
+        },
+        {
+          "id": "circle.transactional-circle-setup",
+          "claim": "Creates a private circle, its borrowing-policy record, and an active administrator membership atomically, retrying random eight-character invite-code collisions up to six times.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "circle-governance",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/lib/validations/circles.ts",
+              "lineStart": 11,
+              "lineEnd": 19
+            },
+            {
+              "path": "src/server/services/circle-onboarding-service.ts",
+              "lineStart": 18,
+              "lineEnd": 48
+            },
+            {
+              "path": "src/server/services/circle-onboarding-service.ts",
+              "lineStart": 90,
+              "lineEnd": 140
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 44,
+              "lineEnd": 88
+            }
+          ]
+        },
+        {
+          "id": "circle.invite-code-membership",
+          "claim": "Lets an authenticated account join transactionally by normalized invite code, creates a new active member without duplicating an existing membership, and rejects suspended memberships.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "membership",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/server/services/circle-onboarding-service.ts",
+              "lineStart": 21,
+              "lineEnd": 29
+            },
+            {
+              "path": "src/server/services/circle-onboarding-service.ts",
+              "lineStart": 56,
+              "lineEnd": 88
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 44,
+              "lineEnd": 48
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 73,
+              "lineEnd": 88
+            },
+            {
+              "path": "README.md",
+              "lineStart": 105,
+              "lineEnd": 109
+            }
+          ],
+          "uncertainty": "The code is a reusable circle-wide bearer credential shown to members, with no invite record, recipient binding, expiry, use limit, delivery event, or rotation. Existing pending membership returns success without becoming active; immediate activation for a new join is explicitly documented MVP behavior, not evidence that borrowing approvalMode governs admission."
+        },
+        {
+          "id": "circle.policy-roster-dashboard",
+          "claim": "Shows a non-suspended member the shared invite code, configured policies, role-aware roster, and current calendar-month contribution totals and remaining target amounts.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "circle-operations",
+          "kind": "capability",
+          "anchors": [
+            {
+              "path": "src/server/services/circle-dashboard-service.ts",
+              "lineStart": 35,
+              "lineEnd": 126
+            },
+            {
+              "path": "src/server/data/circle-repository.ts",
+              "lineStart": 231,
+              "lineEnd": 278
+            },
+            {
+              "path": "src/components/circle/circle-dashboard.tsx",
+              "lineStart": 82,
+              "lineEnd": 190
+            },
+            {
+              "path": "src/components/circle/circle-dashboard.tsx",
+              "lineStart": 192,
+              "lineEnd": 252
+            }
+          ],
+          "uncertainty": "Pending members can enter the dashboard because only suspended membership is denied, while contribution reads and writes require active status. Dashboard viewers receive every member's name, email, role, status, and contribution summary."
+        },
+        {
+          "id": "circle.manual-contribution-ledger",
+          "claim": "Transactionally records manually declared, dated contribution entries with exact-cent amounts, calendar-month buckets, and recorder provenance; active administrators may record for any active member, ordinary active members only for themselves, and active members may inspect per-member histories.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "contributions",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "src/lib/validations/contributions.ts",
+              "lineStart": 5,
+              "lineEnd": 16
+            },
+            {
+              "path": "src/server/services/contribution-service.ts",
+              "lineStart": 29,
+              "lineEnd": 160
+            },
+            {
+              "path": "src/server/services/contribution-analytics.ts",
+              "lineStart": 17,
+              "lineEnd": 92
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 90,
+              "lineEnd": 107
+            }
+          ],
+          "uncertainty": "Entries are user assertions rather than verified movement of funds. The read path does not require the target member to be active or restrict access to self/admin, any valid date including a future date is accepted, and no idempotency, update, deletion, correction, or reversal operation exists."
+        },
+        {
+          "id": "circle.transactional-postgres-domain",
+          "claim": "Persists circles, rules, memberships, and contribution provenance in a relational Postgres model with transactional creation and ledger writes.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "persistence",
+          "kind": "architecture",
+          "anchors": [
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 6,
+              "lineEnd": 107
+            },
+            {
+              "path": "src/server/services/circle-onboarding-service.ts",
+              "lineStart": 56,
+              "lineEnd": 126
+            },
+            {
+              "path": "src/server/services/contribution-service.ts",
+              "lineStart": 44,
+              "lineEnd": 108
+            }
+          ]
+        },
+        {
+          "id": "circle.loan-review-repayment-lifecycle",
+          "claim": "Provides loan requests, eligibility or standing checks, reviewer or administrator decisions, disbursement, repayment, and default handling.",
+          "state": "planned",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "lending",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "README.md",
+              "lineStart": 14,
+              "lineEnd": 24
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 10,
+              "lineEnd": 31
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 59,
+              "lineEnd": 71
+            },
+            {
+              "path": "src/server/services/circle-dashboard-service.ts",
+              "lineStart": 101,
+              "lineEnd": 117
+            },
+            {
+              "path": "src/app/page.tsx",
+              "lineStart": 90,
+              "lineEnd": 94
+            }
+          ],
+          "uncertainty": "The README explicitly describes loan, review, and repayment models as future work. Approval mode, membership duration, active-loan limit, and repayment-term fields are stored and displayed but no Loan, Review, Repayment, or reviewer-role model, service, route, or UI applies them."
+        },
+        {
+          "id": "circle.payment-settlement",
+          "claim": "Transfers, verifies, or settles member contribution money or reserve funds through a payment provider, bank account, wallet, or balance ledger.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "payments",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "src/server/services/contribution-service.ts",
+              "lineStart": 88,
+              "lineEnd": 95
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 59,
+              "lineEnd": 71
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 90,
+              "lineEnd": 107
+            },
+            {
+              "path": "package.json",
+              "lineStart": 18,
+              "lineEnd": 37
+            }
+          ],
+          "uncertainty": "The active path only creates a manual Contribution database row. Minimum reserve balance is a stored policy number, not a measured account balance, and no payment-provider dependency exists."
+        },
+        {
+          "id": "circle.membership-administration",
+          "claim": "Lets administrators promote, suspend, reactivate, or remove members after they join.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "membership",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 10,
+              "lineEnd": 19
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 73,
+              "lineEnd": 88
+            },
+            {
+              "path": "src/server/services/circle-onboarding-service.ts",
+              "lineStart": 64,
+              "lineEnd": 80
+            },
+            {
+              "path": "src/server/services/circle-onboarding-service.ts",
+              "lineStart": 115,
+              "lineEnd": 120
+            },
+            {
+              "path": "src/server/data/circle-repository.ts",
+              "lineStart": 76,
+              "lineEnd": 93
+            }
+          ],
+          "uncertainty": "Role and status fields are modeled, but normal creator and join paths explicitly create active memberships and the repository exposes membership creation only. Pending and suspended states therefore require an out-of-band database write in the current application."
+        },
+        {
+          "id": "circle.circle-policy-invite-lifecycle",
+          "claim": "Lets authorized administrators edit circle or rule values and rotate or revoke the shared invite code after creation.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "circle-governance",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "src/server/data/circle-repository.ts",
+              "lineStart": 41,
+              "lineEnd": 94
+            },
+            {
+              "path": "src/server/services/circle-onboarding-service.ts",
+              "lineStart": 90,
+              "lineEnd": 126
+            },
+            {
+              "path": "src/app/api/v1/circles/route.ts",
+              "lineStart": 13,
+              "lineEnd": 40
+            },
+            {
+              "path": "README.md",
+              "lineStart": 94,
+              "lineEnd": 103
+            }
+          ],
+          "uncertainty": "The repository and public API expose create, join, and read operations for circle policy; no update, delete, invite rotation, or invite revocation operation exists."
+        },
+        {
+          "id": "circle.configurable-contribution-cadence",
+          "claim": "Applies selectable weekly, biweekly, or monthly contribution periods.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "contributions",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 21,
+              "lineEnd": 25
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 59,
+              "lineEnd": 71
+            },
+            {
+              "path": "prisma/migrations/0002_circle_rule_policy_fields/migration.sql",
+              "lineStart": 9,
+              "lineEnd": 12
+            },
+            {
+              "path": "src/lib/contribution-periods.ts",
+              "lineStart": 39,
+              "lineEnd": 48
+            },
+            {
+              "path": "src/app/page.tsx",
+              "lineStart": 8,
+              "lineEnd": 12
+            }
+          ],
+          "uncertainty": "ContributionFrequency remains an unused enum and the landing page still says weekly to monthly, but the migration removed the rule field and the active policy and period calculation are hard-coded to the first day of each calendar month."
+        },
+        {
+          "id": "circle.contribution-governance-reconciliation",
+          "claim": "Operationally enforces contribution and reserve policy through standing or eligibility effects and supports idempotent ingestion, duplicate prevention, correction, or reversal of ledger entries.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "contributions",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "src/lib/validations/contributions.ts",
+              "lineStart": 5,
+              "lineEnd": 12
+            },
+            {
+              "path": "src/server/services/contribution-service.ts",
+              "lineStart": 44,
+              "lineEnd": 95
+            },
+            {
+              "path": "src/server/services/contribution-analytics.ts",
+              "lineStart": 17,
+              "lineEnd": 32
+            },
+            {
+              "path": "src/server/data/circle-repository.ts",
+              "lineStart": 167,
+              "lineEnd": 215
+            },
+            {
+              "path": "prisma/schema.prisma",
+              "lineStart": 90,
+              "lineEnd": 107
+            }
+          ],
+          "uncertainty": "The write path checks positive amount, valid date, active memberships, and recorder role, while the monthly minimum only computes a non-negative reporting gap. Reserve and borrowing settings never affect contributions, and the append-only schema has no uniqueness or reconciliation mechanism."
+        }
+      ],
+      "userQuestions": [
+        "What proves that a user owns an email, and can someone who knows an existing email sign in or overwrite that account's profile name?",
+        "Which records are created atomically when a circle is created, and which borrowing-policy values are persisted?",
+        "How do invite codes behave for new, active, pending, and suspended memberships, and can a code expire, be recipient-bound, rotated, or revoked?",
+        "What does approvalMode actually govern today, and is it a membership-admission control or configuration for a future borrowing workflow?",
+        "Who can access the circle dashboard, and which invite, policy, roster, identity, and contribution details can pending and active members see?",
+        "Who may record a contribution for whom, which target states are accepted, and what amount, date, transaction, and recorder-provenance checks apply?",
+        "Who may inspect another member's contribution history, including the history of pending or suspended members?",
+        "Does the monthly minimum enforce member behavior or only calculate a reporting target, and are reserve or borrowing policies applied to contributions?",
+        "Can contribution records be duplicated, future-dated, corrected, deleted, or reversed?",
+        "Is contribution cadence actually configurable despite the frequency enum and weekly-to-monthly product copy?",
+        "Does CircleFund transfer, verify, or settle money, or does it only persist manually declared contribution entries?",
+        "Which loan approval, disbursement, repayment, default, membership-administration, and policy-edit operations exist today versus being planned or absent?"
+      ]
+    },
+    {
+      "fixtureId": "otto-marketing-platform",
+      "repository": "ContelloAI/otto-mkt",
+      "commitSha": "55821dd32b1fc9e5154f0b098fa90b85183aeafe",
+      "sourceScope": "tracked_git_tree",
+      "sourceDigest": "fd1f28366ef202ad59c6cee47046a5cd41d2510c0cbeb33280174341e1d9daab",
+      "knowledgeUnits": [
+        {
+          "id": "otto.verified-account-session",
+          "claim": "Provides password signup, email verification, recovery, verified-only login, and an encrypted HTTP-only cookie session.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "identity",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "actions/auth.ts",
+              "lineStart": 65,
+              "lineEnd": 134
+            },
+            {
+              "path": "actions/auth.ts",
+              "lineStart": 136,
+              "lineEnd": 320
+            },
+            {
+              "path": "lib/iron-session/index.ts",
+              "lineStart": 51,
+              "lineEnd": 68
+            },
+            {
+              "path": "app/api/verifyUser/route.ts",
+              "lineStart": 6,
+              "lineEnd": 43
+            },
+            {
+              "path": "app/api/resetPassword/route.ts",
+              "lineStart": 6,
+              "lineEnd": 58
+            }
+          ],
+          "uncertainty": "The verification route falls back to a hard-coded JWT secret when JWT_SECRET is unset."
+        },
+        {
+          "id": "otto.multibrand-workspaces",
+          "claim": "Supports multiple brand workspaces with business identity, audience, voice, visual kit, website-assisted onboarding, selection, rename, and deletion or migration.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "brand-management",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/brands/route.ts",
+              "lineStart": 21,
+              "lineEnd": 124
+            },
+            {
+              "path": "app/api/brands/route.ts",
+              "lineStart": 126,
+              "lineEnd": 325
+            },
+            {
+              "path": "actions/userPreference.ts",
+              "lineStart": 55,
+              "lineEnd": 266
+            },
+            {
+              "path": "actions/userPreference.ts",
+              "lineStart": 268,
+              "lineEnd": 348
+            },
+            {
+              "path": "lib/scraper/index.ts",
+              "lineStart": 6,
+              "lineEnd": 313
+            }
+          ],
+          "uncertainty": "Website extraction is local, but AI business-detail enrichment calls an external backend whose tracked implementation is absent."
+        },
+        {
+          "id": "otto.owner-team-invitations",
+          "claim": "Lets brand owners invite existing or new users by email, manage pending memberships, accept or reject invitations, and remove members subject to a last-owner membership check.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "collaboration",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/brandUsers/route.ts",
+              "lineStart": 92,
+              "lineEnd": 269
+            },
+            {
+              "path": "app/api/brandUsers/route.ts",
+              "lineStart": 271,
+              "lineEnd": 328
+            },
+            {
+              "path": "app/api/brandUsers/route.ts",
+              "lineStart": 330,
+              "lineEnd": 400
+            },
+            {
+              "path": "actions/auth.ts",
+              "lineStart": 85,
+              "lineEnd": 127
+            }
+          ],
+          "uncertainty": "Every supported and normalized role is OWNER; this is team membership, not granular role-based access. The last-owner check counts pending and rejected OWNER memberships, so it does not guarantee that an active owner remains."
+        },
+        {
+          "id": "otto.campaign-post-library",
+          "claim": "Provides a brand-scoped campaign and post library with content, channel, multi-image media, approval, schedule, publication, automation, and review state.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "content-operations",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "actions/createOrUpdateCampaign.ts",
+              "lineStart": 8,
+              "lineEnd": 108
+            },
+            {
+              "path": "actions/addPostToCampaign.ts",
+              "lineStart": 9,
+              "lineEnd": 88
+            },
+            {
+              "path": "app/api/getAllUserPosts/route.ts",
+              "lineStart": 62,
+              "lineEnd": 168
+            },
+            {
+              "path": "app/api/updatePost/route.ts",
+              "lineStart": 15,
+              "lineEnd": 125
+            }
+          ],
+          "uncertainty": "DynamoDB multi-step content writes are not transactional, and some legacy-error paths continue after an ownership check fails."
+        },
+        {
+          "id": "otto.ai-content-integration",
+          "claim": "Orchestrates authenticated post, idea, writing, and image generation jobs through a configured external AI backend and can locally composite a logo onto generated artwork.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "ai-content",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "app/api/genAi/route.ts",
+              "lineStart": 11,
+              "lineEnd": 140
+            },
+            {
+              "path": "app/api/generateIdeas/route.ts",
+              "lineStart": 7,
+              "lineEnd": 59
+            },
+            {
+              "path": "app/api/ai-writing-assistant/route.ts",
+              "lineStart": 6,
+              "lineEnd": 57
+            },
+            {
+              "path": "app/api/imageGeneration/route.ts",
+              "lineStart": 7,
+              "lineEnd": 108
+            },
+            {
+              "path": "app/api/imageEdit/route.ts",
+              "lineStart": 7,
+              "lineEnd": 116
+            }
+          ],
+          "uncertainty": "This claim is limited to the tracked control plane; the external generation engine is not present in tracked HEAD."
+        },
+        {
+          "id": "otto.idea-library",
+          "claim": "Stores brand-scoped content and artwork ideas with source, type, tags, used state, editing, deletion, and persistent reordering.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "should",
+          "domain": "ideation",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/ideas/route.ts",
+              "lineStart": 7,
+              "lineEnd": 58
+            },
+            {
+              "path": "app/api/ideas/[ideaId]/route.ts",
+              "lineStart": 6,
+              "lineEnd": 53
+            },
+            {
+              "path": "app/api/ideas/reorder/route.ts",
+              "lineStart": 6,
+              "lineEnd": 61
+            }
+          ]
+        },
+        {
+          "id": "otto.bulk-content-orchestration",
+          "claim": "Configures and tracks bulk generation of up to 50 posts across ten content formats, then supports batch selection, deletion, and scheduling.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "content-automation",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "components/BulkContentCreationModal.tsx",
+              "lineStart": 21,
+              "lineEnd": 84
+            },
+            {
+              "path": "components/BulkContentCreationModal.tsx",
+              "lineStart": 457,
+              "lineEnd": 650
+            },
+            {
+              "path": "app/api/bulk-content/run/route.ts",
+              "lineStart": 6,
+              "lineEnd": 49
+            },
+            {
+              "path": "app/api/bulk-content/run-status/route.ts",
+              "lineStart": 6,
+              "lineEnd": 41
+            }
+          ],
+          "uncertainty": "The UI and brand-bound proxy are tracked; the batch-generation worker is absent from tracked HEAD."
+        },
+        {
+          "id": "otto.calendar-review-schedule-control",
+          "claim": "Provides a scheduled and published content calendar, an unscheduled queue, human approval, recurring schedule definitions, draft review, and manual run or publish controls.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "content-automation",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/dashboard/calendar/page.tsx",
+              "lineStart": 12,
+              "lineEnd": 176
+            },
+            {
+              "path": "actions/approveUserPost.ts",
+              "lineStart": 8,
+              "lineEnd": 71
+            },
+            {
+              "path": "app/api/content-schedules/route.ts",
+              "lineStart": 7,
+              "lineEnd": 75
+            },
+            {
+              "path": "app/api/content-schedules/[id]/drafts/route.ts",
+              "lineStart": 5,
+              "lineEnd": 36
+            },
+            {
+              "path": "app/api/content-schedules/[id]/approve/route.ts",
+              "lineStart": 6,
+              "lineEnd": 57
+            },
+            {
+              "path": "app/api/content-schedules/[id]/run/route.ts",
+              "lineStart": 6,
+              "lineEnd": 33
+            },
+            {
+              "path": "app/api/content-schedules/[id]/publish/route.ts",
+              "lineStart": 6,
+              "lineEnd": 43
+            }
+          ],
+          "uncertainty": "CRUD/review and proxy controls are tracked, but the recurring execution/publishing worker is not."
+        },
+        {
+          "id": "otto.configurable-schedule-cardinality",
+          "claim": "Lets one recurring schedule generate a configurable number of drafts across multiple selected channels per run.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "content-automation",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/content-schedules/route.ts",
+              "lineStart": 23,
+              "lineEnd": 68
+            },
+            {
+              "path": "app/api/content-schedules/[id]/route.ts",
+              "lineStart": 32,
+              "lineEnd": 46
+            },
+            {
+              "path": "app/dashboard/automation/page.tsx",
+              "lineStart": 500,
+              "lineEnd": 548
+            }
+          ],
+          "uncertainty": "The API accepts maxDraftsPerRun but create and update hard-code it to one; the current creation UI also submits only one selected channel."
+        },
+        {
+          "id": "otto.social-oauth-publishing",
+          "claim": "Connects and publishes brand content through Twitter or X, LinkedIn, Facebook, Instagram, and Google Business OAuth integrations.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "social-publishing",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "app/api/twitter/auth/route.ts",
+              "lineStart": 14,
+              "lineEnd": 109
+            },
+            {
+              "path": "app/api/twitter/tweet/route.ts",
+              "lineStart": 68,
+              "lineEnd": 342
+            },
+            {
+              "path": "app/api/linkedin/callback/route.ts",
+              "lineStart": 17,
+              "lineEnd": 149
+            },
+            {
+              "path": "app/api/linkedin/publish/route.ts",
+              "lineStart": 104,
+              "lineEnd": 294
+            },
+            {
+              "path": "app/api/facebook/callback/route.ts",
+              "lineStart": 8,
+              "lineEnd": 157
+            },
+            {
+              "path": "app/api/facebook/publish/route.ts",
+              "lineStart": 73,
+              "lineEnd": 379
+            },
+            {
+              "path": "app/api/instagram/callback/route.ts",
+              "lineStart": 150,
+              "lineEnd": 271
+            },
+            {
+              "path": "app/api/instagram/publish/route.ts",
+              "lineStart": 65,
+              "lineEnd": 139
+            },
+            {
+              "path": "app/api/google-business/callback/route.ts",
+              "lineStart": 68,
+              "lineEnd": 186
+            },
+            {
+              "path": "app/api/google-business/publish/route.ts",
+              "lineStart": 109,
+              "lineEnd": 297
+            }
+          ]
+        },
+        {
+          "id": "otto.media-library-mobile-upload",
+          "claim": "Maintains a brand media library for direct and generated images or videos and supports QR-token mobile upload with optional post attachment.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "must",
+          "domain": "media",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/media-library/route.ts",
+              "lineStart": 10,
+              "lineEnd": 87
+            },
+            {
+              "path": "app/api/upload-token/route.ts",
+              "lineStart": 8,
+              "lineEnd": 99
+            },
+            {
+              "path": "app/api/mobile-upload/route.ts",
+              "lineStart": 3,
+              "lineEnd": 200
+            }
+          ],
+          "uncertainty": "The token-minting authorization and campaign/post binding are critically incomplete; every mobile upload is also recorded as MediaType.Image, including videos."
+        },
+        {
+          "id": "otto.brand-document-analysis",
+          "claim": "Uploads brand documents, prepares them through OpenAI Files, extracts strict content and idea structures, persists processing state, and can merge the processed contexts.",
+          "state": "implemented",
+          "importance": "major",
+          "highlightRelevance": "should",
+          "domain": "brand-knowledge",
+          "kind": "workflow",
+          "anchors": [
+            {
+              "path": "app/api/documents/presigned-url/route.ts",
+              "lineStart": 19,
+              "lineEnd": 78
+            },
+            {
+              "path": "app/api/knowledge-base/prepare/route.ts",
+              "lineStart": 10,
+              "lineEnd": 65
+            },
+            {
+              "path": "app/api/knowledge-base/process/route.ts",
+              "lineStart": 12,
+              "lineEnd": 100
+            },
+            {
+              "path": "lib/knowledge-base/context-retrieval.ts",
+              "lineStart": 7,
+              "lineEnd": 49
+            }
+          ],
+          "uncertainty": "This is document processing, not generation grounding; no tracked generation route consumes the merged context. Registration also accepts an arbitrary caller-supplied S3 fileKey that prepare later reads."
+        },
+        {
+          "id": "otto.social-engagement-stats",
+          "claim": "Retrieves and displays post engagement for Facebook, Instagram, and Twitter or X, with cached or stale Twitter data under rate limits and fetch failures.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "analytics",
+          "kind": "integration",
+          "anchors": [
+            {
+              "path": "app/api/facebook/getStats/route.ts",
+              "lineStart": 96,
+              "lineEnd": 138
+            },
+            {
+              "path": "app/api/instagram/getStats/route.ts",
+              "lineStart": 53,
+              "lineEnd": 107
+            },
+            {
+              "path": "app/api/twitter/getStats/route.ts",
+              "lineStart": 100,
+              "lineEnd": 238
+            },
+            {
+              "path": "components/Dashboard/PostStats.tsx",
+              "lineStart": 42,
+              "lineEnd": 94
+            }
+          ]
+        },
+        {
+          "id": "otto.marketing-chat",
+          "claim": "Exposes a standalone marketing-scoped chat assistant backed directly by OpenAI chat completions.",
+          "state": "implemented",
+          "importance": "supporting",
+          "highlightRelevance": "should",
+          "domain": "ai-assistant",
+          "kind": "capability",
+          "anchors": [
+            {
+              "path": "app/api/chat/route.ts",
+              "lineStart": 6,
+              "lineEnd": 92
+            }
+          ],
+          "uncertainty": "The endpoint contains no session or brand authorization, global middleware bypasses API routes, and its system prompt restricts answers to optics marketing rather than the active brand."
+        },
+        {
+          "id": "otto.tracked-ai-generation-engine",
+          "claim": "Contains the model prompts, retrieval, execution, and job worker that generate AI posts, ideas, images, and bulk batches.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "ai-runtime",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/genAi/route.ts",
+              "lineStart": 9,
+              "lineEnd": 73
+            },
+            {
+              "path": "app/api/bulk-content/run/route.ts",
+              "lineStart": 4,
+              "lineEnd": 44
+            },
+            {
+              "path": "app/api/imageGeneration/route.ts",
+              "lineStart": 5,
+              "lineEnd": 47
+            }
+          ],
+          "uncertainty": "These tracked routes call BACKEND_URL, defaulting to localhost port 3001; otto-mkt-backend is entirely untracked at the audited commit and was excluded."
+        },
+        {
+          "id": "otto.tracked-recurring-scheduler-worker",
+          "claim": "Contains the recurring worker that wakes on schedule, generates drafts, and publishes them automatically.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "content-automation",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/content-schedules/[id]/run/route.ts",
+              "lineStart": 4,
+              "lineEnd": 33
+            },
+            {
+              "path": "app/api/content-schedules/run-status/route.ts",
+              "lineStart": 4,
+              "lineEnd": 40
+            },
+            {
+              "path": "app/api/content-schedules/[id]/publish/route.ts",
+              "lineStart": 4,
+              "lineEnd": 43
+            }
+          ],
+          "uncertainty": "Tracked source contains schedule definitions, review controls, and backend proxies only."
+        },
+        {
+          "id": "otto.knowledge-grounded-generation",
+          "claim": "Uses processed brand documents to ground post, campaign, idea, or artwork generation.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "brand-knowledge",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "lib/knowledge-base/context-retrieval.ts",
+              "lineStart": 7,
+              "lineEnd": 49
+            },
+            {
+              "path": "app/api/genAi/route.ts",
+              "lineStart": 53,
+              "lineEnd": 55
+            }
+          ],
+          "uncertainty": "The retrieval utility has no tracked consumer and the post-generation route explicitly disables knowledge-base augmentation."
+        },
+        {
+          "id": "otto.granular-team-roles",
+          "claim": "Distinguishes OWNER, ADMIN, and EDITOR permissions within a brand.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "collaboration",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/brandUsers/route.ts",
+              "lineStart": 20,
+              "lineEnd": 29
+            },
+            {
+              "path": "lib/types.ts",
+              "lineStart": 178,
+              "lineEnd": 211
+            },
+            {
+              "path": "app/api/brandUsers/route.ts",
+              "lineStart": 145,
+              "lineEnd": 154
+            }
+          ],
+          "uncertainty": "All supported, managerial, default, and normalized invitation roles are OWNER."
+        },
+        {
+          "id": "otto.extended-channel-analytics",
+          "claim": "Retrieves engagement analytics for LinkedIn, Google Business, email, blog, ads, press releases, and landing-page content.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "analytics",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "components/Dashboard/PostStats.tsx",
+              "lineStart": 55,
+              "lineEnd": 94
+            }
+          ],
+          "uncertainty": "The UI explicitly classifies these formats as unintegrated for stats."
+        },
+        {
+          "id": "otto.mobile-upload-authorization",
+          "claim": "Restricts mobile-upload token minting and recent-upload polling to authenticated users with access to the requested brand.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "security",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/upload-token/route.ts",
+              "lineStart": 4,
+              "lineEnd": 42
+            },
+            {
+              "path": "app/api/mobile-upload/route.ts",
+              "lineStart": 5,
+              "lineEnd": 40
+            },
+            {
+              "path": "app/api/mobile-upload/route.ts",
+              "lineStart": 146,
+              "lineEnd": 172
+            },
+            {
+              "path": "app/api/mobile-upload/check/route.ts",
+              "lineStart": 3,
+              "lineEnd": 49
+            },
+            {
+              "path": "middleware.ts",
+              "lineStart": 15,
+              "lineEnd": 20
+            }
+          ],
+          "uncertainty": "Anyone who can reach the API can mint a valid token for arbitrary brandId and userId values or poll another brand. Upload validation compares only brandId and userId, so caller-supplied campaignId and postId can target a different post; the fallback JWT secret compounds the risk."
+        },
+        {
+          "id": "otto.consistent-brand-authorization",
+          "claim": "Consistently verifies active-brand membership and item ownership before mutating campaigns, posts, brand settings, and registered document objects.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "security",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/editDateAndTime/route.ts",
+              "lineStart": 7,
+              "lineEnd": 47
+            },
+            {
+              "path": "actions/addPostToCampaign.ts",
+              "lineStart": 44,
+              "lineEnd": 63
+            },
+            {
+              "path": "app/api/documents/register/route.ts",
+              "lineStart": 8,
+              "lineEnd": 38
+            },
+            {
+              "path": "app/api/knowledge-base/prepare/route.ts",
+              "lineStart": 33,
+              "lineEnd": 49
+            },
+            {
+              "path": "app/api/brands/route.ts",
+              "lineStart": 126,
+              "lineEnd": 320
+            }
+          ],
+          "uncertainty": "The legacy reschedule route updates an arbitrary campaign/post key and can auto-approve it; campaign ownership lookup fails open on errors; document registration trusts a caller-supplied S3 key; and any active brand member may rename or delete the brand."
+        },
+        {
+          "id": "otto.atomic-brand-workflows",
+          "claim": "Applies invite consumption and brand creation, migration, and deletion as transactional operations with rollback on partial failure.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "data-integrity",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "actions/auth.ts",
+              "lineStart": 111,
+              "lineEnd": 127
+            },
+            {
+              "path": "app/api/brands/route.ts",
+              "lineStart": 86,
+              "lineEnd": 110
+            },
+            {
+              "path": "app/api/brands/route.ts",
+              "lineStart": 185,
+              "lineEnd": 267
+            }
+          ],
+          "uncertainty": "These workflows perform multiple sequential DynamoDB writes without a transaction or compensating rollback."
+        },
+        {
+          "id": "otto.oauth-state-csrf-binding",
+          "claim": "Binds social OAuth state to the initiating authenticated session with an unpredictable, single-use anti-forgery nonce.",
+          "state": "absent",
+          "importance": "major",
+          "highlightRelevance": "not_expected",
+          "domain": "security",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "app/api/facebook/auth/route.ts",
+              "lineStart": 11,
+              "lineEnd": 27
+            },
+            {
+              "path": "app/api/facebook/callback/route.ts",
+              "lineStart": 10,
+              "lineEnd": 50
+            }
+          ],
+          "uncertainty": "The Facebook flow uses the raw brand ID as state and verifies brand access only after callback; it does not issue or validate a session-bound nonce."
+        },
+        {
+          "id": "otto.notification-trigger-authorization",
+          "claim": "Restricts notification-email triggers to authenticated, authorized callers and derives recipients from trusted server-side state.",
+          "state": "absent",
+          "importance": "supporting",
+          "highlightRelevance": "not_expected",
+          "domain": "security",
+          "kind": "constraint",
+          "anchors": [
+            {
+              "path": "middleware.ts",
+              "lineStart": 15,
+              "lineEnd": 20
+            },
+            {
+              "path": "app/api/notifications/content-review/route.ts",
+              "lineStart": 5,
+              "lineEnd": 43
+            },
+            {
+              "path": "app/api/notifications/empty-calendar/route.ts",
+              "lineStart": 26,
+              "lineEnd": 45
+            },
+            {
+              "path": "app/api/notifications/empty-calendar/route.ts",
+              "lineStart": 70,
+              "lineEnd": 111
+            }
+          ],
+          "uncertainty": "API routes bypass global middleware, these handlers contain no route-level session check, and the empty-calendar request accepts a caller-selected recipient and HTML-interpolated idea content."
+        }
+      ],
+      "userQuestions": [
+        "Which capabilities execute completely inside this pinned tree and which require the absent backend?",
+        "How are brand profiles and kits populated, selected, renamed, deleted, or migrated, and who may mutate them?",
+        "Are OWNER, ADMIN, and EDITOR real permission tiers or is every team member effectively an owner?",
+        "How do campaigns, posts, ideas, media, approval, scheduling, and publication state relate?",
+        "How many channels and drafts can one recurring schedule actually produce per run?",
+        "What is implemented in autonomous scheduling versus merely proxied to the external backend?",
+        "Which of the ten content formats can be published, and which five have real OAuth publishing integrations?",
+        "Which platforms expose analytics and which metrics are unavailable?",
+        "Do processed brand documents influence generated posts or ideas, or only produce stored analyses?",
+        "Can a user register an arbitrary S3 key as a brand document?",
+        "Can an unauthenticated caller mint a mobile upload token, poll another brand, or attach media to a different post than the token named?",
+        "What is the chat assistant scoped to, and is it authenticated or active-brand aware?",
+        "Which legacy routes bypass brand authorization or continue after an ownership check fails?",
+        "Are brand creation, deletion, migration, and invitation-consumption writes transactional?",
+        "Can unauthenticated callers trigger notification email routes?",
+        "What protects social OAuth state from request forgery?",
+        "Which runtime components are deployed separately from the tracked Next.js application?"
+      ]
+    }
+  ]
+}

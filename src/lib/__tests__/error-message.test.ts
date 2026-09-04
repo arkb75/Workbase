@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { classifyWorkflowFailure, errorMessageFromUnknown } from "@/src/lib/error-message";
 
 describe("workflow error normalization", () => {
+  it("does not retry deterministic repository checkpoint or terminal-refresh failures", () => {
+    expect(classifyWorkflowFailure(new Error(
+      "Persisted repository investigation checkpoint contains stale claim evidence.",
+    ))).toMatchObject({ code: "workflow_failed", retryable: false });
+    expect(classifyWorkflowFailure(new Error(
+      "Repository refresh refresh-1 is failed and cannot continue.",
+    ))).toMatchObject({ code: "workflow_failed", retryable: false });
+    expect(classifyWorkflowFailure(new Error(
+      "Repository investigation source attestation contains a conflicting durable identity.",
+    ))).toMatchObject({ code: "workflow_failed", retryable: false });
+    expect(classifyWorkflowFailure(new Error(
+      "Persisted repository investigation checkpoint contains a stale exact read identity.",
+    ))).toMatchObject({ code: "workflow_failed", retryable: false });
+  });
+
   it("preserves messages serialized across a durable workflow boundary", () => {
     expect(errorMessageFromUnknown({ cause: { message: "specific failure" } })).toBe("specific failure");
   });

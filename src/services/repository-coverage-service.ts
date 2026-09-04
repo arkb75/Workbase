@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ProjectFactCategory } from "@/src/domain/project-chat";
+import type {
+  RepositoryKnowledgeImplementationState,
+  RepositoryKnowledgeRole,
+  RepositoryOperationFacet,
+} from "@/src/domain/repository-knowledge";
+export type {
+  RepositoryKnowledgeImplementationState,
+  RepositoryKnowledgeRole,
+  RepositoryOperationFacet,
+} from "@/src/domain/repository-knowledge";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { normalizeWhitespace } from "@/src/lib/utils";
@@ -480,6 +490,14 @@ export interface RepositoryChunkAnalysis {
     technicalDifficulty: number;
     subsystemKeys?: string[];
     semanticSignals?: string[];
+    /** Durable knowledge role retained across repository synthesis. */
+    knowledgeRole?: RepositoryKnowledgeRole;
+    /** Stable relation key joining atomic observations for one operation. */
+    operationKey?: string;
+    /** Source-inspected current state of the represented operation or boundary. */
+    implementationState?: RepositoryKnowledgeImplementationState;
+    /** Structural role of this exact observation inside its operation. */
+    operationFacet?: RepositoryOperationFacet;
     /** Semantic role assigned to this exact finding by model extraction. */
     semanticKind?: RepositorySemanticFindingKind;
     /** Exact numbered source lines retained for downstream entailment review. */
@@ -874,8 +892,6 @@ export function isPlannedDocumentationRange(input: {
   );
 }
 
-const MAX_SEMANTIC_EVIDENCE_EXCERPT_CHARS = 1_600;
-
 function inspectSemanticEvidenceRange(
   numberedContent: string,
   lineStart: number,
@@ -905,19 +921,15 @@ export function semanticEvidenceExcerpt(
   lineStart: number,
   lineEnd: number,
 ) {
-  const excerpt = numberedContent.split("\n").filter((line) => {
+  return numberedContent.split("\n").filter((line) => {
     const match = /^(\d+):/u.exec(line);
     if (!match) return false;
     const lineNumber = Number(match[1]);
     return lineNumber >= lineStart && lineNumber <= lineEnd;
   }).join("\n");
-  if (excerpt.length <= MAX_SEMANTIC_EVIDENCE_EXCERPT_CHARS) return excerpt;
-
-  const fragmentLength = Math.floor((MAX_SEMANTIC_EVIDENCE_EXCERPT_CHARS - 32) / 2);
-  return `${excerpt.slice(0, fragmentLength)}\n[... cited lines omitted ...]\n${excerpt.slice(-fragmentLength)}`;
 }
 
-function semanticFindingSensitivityFlag(
+export function semanticFindingSensitivityFlag(
   modelFlag: boolean,
   evidenceExcerpt: string,
 ) {

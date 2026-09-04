@@ -96,6 +96,12 @@ export interface BedrockConverseAgentLimits {
   maxIterations: number;
   maxToolCalls: number;
   maxTotalTokens: number;
+  /**
+   * Optional cap on newly processed semantic tokens. Cached input replay is
+   * excluded, while output is always charged. maxTotalTokens remains the raw
+   * cumulative-transcript runaway guard.
+   */
+  maxSemanticTokens?: number;
 }
 
 export interface BedrockConverseAgentTokenUsage {
@@ -354,6 +360,18 @@ function emptyTokenUsage(): BedrockConverseAgentTokenUsage {
     cacheReadInputTokens: 0,
     cacheWriteInputTokens: 0,
   };
+}
+
+export function bedrockConverseAgentSemanticTokenCount(
+  usage: Pick<
+    BedrockConverseAgentTokenUsage,
+    "totalTokens" | "outputTokens" | "cacheReadInputTokens"
+  >,
+) {
+  return Math.max(
+    usage.outputTokens,
+    usage.totalTokens - usage.cacheReadInputTokens,
+  );
 }
 
 function normalizeTokenCount(value: number | undefined) {
@@ -719,6 +737,8 @@ function resolveLimits(
   overrides: Partial<BedrockConverseAgentLimits> | undefined,
   defaults: Partial<BedrockConverseAgentLimits> | undefined,
 ): BedrockConverseAgentLimits {
+  const maxSemanticTokens =
+    overrides?.maxSemanticTokens ?? defaults?.maxSemanticTokens;
   return {
     maxIterations: positiveInteger(
       overrides?.maxIterations ?? defaults?.maxIterations ?? DEFAULT_MAX_ITERATIONS,
@@ -732,6 +752,12 @@ function resolveLimits(
       overrides?.maxTotalTokens ?? defaults?.maxTotalTokens ?? DEFAULT_MAX_TOTAL_TOKENS,
       "maxTotalTokens",
     ),
+    ...(maxSemanticTokens === undefined ? {} : {
+      maxSemanticTokens: positiveInteger(
+        maxSemanticTokens,
+        "maxSemanticTokens",
+      ),
+    }),
   };
 }
 
@@ -1232,13 +1258,19 @@ export class BedrockConverseAgent {
       const iterationUsage = normalizeTokenUsage(response.usage);
       const responseProvider =
         response.provider ?? this.providerLabel().toLowerCase();
-      const openRouterMeteringIncomplete =
-        responseProvider.toLowerCase() === "openrouter" &&
-        (iterationUsage.costedAttemptCount ?? 0) <
-          (iterationUsage.providerAttemptCount ?? 1);
-      if (openRouterMeteringIncomplete) {
+      const unreportedOpenRouterUsageAttempts =
+        responseProvider.toLowerCase() === "openrouter"
+          ? Math.max(
+              0,
+              (iterationUsage.providerAttemptCount ?? 1) -
+                (iterationUsage.costedAttemptCount ?? 0) -
+                (iterationUsage.unknownUsageAttempts ?? 0),
+            )
+          : 0;
+      if (unreportedOpenRouterUsageAttempts) {
         iterationUsage.unknownUsageAttempts =
-          (iterationUsage.unknownUsageAttempts ?? 0) + 1;
+          (iterationUsage.unknownUsageAttempts ?? 0) +
+          unreportedOpenRouterUsageAttempts;
       }
       aggregateUsage = addTokenUsage(aggregateUsage, iterationUsage);
       const stopReason = response.stopReason;
@@ -1276,10 +1308,15 @@ export class BedrockConverseAgent {
       });
 
       if (!stopReason) {
-        throw new BedrockConverseAgentError(
+        throw new BedrockConverseProviderError(
           `${this.providerLabel()} response did not include a stop reason.`,
-          "protocol_error",
-          { iterations, toolCalls, usage: aggregateUsage },
+          failureOptions({
+            iterations,
+            toolCalls,
+            usage: aggregateUsage,
+            retryable: true,
+            providerCode: "incomplete_response",
+          }),
         );
       }
 
@@ -1288,14 +1325,36 @@ export class BedrockConverseAgent {
         response.message.role !== "assistant" ||
         !response.message.content?.length
       ) {
-        throw new BedrockConverseAgentError(
+        throw new BedrockConverseProviderError(
           `${this.providerLabel()} response did not include a complete assistant message.`,
-          "protocol_error",
-          failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
+          failureOptions({
+            stopReason,
+            iterations,
+            toolCalls,
+            usage: aggregateUsage,
+            retryable: true,
+            providerCode: "incomplete_response",
+          }),
         );
       }
 
       messages.push(response.message);
+
+      const semanticTokens = bedrockConverseAgentSemanticTokenCount(
+        aggregateUsage,
+      );
+      if (
+        limits.maxSemanticTokens !== undefined &&
+        semanticTokens > limits.maxSemanticTokens
+      ) {
+        throw new BedrockConverseLimitError(
+          `${this.providerLabel()} agent exceeded its ${limits.maxSemanticTokens}-semantic-token budget before completing an answer.`,
+          "token_limit_exceeded",
+          limits.maxSemanticTokens,
+          semanticTokens,
+          failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
+        );
+      }
 
       if (stopReason === "end_turn" || stopReason === "stop_sequence") {
         const unexpectedToolUse = (response.message.content ?? []).some(

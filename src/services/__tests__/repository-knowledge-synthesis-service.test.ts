@@ -11,7 +11,9 @@ import {
   isRepositoryOperationCommunityScope,
   fallbackSubsystemSynthesis,
   finalizeRepositorySubsystemSynthesis,
+  groupRepositoryOperationSynthesisScopes,
   materializeRepositoryOperationCommunities,
+  materializeRepositoryLimitationFactScopes,
   modelEligibleSynthesisNotebook,
   mergeRepositorySynthesisCriticAfterRevision,
   naturalRepositorySynthesisClaimLimits,
@@ -24,6 +26,7 @@ import {
   repositoryOperationCommunityCount,
   repositoryOperationCommunityCountForScope,
   repositoryOperationCommunityValidationErrors,
+  repositoryKnowledgeRole,
   repositoryEvidenceBoundaryGuidance,
   repositoryModelEligibleSynthesisInputCount,
   repositorySynthesisCriticClaims,
@@ -78,10 +81,127 @@ function entry(path: string, statement = `${path} defines supported repository b
     implementationBreadth: 4,
     technicalDifficulty: 4,
     changeType: "modified",
+    knowledgeRole: "implementation",
   };
 }
 
 describe("repository operation communities", () => {
+  it("groups cross-file atomic evidence by operation before bounded synthesis", () => {
+    const route = {
+      ...entry("src/api/orders/route.ts", "The order route validates and starts checkout."),
+      operationKey: "checkout_order",
+      operationFacet: "entrypoint" as const,
+      implementationState: "implemented" as const,
+      evidenceMode: "semantic" as const,
+    };
+    const persistence = {
+      ...entry("src/orders/service.ts", "Checkout transactionally persists the order."),
+      operationKey: "checkout_order",
+      operationFacet: "persistence" as const,
+      implementationState: "implemented" as const,
+      evidenceMode: "semantic" as const,
+    };
+    const unrelated = {
+      ...entry("src/api/refunds/route.ts", "The refund route creates a refund request."),
+      operationKey: "request_refund",
+      operationFacet: "entrypoint" as const,
+      implementationState: "implemented" as const,
+      evidenceMode: "semantic" as const,
+    };
+    const legacy = {
+      ...entry("src/orders/format.ts", "The formatter renders an order identifier."),
+      evidenceMode: "semantic" as const,
+    };
+
+    const grouped = groupRepositoryOperationSynthesisScopes([{
+      sourceId: "source-1",
+      repository: "example/commerce",
+      subsystemKey: "project_domain:orders",
+      notebook: [route, persistence, legacy],
+    }, {
+      sourceId: "source-1",
+      repository: "example/commerce",
+      subsystemKey: "project_domain:payments",
+      notebook: [persistence, unrelated],
+    }]);
+
+    expect(grouped.map((scope) => scope.operationCommunity).sort()).toEqual([
+      "checkout_order",
+      "request_refund",
+    ]);
+    const checkout = grouped.find((scope) =>
+      scope.operationCommunity === "checkout_order"
+    );
+    expect(checkout?.notebook).toEqual([route, persistence]);
+    expect(checkout?.rawNotebook).toHaveLength(2);
+    expect(checkout?.subsystemKey).toBe("project_domain:orders");
+    expect(grouped.flatMap((scope) => scope.notebook)).not.toContain(legacy);
+  });
+
+  it("treats source-inspected non-implementation state as authoritative", () => {
+    const inconsistentPartial = {
+      ...entry(
+        "src/sessions/revoke.ts",
+        "Session revocation has an implemented slice with a material missing boundary.",
+      ),
+      operationKey: "session_revocation",
+      operationFacet: "boundary" as const,
+      implementationState: "partial" as const,
+      // Simulate stale or corrupt role metadata. State must still fail closed.
+      knowledgeRole: "implementation" as const,
+      evidenceMode: "semantic" as const,
+      sourceExcerpt: "1: export function revokeSession() { return partialResult; }",
+    };
+
+    expect(repositoryKnowledgeRole(inconsistentPartial)).toBe("limitation");
+    expect(groupRepositoryOperationSynthesisScopes([{
+      sourceId: "source-1",
+      repository: "example/sessions",
+      subsystemKey: "project_domain:sessions",
+      notebook: [inconsistentPartial],
+    }])).toEqual([]);
+  });
+
+  it("keeps every observation when one operation exceeds a bounded synthesis scope", () => {
+    const observations = Array.from({ length: 25 }, (_entry, index) => ({
+      ...entry(
+        `src/orders/stage-${index + 1}.ts`,
+        `Checkout stage ${index + 1} applies its source-inspected transition.`,
+      ),
+      operationKey: "checkout_order",
+      operationFacet: ([
+        "entrypoint",
+        "transition",
+        "persistence",
+        "side_effect",
+        "boundary",
+        "architecture",
+      ] as const)[index % 6],
+      implementationState: "implemented" as const,
+      evidenceMode: "semantic" as const,
+      sourceExcerpt: `1: export function checkoutStage${index + 1}() { return next(); }`,
+    }));
+
+    const grouped = groupRepositoryOperationSynthesisScopes([{
+      sourceId: "source-1",
+      repository: "example/commerce",
+      subsystemKey: "project_domain:orders",
+      notebook: observations,
+    }]);
+
+    expect(grouped).toHaveLength(3);
+    expect(grouped.map((scope) => scope.notebook.length).sort((a, b) => b - a))
+      .toEqual([12, 12, 1]);
+    expect(new Set(grouped.flatMap((scope) => scope.notebook.map(
+      (candidate) => candidate.statement,
+    )))).toEqual(new Set(observations.map((candidate) => candidate.statement)));
+    expect(new Set(grouped.map((scope) => scope.operationCommunity))).toEqual(
+      new Set(["checkout_order"]),
+    );
+    expect(new Set(grouped.map((scope) => scope.synthesisKey)).size).toBe(3);
+    expect(grouped.every((scope) => scope.coverageGaps.length === 0)).toBe(true);
+  });
+
   it("uses both bounded structural communities before reporting notebook loss", () => {
     const notebook = Array.from({ length: 30 }, (_entry, index) => ({
       ...entry(`src/services/operation-${index + 1}-service.ts`),
@@ -1276,6 +1396,10 @@ describe("repository synthesis model-path limits", () => {
       implementationBreadth: 4,
       technicalDifficulty: 4,
       semanticSignals: ["domain.payment_idempotency"],
+      knowledgeRole: "implementation",
+      operationKey: null,
+      implementationState: null,
+      operationFacet: null,
       semanticKind: "invariant",
       sourceExcerpt: "10: await keys.insert(key);",
     }]);
@@ -1286,6 +1410,86 @@ describe("repository synthesis model-path limits", () => {
     ]) {
       expect(projected).not.toHaveProperty(durable);
     }
+  });
+
+  it("preserves every exact material limitation as its own fact-only scope", () => {
+    const limitations = [
+      {
+        ...entry("src/payments.ts", "The repository does not implement payment settlement."),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["limitation"],
+        knowledgeRole: "limitation" as const,
+        sourceExcerpt: "10: // Settlement is delegated to an external provider.",
+      },
+      {
+        ...entry("src/members.ts", "The repository does not administer organization memberships."),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["limitation"],
+        knowledgeRole: "limitation" as const,
+        sourceExcerpt: "18: // Membership administration is outside this service.",
+      },
+    ];
+
+    const scopes = materializeRepositoryLimitationFactScopes([{
+      sourceId: "source-1",
+      repository: "org/project",
+      subsystemKey: "project_domain:operations",
+      notebook: limitations,
+    }]);
+
+    expect(scopes).toHaveLength(2);
+    expect(scopes.map((scope) => scope.facts[0]?.statement)).toEqual([
+      "The repository does not implement payment settlement.",
+      "The repository does not administer organization memberships.",
+    ]);
+    expect(scopes.every((scope) =>
+      scope.highlights.length === 0 &&
+      scope.facts[0]?.citationIndexes.join(",") === "1" &&
+      scope.notebook[0]?.knowledgeRole === "limitation"
+    )).toBe(true);
+  });
+
+  it("recognizes the exact legacy limitation signal and fails closed without exact source", () => {
+    expect(repositoryKnowledgeRole({ semanticSignals: ["agentic", "limitation"] }))
+      .toBe("limitation");
+    expect(repositoryKnowledgeRole({ semanticSignals: ["implementation_limitation"] }))
+      .toBe("implementation");
+
+    const [scope] = materializeRepositoryLimitationFactScopes([{
+      sourceId: "source-1",
+      repository: "org/project",
+      subsystemKey: "project_domain:operations",
+      notebook: [{
+        ...entry("src/payments.ts", "The repository does not implement payment settlement."),
+        evidenceMode: "semantic",
+        semanticStatus: "succeeded",
+        knowledgeRole: "limitation",
+      }],
+    }]);
+
+    expect(scope?.facts).toEqual([]);
+    expect(scope?.coverageGaps.join(" ")).toContain("exact successful semantic source excerpt");
+  });
+
+  it("keeps degraded semantic evidence outside approval-eligible model synthesis", () => {
+    const degraded = {
+      ...entry("src/payments.ts"),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "degraded" as const,
+      sourceExcerpt: "1: export function charge() { return payment; }",
+    };
+    const verified = {
+      ...entry("src/refunds.ts"),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      sourceExcerpt: "1: export function refund() { return reversal; }",
+    };
+
+    expect(modelEligibleSynthesisNotebook([degraded, verified])).toEqual([
+      verified,
+    ]);
   });
 
   it("allocates a stable Facts-only target while retaining every scope floor", () => {
@@ -2324,6 +2528,16 @@ describe("repository synthesis model-path limits", () => {
         { capabilityKeys: "project_domain:ignored" },
       ],
     })).toEqual(["project_domain:payments", "project_domain:search"]);
+    expect(selectedProjectDomainKeysFromOrchestration({
+      synthesisCapabilityKeys: [
+        "project_domain:adaptive_search",
+        "ai_runtime",
+        "project_domain:adaptive_search",
+      ],
+      // Agentic investigation records post-discovery keys directly. Historical
+      // package fields remain a compatibility fallback only.
+      packages: [{ capabilityKeys: ["project_domain:legacy_package"] }],
+    })).toEqual(["project_domain:adaptive_search"]);
     expect(selectedProjectDomainKeysFromOrchestration(null)).toEqual([]);
   });
 
@@ -2342,6 +2556,29 @@ describe("repository synthesis model-path limits", () => {
     expect(semanticFactsForSubsystem(base, "ai_runtime").map((fact) => fact.statement)).toEqual(["Uses Bedrock Converse tool results."]);
     expect(semanticFactsForSubsystem(base, "domain_data").map((fact) => fact.statement)).toEqual(["Persists a normalized project record."]);
     expect(semanticFactsForSubsystem({ ...base, path: "README.md" }, "ai_runtime")).toEqual([]);
+    expect(semanticFactsForSubsystem({
+      ...base,
+      path: "ROADMAP.md",
+      semanticDiagnostics: [{ status: "agentic_investigation" }],
+      facts: [{
+        ...base.facts[0],
+        statement: "The roadmap plans tenant-scoped model routing.",
+        implementationState: "planned",
+        knowledgeRole: "limitation",
+      }],
+    }, "ai_runtime").map((fact) => fact.statement)).toEqual([
+      "The roadmap plans tenant-scoped model routing.",
+    ]);
+    expect(semanticFactsForSubsystem({
+      ...base,
+      path: "README.md",
+      semanticDiagnostics: [{ status: "agentic_investigation" }],
+      facts: [{
+        ...base.facts[0],
+        implementationState: "implemented",
+        knowledgeRole: "implementation",
+      }],
+    }, "ai_runtime")).toEqual([]);
     expect(semanticFactsForSubsystem({ ...base, path: "poc/export/index.js" }, "ai_runtime")).toHaveLength(1);
     expect(semanticFactsForSubsystem({ ...base, path: "examples/quickstart/server.ts" }, "ai_runtime")).toHaveLength(1);
     expect(semanticFactsForSubsystem({ ...base, path: "examples/config/request.json" }, "ai_runtime")).toEqual([]);

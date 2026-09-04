@@ -29,6 +29,9 @@
     "eval:repository-knowledge": "tsx --env-file=.env scripts/evaluate-repository-knowledge.ts",
     "eval:repository-knowledge:compare": "tsx scripts/compare-repository-knowledge-reports.ts",
     "eval:repository-knowledge:live": "tsx --env-file=.env scripts/run-live-repository-knowledge-evaluation.ts",
+    "eval:repository-source-audit:compare": "tsx scripts/compare-repository-source-audit-scores.ts",
+    "eval:repository-source-audit:export": "tsx --env-file=.env scripts/export-repository-source-audit-packet.ts",
+    "eval:repository-source-audit:score": "tsx scripts/score-repository-source-audit.ts",
     "test:eval": "vitest run src/evals/__tests__",
     "bedrock:preflight": "tsx scripts/bedrock-preflight.ts",
     "openrouter:preflight": "tsx --env-file=.env scripts/openrouter-preflight.ts"

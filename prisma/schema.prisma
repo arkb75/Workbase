@@ -738,6 +738,7 @@ model ProjectFact {
   status                   ProjectFactStatus        @default(draft)
   sensitivityFlag          Boolean                  @default(false)
   reviewNotes              String?
+  metadata                 Json?
   rejectionReason          String?
   searchText               String
   supersedesProjectFactId  String?

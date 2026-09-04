@@ -653,6 +653,18 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
   inputSummary: unknown;
   resultAttestation?: (result: TResult) => Record<string, unknown>;
   /**
+   * Persists bounded host-side provenance that must survive a failed model
+   * attempt, such as already-consumed shared inspection budget. Never include
+   * prompts, raw source, or model output here.
+   */
+  failureResultAttestation?: (error: unknown) => Record<string, unknown>;
+  /**
+   * Persists the purpose-built attestation without the general event-preview
+   * depth truncation. Use only for bounded attestations that must replay
+   * exactly; the same hard byte cap as exact parsed output applies.
+   */
+  preserveResultAttestationExactly?: boolean;
+  /**
    * Opts a schema-validated, purpose-built audit projection into lossless
    * persistence. The projection is JSON-round-tripped and hard-capped;
    * prompts, notebooks, and raw provider output do not belong here.
@@ -721,6 +733,26 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
         modelId: result.modelId,
       });
       const providerAttempts = collectProviderAttemptMetadata(tokenUsage);
+      const resultRefs = {
+        ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
+        transportMode: result.transportMode,
+        profile: input.profile ?? profileForAuditedKind(input.kind),
+        configuredModelId: config!.modelId,
+        requestId: auditedUsageString("requestId", result.requestId),
+        requestIds: providerAttempts.requestIds,
+        structuredAttemptCount: structuredAttemptCount(result.attempts),
+        rawOutputHash: rawHash(result.rawOutput),
+        durationMs: Date.now() - startedAt,
+        auditAttemptCount: auditUsage.auditAttemptCount,
+        providerAttemptCount: auditUsage.currentProviderAttemptCount,
+        failedProviderAttempts: providerAttempts.failedAttempts,
+        routedProviders: providerAttempts.routedProviders,
+        unknownUsageAttempts: auditUsage.unknownUsageAttempts,
+        auditEvidenceTruncated: evidence.truncated,
+        usageComplete: auditUsage.usageComplete,
+        knownEstimatedCostUsd: auditUsage.knownEstimatedCostUsd,
+        ...(resultAttestation ? { resultAttestation } : {}),
+      };
       await prisma.generationRun.update({
         where: { id: run.id },
         data: {
@@ -734,26 +766,9 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
           validationErrors: Prisma.JsonNull,
           tokenUsage: tokenUsage == null ? Prisma.JsonNull : tokenUsage as Prisma.InputJsonValue,
           estimatedCostUsd: auditUsage.estimatedCostUsd,
-          resultRefs: json({
-            ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
-            transportMode: result.transportMode,
-            profile: input.profile ?? profileForAuditedKind(input.kind),
-            configuredModelId: config!.modelId,
-            requestId: auditedUsageString("requestId", result.requestId),
-            requestIds: providerAttempts.requestIds,
-            structuredAttemptCount: structuredAttemptCount(result.attempts),
-            rawOutputHash: rawHash(result.rawOutput),
-            durationMs: Date.now() - startedAt,
-            auditAttemptCount: auditUsage.auditAttemptCount,
-            providerAttemptCount: auditUsage.currentProviderAttemptCount,
-            failedProviderAttempts: providerAttempts.failedAttempts,
-            routedProviders: providerAttempts.routedProviders,
-            unknownUsageAttempts: auditUsage.unknownUsageAttempts,
-            auditEvidenceTruncated: evidence.truncated,
-            usageComplete: auditUsage.usageComplete,
-            knownEstimatedCostUsd: auditUsage.knownEstimatedCostUsd,
-            ...(resultAttestation ? { resultAttestation } : {}),
-          }),
+          resultRefs: input.preserveResultAttestationExactly
+            ? exactParsedOutputJson(resultRefs)
+            : json(resultRefs),
         },
       });
     }
@@ -791,6 +806,39 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
         modelId: run.modelId,
       });
       const providerAttempts = collectProviderAttemptMetadata(tokenUsage);
+      const failureResultAttestation = input.failureResultAttestation?.(error);
+      const failureResultRefs = {
+        ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
+        transportMode: structured?.transportMode ?? null,
+        profile: input.profile ?? profileForAuditedKind(input.kind),
+        configuredModelId: config!.modelId,
+        requestIds: providerAttempts.requestIds,
+        structuredAttemptCount: structuredAttemptCount(
+          structured?.attempts,
+        ),
+        rawOutputHash: rawHash(structured?.rawOutput ?? null),
+        message: structuredGenerationFailureMessage({
+          structured,
+          error,
+        }),
+        durationMs: Date.now() - startedAt,
+        auditAttemptCount: auditUsage.auditAttemptCount,
+        providerAttemptCount: auditUsage.currentProviderAttemptCount,
+        failedProviderAttempts: providerAttempts.failedAttempts,
+        routedProviders: providerAttempts.routedProviders,
+        unknownUsageAttempts: auditUsage.unknownUsageAttempts,
+        auditEvidenceTruncated: evidence.truncated,
+        usageComplete: auditUsage.usageComplete,
+        knownEstimatedCostUsd: auditUsage.knownEstimatedCostUsd,
+        admissionFailure,
+        budgetCode:
+          error instanceof StructuredGenerationBudgetError
+            ? error.code
+            : null,
+        ...(failureResultAttestation
+          ? { resultAttestation: failureResultAttestation }
+          : {}),
+      };
       await prisma.generationRun.update({
         where: { id: run.id },
         data: {
@@ -799,35 +847,9 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
           validationErrors: structured?.validationErrors == null ? Prisma.JsonNull : json(structured.validationErrors),
           tokenUsage: tokenUsage == null ? Prisma.JsonNull : tokenUsage as Prisma.InputJsonValue,
           estimatedCostUsd: auditUsage.estimatedCostUsd,
-          resultRefs: json({
-            ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
-            transportMode: structured?.transportMode ?? null,
-            profile: input.profile ?? profileForAuditedKind(input.kind),
-            configuredModelId: config!.modelId,
-            requestIds: providerAttempts.requestIds,
-            structuredAttemptCount: structuredAttemptCount(
-              structured?.attempts,
-            ),
-            rawOutputHash: rawHash(structured?.rawOutput ?? null),
-            message: structuredGenerationFailureMessage({
-              structured,
-              error,
-            }),
-            durationMs: Date.now() - startedAt,
-            auditAttemptCount: auditUsage.auditAttemptCount,
-            providerAttemptCount: auditUsage.currentProviderAttemptCount,
-            failedProviderAttempts: providerAttempts.failedAttempts,
-            routedProviders: providerAttempts.routedProviders,
-            unknownUsageAttempts: auditUsage.unknownUsageAttempts,
-            auditEvidenceTruncated: evidence.truncated,
-            usageComplete: auditUsage.usageComplete,
-            knownEstimatedCostUsd: auditUsage.knownEstimatedCostUsd,
-            admissionFailure,
-            budgetCode:
-              error instanceof StructuredGenerationBudgetError
-                ? error.code
-                : null,
-          }),
+          resultRefs: input.preserveResultAttestationExactly
+            ? exactParsedOutputJson(failureResultRefs)
+            : json(failureResultRefs),
         },
       });
     }

@@ -118,6 +118,29 @@ function repositoryHighlightCandidateAudit(
       if (citations.some((entry) => entry && roadmapEvidence(entry))) {
         reasons.push("roadmap_only");
       }
+      if (citations.some((entry) =>
+        entry?.implementationState !== undefined &&
+        entry.implementationState !== "implemented"
+      )) {
+        // Source-inspected state is authoritative even if stale upstream role
+        // metadata incorrectly says "implementation". A mixed-state Fact is
+        // not eligible for promotion through the implemented Highlight lane.
+        reasons.push("no_implementation_evidence");
+      }
+      if (
+        citations.length &&
+        citations.some((entry) => entry && (
+          entry.knowledgeRole === "limitation" ||
+          (!entry.knowledgeRole && entry.semanticSignals?.some((signal) =>
+            normalizeWhitespace(signal).toLowerCase() === "limitation"
+          ))
+        ))
+      ) {
+        // Limitations are durable project knowledge, not career Highlights.
+        // Keep this defensive gate even though the synthesis path appends
+        // independently verified limitation scopes after Highlight selection.
+        reasons.push("selector_not_career_relevant");
+      }
       if (reasons.length) {
         omitted.push({
           subsystemIndex,

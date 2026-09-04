@@ -13,11 +13,33 @@ import {
   compactProjectRepositoryEvidence,
   createProjectRepositoryRawEvidence,
   expandProjectRepositoryEvidence,
+  PROJECT_REPOSITORY_REDACTION_POLICY_VERSION,
   type ProjectRepositoryEvidenceTarget,
   type ProjectRepositoryRawEvidence,
 } from "@/src/services/project-chat-repository-evidence-service";
+import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-sync-service";
 
-export const projectChatRepositoryInspectionLimits = Object.freeze({
+export interface ProjectRepositoryInspectionLimits {
+  maxQueriesPerCall: number;
+  maxQueriesPerTurn: number;
+  maxArgumentsPerQuery: number;
+  maxArgumentCharacters: number;
+  maxTotalArgumentCharacters: number;
+  maxOutputBytesPerQuery: number;
+  maxEvidenceBytesPerQuery: number;
+  maxEvidenceSegmentsPerQuery: number;
+  maxExpansionRequestsPerCall: number;
+  maxExpansionRequestsPerTurn: number;
+  maxExpansionLines: number;
+  maxExpandedBytesPerRequest: number;
+  maxVisibleBytesPerTurn: number;
+  commandTimeoutMs: number;
+  preparationTimeoutMs: number;
+}
+
+export const projectChatRepositoryInspectionLimits: Readonly<
+  ProjectRepositoryInspectionLimits
+> = Object.freeze({
   maxQueriesPerCall: 4,
   maxQueriesPerTurn: 10,
   maxArgumentsPerQuery: 40,
@@ -33,7 +55,19 @@ export const projectChatRepositoryInspectionLimits = Object.freeze({
   maxVisibleBytesPerTurn: 32 * 1024,
   commandTimeoutMs: 20_000,
   preparationTimeoutMs: 90_000,
-} as const);
+});
+
+/**
+ * Durable refreshes admit source blobs up to 256 KiB. Keep raw Git output
+ * outside the model context, but leave enough process-buffer headroom to read
+ * the complete largest eligible blob before compacting it into evidence.
+ */
+export const durableRepositoryInspectionLimits: Readonly<
+  ProjectRepositoryInspectionLimits
+> = Object.freeze({
+  ...projectChatRepositoryInspectionLimits,
+  maxOutputBytesPerQuery: 320 * 1024,
+});
 
 export interface ProjectChatAttachedSource {
   id: string;
@@ -60,11 +94,29 @@ export interface PreparedProjectRepository {
   dispose(): Promise<void>;
 }
 
-type PrepareRepository = (input: {
+export type PrepareProjectRepository = (input: {
   userId: string;
   workItemId: string;
   source: ProjectChatAttachedSource;
+  limits: Readonly<ProjectRepositoryInspectionLimits>;
 }) => Promise<PreparedProjectRepository>;
+
+function resolvedInspectionLimits(
+  overrides: Partial<ProjectRepositoryInspectionLimits> | undefined,
+  defaults: Readonly<ProjectRepositoryInspectionLimits> =
+    projectChatRepositoryInspectionLimits,
+) {
+  const limits: ProjectRepositoryInspectionLimits = {
+    ...defaults,
+    ...overrides,
+  };
+  if (Object.values(limits).some((value) =>
+    !Number.isSafeInteger(value) || value <= 0
+  )) {
+    throw new Error("invalid_repository_inspection_limits");
+  }
+  return Object.freeze(limits);
+}
 
 const attachedRepositoryMetadataSchema = z.object({
   repository: z.object({
@@ -102,6 +154,8 @@ const forbiddenArguments = [
   /^--contents(?:=|$)/i,
   /^--exec-path(?:=|$)/i,
   /^--ext-diff$/i,
+  /^-f$/i,
+  /^--file(?:=|$)/i,
   /^--filters?(?:=|$)/i,
   /^--html-path$/i,
   /^--info-path$/i,
@@ -120,7 +174,28 @@ const forbiddenArguments = [
   /^--textconv$/i,
   /^--upload-pack(?:=|$)/i,
   /^--show-(?:cdup|prefix|toplevel)$/i,
+  /^--cached$/i,
+  /^--untracked$/i,
 ];
+const grepOptionsWithSeparateValue = new Set([
+  "-A",
+  "-B",
+  "-C",
+  "-m",
+  "--after-context",
+  "--before-context",
+  "--context",
+  "--max-count",
+  "--max-depth",
+  "--threads",
+]);
+const grepPatternExpressionArguments = new Set([
+  "--and",
+  "--not",
+  "--or",
+  "(",
+  ")",
+]);
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -219,11 +294,11 @@ function executeGit(input: {
   });
 }
 
-async function prepareGitHubRepository(input: {
+async function authorizeAttachedGitHubRepository(input: {
   userId: string;
   workItemId: string;
   source: ProjectChatAttachedSource;
-}): Promise<PreparedProjectRepository> {
+}) {
   const source = await prisma.source.findFirst({
     where: {
       id: input.source.id,
@@ -248,13 +323,21 @@ async function prepareGitHubRepository(input: {
   }
   const token = await getGitHubAccessTokenForUser(input.userId);
   if (!token) throw new Error("github_not_connected");
+  return { source, repository, token };
+}
+
+async function prepareGitHubRepository(input: Parameters<
+  PrepareProjectRepository
+>[0]): Promise<PreparedProjectRepository> {
+  const authorized = await authorizeAttachedGitHubRepository(input);
+  const { source, repository, token } = authorized;
   const commit = await resolveGitHubCommit({
     token,
     owner: repository.owner,
     repo: repository.name,
     ref: repository.defaultBranch,
     signal: AbortSignal.timeout(
-      projectChatRepositoryInspectionLimits.preparationTimeoutMs,
+      input.limits.preparationTimeoutMs,
     ),
   });
   if (!objectIdPattern.test(commit.sha)) throw new Error("invalid_revision");
@@ -276,7 +359,7 @@ async function prepareGitHubRepository(input: {
       gitDir,
     ],
     env,
-    timeoutMs: projectChatRepositoryInspectionLimits.preparationTimeoutMs,
+    timeoutMs: input.limits.preparationTimeoutMs,
     maxBuffer: 64 * 1024,
   });
   if (clone.exitCode !== 0) {
@@ -286,14 +369,14 @@ async function prepareGitHubRepository(input: {
   const object = await executeGit({
     args: [`--git-dir=${gitDir}`, "cat-file", "-e", `${commit.sha}^{commit}`],
     env,
-    timeoutMs: projectChatRepositoryInspectionLimits.commandTimeoutMs,
+    timeoutMs: input.limits.commandTimeoutMs,
     maxBuffer: 4 * 1024,
   });
   if (object.exitCode !== 0) {
     const fetched = await executeGit({
       args: [`--git-dir=${gitDir}`, "fetch", "origin", commit.sha],
       env,
-      timeoutMs: projectChatRepositoryInspectionLimits.preparationTimeoutMs,
+      timeoutMs: input.limits.preparationTimeoutMs,
       maxBuffer: 64 * 1024,
     });
     if (fetched.exitCode !== 0) {
@@ -308,7 +391,7 @@ async function prepareGitHubRepository(input: {
     const result = await executeGit({
       args,
       env,
-      timeoutMs: projectChatRepositoryInspectionLimits.commandTimeoutMs,
+      timeoutMs: input.limits.commandTimeoutMs,
       maxBuffer: 8 * 1024,
     });
     if (result.exitCode !== 0) {
@@ -331,8 +414,150 @@ async function prepareGitHubRepository(input: {
   };
 }
 
-export function validateProjectRepositoryGitArgs(args: string[]) {
-  const limits = projectChatRepositoryInspectionLimits;
+/**
+ * Prepares the exact commit already selected by the durable freshness barrier.
+ * Unlike the chat preparer above, this function never resolves a branch head.
+ * The temporary bare repository ends with a direct HEAD and no remote, so a
+ * later branch advance cannot change what the inspector reads.
+ */
+export async function preparePinnedProjectRepository(input: {
+  userId: string;
+  workItemId: string;
+  source: ProjectChatAttachedSource;
+  target: RepositoryTargetHead;
+  limits?: Partial<ProjectRepositoryInspectionLimits>;
+}): Promise<PreparedProjectRepository> {
+  const limits = resolvedInspectionLimits(
+    input.limits,
+    durableRepositoryInspectionLimits,
+  );
+  const { source, repository, token } =
+    await authorizeAttachedGitHubRepository(input);
+  if (
+    input.target.sourceId !== source.id ||
+    input.target.repository.toLowerCase() !== repository.fullName.toLowerCase() ||
+    input.target.branch !== repository.defaultBranch ||
+    !objectIdPattern.test(input.target.commitSha) ||
+    !objectIdPattern.test(input.target.treeSha)
+  ) {
+    throw new Error("invalid_repository_target");
+  }
+
+  const root = await mkdtemp(join(tmpdir(), "workbase-git-inspection-"));
+  const gitDir = join(root, "repository.git");
+  const privateHome = join(root, "home");
+  await mkdir(privateHome, { recursive: true });
+  const env = gitEnvironment({ privateHome, token });
+  const remoteUrl = `https://github.com/${repository.owner}/${repository.name}.git`;
+  const commands: Array<{ args: string[]; timeoutMs: number; maxBuffer: number }> = [
+    {
+      args: ["init", "--bare", gitDir],
+      timeoutMs: limits.commandTimeoutMs,
+      maxBuffer: 8 * 1024,
+    },
+    {
+      args: [`--git-dir=${gitDir}`, "remote", "add", "origin", remoteUrl],
+      timeoutMs: limits.commandTimeoutMs,
+      maxBuffer: 8 * 1024,
+    },
+    {
+      args: [
+        `--git-dir=${gitDir}`,
+        "fetch",
+        "--depth=200",
+        "--no-tags",
+        "origin",
+        input.target.commitSha,
+      ],
+      timeoutMs: limits.preparationTimeoutMs,
+      maxBuffer: 64 * 1024,
+    },
+    {
+      args: [
+        `--git-dir=${gitDir}`,
+        "cat-file",
+        "-e",
+        `${input.target.commitSha}^{commit}`,
+      ],
+      timeoutMs: limits.commandTimeoutMs,
+      maxBuffer: 4 * 1024,
+    },
+  ];
+  try {
+    for (const command of commands) {
+      const result = await executeGit({ ...command, env });
+      if (result.exitCode !== 0) throw new Error("repository_snapshot_unavailable");
+    }
+    const tree = await executeGit({
+      args: [
+        `--git-dir=${gitDir}`,
+        "rev-parse",
+        "--verify",
+        `${input.target.commitSha}^{tree}`,
+      ],
+      env,
+      timeoutMs: limits.commandTimeoutMs,
+      maxBuffer: 4 * 1024,
+    });
+    if (
+      tree.exitCode !== 0 ||
+      tree.stdout.trim().toLowerCase() !== input.target.treeSha.toLowerCase()
+    ) {
+      throw new Error("repository_snapshot_tree_mismatch");
+    }
+    const pinned = await executeGit({
+      args: [
+        `--git-dir=${gitDir}`,
+        "update-ref",
+        "--no-deref",
+        "HEAD",
+        input.target.commitSha,
+      ],
+      env,
+      timeoutMs: limits.commandTimeoutMs,
+      maxBuffer: 8 * 1024,
+    });
+    const detached = await executeGit({
+      args: [`--git-dir=${gitDir}`, "symbolic-ref", "-q", "HEAD"],
+      env,
+      timeoutMs: limits.commandTimeoutMs,
+      maxBuffer: 4 * 1024,
+    });
+    const removed = await executeGit({
+      args: [`--git-dir=${gitDir}`, "remote", "remove", "origin"],
+      env,
+      timeoutMs: limits.commandTimeoutMs,
+      maxBuffer: 8 * 1024,
+    });
+    if (pinned.exitCode !== 0 || detached.exitCode === 0 || removed.exitCode !== 0) {
+      throw new Error("repository_snapshot_preparation_failed");
+    }
+  } catch (error) {
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    gitDir,
+    privateHome,
+    snapshot: {
+      sourceId: source.id,
+      repository: repository.fullName,
+      commitSha: input.target.commitSha,
+      defaultBranch: repository.defaultBranch,
+      committedAt: input.target.committedAt,
+      commitUrl:
+        `https://github.com/${repository.fullName}/commit/${input.target.commitSha}`,
+    },
+    dispose: () => rm(root, { recursive: true, force: true }),
+  };
+}
+
+export function validateProjectRepositoryGitArgs(
+  args: string[],
+  limits: Readonly<ProjectRepositoryInspectionLimits> =
+    projectChatRepositoryInspectionLimits,
+) {
   if (!args.length || args.length > limits.maxArgumentsPerQuery) {
     return { valid: false, reason: "invalid_argument_count" } as const;
   }
@@ -358,6 +583,7 @@ async function resolveCommitish(input: {
   gitDir: string;
   env: NodeJS.ProcessEnv;
   value: string;
+  limits: Readonly<ProjectRepositoryInspectionLimits>;
 }) {
   if (!input.value || input.value.startsWith("-")) return null;
   const result = await executeGit({
@@ -368,11 +594,130 @@ async function resolveCommitish(input: {
       `${input.value}^{commit}`,
     ],
     env: input.env,
-    timeoutMs: projectChatRepositoryInspectionLimits.commandTimeoutMs,
+    timeoutMs: input.limits.commandTimeoutMs,
     maxBuffer: 4 * 1024,
   });
   const resolved = result.stdout.trim().split("\n")[0] ?? "";
   return result.exitCode === 0 && objectIdPattern.test(resolved) ? resolved : null;
+}
+
+async function resolveGrepTreeish(input: {
+  gitDir: string;
+  env: NodeJS.ProcessEnv;
+  value: string;
+  limits: Readonly<ProjectRepositoryInspectionLimits>;
+}) {
+  if (!input.value || input.value.startsWith("-")) return null;
+  const result = await executeGit({
+    args: [
+      `--git-dir=${input.gitDir}`,
+      "rev-parse",
+      "--verify",
+      `${input.value}^{tree}`,
+    ],
+    env: input.env,
+    timeoutMs: input.limits.commandTimeoutMs,
+    maxBuffer: 4 * 1024,
+  });
+  const resolved = result.stdout.trim().split("\n")[0] ?? "";
+  return result.exitCode === 0 && objectIdPattern.test(resolved) ? resolved : null;
+}
+
+function grepOperandIndexes(args: readonly string[], endIndex: number) {
+  const indexes: number[] = [];
+  let hasPattern = false;
+  for (let index = 1; index < endIndex; index += 1) {
+    const argument = args[index]!;
+    if (argument === "-e" || argument === "--regexp") {
+      if (index + 1 >= endIndex) return { hasPattern: false, indexes: [] };
+      hasPattern = true;
+      index += 1;
+      continue;
+    }
+    if (/^-e.+/u.test(argument) || argument.startsWith("--regexp=")) {
+      hasPattern = true;
+      continue;
+    }
+    if (grepOptionsWithSeparateValue.has(argument)) {
+      if (index + 1 >= endIndex) return { hasPattern: false, indexes: [] };
+      index += 1;
+      continue;
+    }
+    if (
+      /^-[ABCMm]\d+$/u.test(argument) ||
+      /^(?:--after-context|--before-context|--context|--max-count|--max-depth|--threads)=/u
+        .test(argument) ||
+      grepPatternExpressionArguments.has(argument) ||
+      argument.startsWith("-")
+    ) {
+      continue;
+    }
+    if (!hasPattern) {
+      hasPattern = true;
+      continue;
+    }
+    indexes.push(index);
+  }
+  return { hasPattern, indexes };
+}
+
+async function normalizeProjectRepositoryGitArgs(input: {
+  args: string[];
+  gitDir: string;
+  env: NodeJS.ProcessEnv;
+  limits: Readonly<ProjectRepositoryInspectionLimits>;
+}) {
+  if (input.args[0] !== "grep") {
+    return { valid: true as const, args: [...input.args] };
+  }
+
+  const separatorIndex = input.args.indexOf("--");
+  const operands = grepOperandIndexes(
+    input.args,
+    separatorIndex >= 0 ? separatorIndex : input.args.length,
+  );
+  if (!operands.hasPattern) {
+    return { valid: false as const, reason: "invalid_grep_arguments" };
+  }
+
+  if (separatorIndex >= 0) {
+    return operands.indexes.length
+      ? { valid: true as const, args: [...input.args] }
+      : {
+          valid: true as const,
+          args: [
+            ...input.args.slice(0, separatorIndex),
+            "HEAD",
+            ...input.args.slice(separatorIndex),
+          ],
+        };
+  }
+
+  if (!operands.indexes.length) {
+    return { valid: true as const, args: [...input.args, "HEAD"] };
+  }
+
+  const resolvedOperands = await Promise.all(operands.indexes.map((index) =>
+    resolveGrepTreeish({ ...input, value: input.args[index]! })
+  ));
+  const firstPathIndex = resolvedOperands.findIndex((resolved) => !resolved);
+  if (firstPathIndex < 0) {
+    return { valid: true as const, args: [...input.args] };
+  }
+  if (resolvedOperands.slice(firstPathIndex + 1).some(Boolean)) {
+    return { valid: false as const, reason: "ambiguous_grep_arguments" };
+  }
+
+  const insertionIndex = operands.indexes[firstPathIndex]!;
+  return {
+    valid: true as const,
+    args: [
+      ...input.args.slice(0, insertionIndex),
+      ...(firstPathIndex === 0 ? ["HEAD"] : []),
+      "--",
+      ...input.args.slice(insertionIndex),
+    ],
+  };
 }
 
 function blameLineRange(args: readonly string[]) {
@@ -391,6 +736,7 @@ async function resolveProjectRepositoryEvidenceTarget(input: {
   gitDir: string;
   env: NodeJS.ProcessEnv;
   snapshotCommitSha: string;
+  limits: Readonly<ProjectRepositoryInspectionLimits>;
 }): Promise<ProjectRepositoryEvidenceTarget | null> {
   const [command, ...rest] = input.args;
   if (command === "show") {
@@ -403,7 +749,25 @@ async function resolveProjectRepositoryEvidenceTarget(input: {
       if (!commitSha) continue;
       if (colon > 0) {
         const path = candidate.slice(colon + 1);
-        return path ? { kind: "blob", commitSha, path } : { kind: "commit", commitSha };
+        if (!path) return { kind: "commit", commitSha };
+        const blob = await executeGit({
+          args: [
+            `--git-dir=${input.gitDir}`,
+            "rev-parse",
+            "--verify",
+            `${commitSha}:${path}`,
+          ],
+          env: input.env,
+          timeoutMs: input.limits.commandTimeoutMs,
+          maxBuffer: 4 * 1024,
+        });
+        const blobSha = blob.stdout.trim().split("\n")[0] ?? "";
+        return {
+          kind: "blob",
+          commitSha,
+          path,
+          ...(blob.exitCode === 0 && objectIdPattern.test(blobSha) ? { blobSha } : {}),
+        };
       }
       return { kind: "commit", commitSha };
     }
@@ -461,6 +825,7 @@ async function resolveProjectRepositoryEvidenceTarget(input: {
 export class ProjectChatRepositoryInspector {
   readonly #repositories = new Map<string, Promise<PreparedProjectRepository>>();
   readonly #evidence = new Map<string, ProjectRepositoryRawEvidence>();
+  readonly limits: Readonly<ProjectRepositoryInspectionLimits>;
   #queryCount = 0;
   #visibleBytes = 0;
   #expansionCount = 0;
@@ -474,9 +839,12 @@ export class ProjectChatRepositoryInspector {
       loadEvidence?: (
         evidenceId: string,
       ) => ProjectRepositoryRawEvidence | null | Promise<ProjectRepositoryRawEvidence | null>;
+      limits?: Partial<ProjectRepositoryInspectionLimits>;
     },
-    readonly prepareRepository: PrepareRepository = prepareGitHubRepository,
-  ) {}
+    readonly prepareRepository: PrepareProjectRepository = prepareGitHubRepository,
+  ) {
+    this.limits = resolvedInspectionLimits(input.limits);
+  }
 
   summaries() {
     return this.input.sources.map(projectChatRepositorySummary);
@@ -491,6 +859,7 @@ export class ProjectChatRepositoryInspector {
       userId: this.input.userId,
       workItemId: this.input.workItemId,
       source,
+      limits: this.limits,
     });
     this.#repositories.set(sourceId, prepared);
     return prepared;
@@ -505,13 +874,13 @@ export class ProjectChatRepositoryInspector {
     const expansions = input.expansions ?? [];
     if (
       (!input.queries.length && !expansions.length) ||
-      input.queries.length > projectChatRepositoryInspectionLimits.maxQueriesPerCall ||
+      input.queries.length > this.limits.maxQueriesPerCall ||
       this.#queryCount + input.queries.length >
-        projectChatRepositoryInspectionLimits.maxQueriesPerTurn ||
+        this.limits.maxQueriesPerTurn ||
       expansions.length >
-        projectChatRepositoryInspectionLimits.maxExpansionRequestsPerCall ||
+        this.limits.maxExpansionRequestsPerCall ||
       this.#expansionCount + expansions.length >
-        projectChatRepositoryInspectionLimits.maxExpansionRequestsPerTurn
+        this.limits.maxExpansionRequestsPerTurn
     ) {
       return {
         status: "rejected" as const,
@@ -532,7 +901,7 @@ export class ProjectChatRepositoryInspector {
     const env = gitEnvironment({ privateHome: repository.privateHome });
     for (const query of input.queries) {
       this.#queryCount += 1;
-      const validation = validateProjectRepositoryGitArgs(query.args);
+      const validation = validateProjectRepositoryGitArgs(query.args, this.limits);
       if (!validation.valid) {
         results.push({
           args: query.args,
@@ -542,60 +911,103 @@ export class ProjectChatRepositoryInspector {
         });
         continue;
       }
-      const executed = await executeGit({
-        args: [`--git-dir=${repository.gitDir}`, ...query.args],
+      const normalized = await normalizeProjectRepositoryGitArgs({
+        args: query.args,
+        gitDir: repository.gitDir,
         env,
-        timeoutMs: projectChatRepositoryInspectionLimits.commandTimeoutMs,
-        maxBuffer: projectChatRepositoryInspectionLimits.maxOutputBytesPerQuery,
+        limits: this.limits,
       });
-      const combined = [executed.stdout, executed.stderr].filter(Boolean).join("\n");
-      const redacted = redactRepositorySecrets(combined).content;
+      if (!normalized.valid) {
+        results.push({
+          args: query.args,
+          status: "rejected" as const,
+          code: normalized.reason,
+          instruction: "Use an explicit grep pattern and place paths after --.",
+        });
+        continue;
+      }
+      const normalizedValidation = validateProjectRepositoryGitArgs(
+        normalized.args,
+        this.limits,
+      );
+      if (!normalizedValidation.valid) {
+        results.push({
+          args: query.args,
+          status: "rejected" as const,
+          code: normalizedValidation.reason,
+          instruction: "Use a supported read-only Git command and safe arguments.",
+        });
+        continue;
+      }
+      const args = normalized.args;
+      const executed = await executeGit({
+        args: [`--git-dir=${repository.gitDir}`, ...args],
+        env,
+        timeoutMs: this.limits.commandTimeoutMs,
+        maxBuffer: this.limits.maxOutputBytesPerQuery,
+      });
       const target = executed.exitCode === 0
         ? await resolveProjectRepositoryEvidenceTarget({
-            args: query.args,
+            args,
             gitDir: repository.gitDir,
             env,
             snapshotCommitSha: repository.snapshot.commitSha,
+            limits: this.limits,
           })
         : null;
+      const canonicalBlobRead = target?.kind === "blob" &&
+        args.length === 2 &&
+        args[0] === "show";
+      // Exact blob evidence must preserve source line coordinates. Git stderr
+      // is reported separately so a warning can never become line-addressable
+      // source or shift a citation range.
+      const evidenceOutput = canonicalBlobRead
+        ? executed.stdout
+        : [executed.stdout, executed.stderr].filter(Boolean).join("\n");
+      const redacted = redactRepositorySecrets(evidenceOutput).content;
       const evidence = createProjectRepositoryRawEvidence({
         sourceId: input.sourceId,
         repository: repository.snapshot.repository,
         commitSha: repository.snapshot.commitSha,
-        args: query.args,
+        args,
         output: redacted,
         target,
+        exitCode: executed.exitCode,
+        redactionPolicyVersion: PROJECT_REPOSITORY_REDACTION_POLICY_VERSION,
       });
       this.#evidence.set(evidence.evidenceId, evidence);
       await this.input.onEvidence?.(evidence);
       const remaining = Math.max(
         0,
-        projectChatRepositoryInspectionLimits.maxVisibleBytesPerTurn -
+        this.limits.maxVisibleBytesPerTurn -
           this.#visibleBytes,
       );
-      const segments = compactProjectRepositoryEvidence({
-        evidence,
-        objective: input.objective ?? "",
-        maximumBytes: Math.min(
-          remaining,
-          projectChatRepositoryInspectionLimits.maxEvidenceBytesPerQuery,
-        ),
-        maximumSegments:
-          projectChatRepositoryInspectionLimits.maxEvidenceSegmentsPerQuery,
-      });
+      const segments = executed.exitCode === 0
+        ? compactProjectRepositoryEvidence({
+            evidence,
+            objective: input.objective ?? "",
+            maximumBytes: Math.min(
+              remaining,
+              this.limits.maxEvidenceBytesPerQuery,
+            ),
+            maximumSegments:
+              this.limits.maxEvidenceSegmentsPerQuery,
+          })
+        : [];
       const visibleBytes = segments.reduce(
         (sum, segment) => sum + Buffer.byteLength(segment.excerpt, "utf8"),
         0,
       );
       this.#visibleBytes += visibleBytes;
       results.push({
-        args: query.args,
+        args,
         status: executed.exitCode === 0 ? "success" as const : "command_error" as const,
         exitCode: executed.exitCode,
         evidenceId: evidence.evidenceId,
         outputHash: evidence.outputHash,
         totalBytes: evidence.totalBytes,
         totalLines: evidence.totalLines,
+        stderrBytes: Buffer.byteLength(executed.stderr, "utf8"),
         target: evidence.target,
         segments,
         truncated: segments.some((segment) => segment.truncated) ||
@@ -625,9 +1037,17 @@ export class ProjectChatRepositoryInspector {
         });
         continue;
       }
+      if (evidence.exitCode !== undefined && evidence.exitCode !== 0) {
+        expanded.push({
+          evidenceId: request.evidenceId,
+          status: "rejected" as const,
+          code: "evidence_command_failed",
+        });
+        continue;
+      }
       const remaining = Math.max(
         0,
-        projectChatRepositoryInspectionLimits.maxVisibleBytesPerTurn -
+        this.limits.maxVisibleBytesPerTurn -
           this.#visibleBytes,
       );
       const segment = expandProjectRepositoryEvidence({
@@ -635,11 +1055,11 @@ export class ProjectChatRepositoryInspector {
         startLine: request.startLine,
         maximumLines: Math.min(
           request.maxLines,
-          projectChatRepositoryInspectionLimits.maxExpansionLines,
+          this.limits.maxExpansionLines,
         ),
         maximumBytes: Math.min(
           remaining,
-          projectChatRepositoryInspectionLimits.maxExpandedBytesPerRequest,
+          this.limits.maxExpandedBytesPerRequest,
         ),
       });
       if (segment) {
@@ -670,7 +1090,7 @@ export class ProjectChatRepositoryInspector {
         visibleBytes: this.#visibleBytes,
       },
       remainingQueryBudget:
-        projectChatRepositoryInspectionLimits.maxQueriesPerTurn - this.#queryCount,
+        this.limits.maxQueriesPerTurn - this.#queryCount,
       instruction: "Treat each successful command result as evidence from the pinned repository snapshot. Refine with another bounded Git query only when needed; otherwise answer now.",
     };
   }

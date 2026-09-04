@@ -59,6 +59,13 @@ vi.mock("@/src/services/highlight-embedding-service", () => ({
 }));
 vi.mock("@/src/services/repository-knowledge-synthesis-service", () => ({
   materializeSynthesisCitations: vi.fn(),
+  repositoryKnowledgeRole: (entry: {
+    knowledgeRole?: string;
+    implementationState?: string;
+  }) => entry.knowledgeRole ??
+    (entry.implementationState && entry.implementationState !== "implemented"
+      ? "limitation"
+      : "implementation"),
   synthesisNotebookReferenceKey: vi.fn(),
   synthesizeRepositoryKnowledge: vi.fn(),
 }));
@@ -88,6 +95,10 @@ const source = {
   changeType: "added" as const,
   semanticStatus: "succeeded" as const,
   evidenceMode: "semantic" as const,
+  knowledgeRole: "implementation" as const,
+  implementationState: "implemented" as const,
+  operationKey: "orders.persist" as const,
+  operationFacet: "persistence" as const,
 };
 
 const fact = (statement: string) => ({
@@ -123,6 +134,7 @@ function inputs() {
     sourceId: "source-1",
     repository: "owner/project",
     subsystemKey: "orders",
+    synthesisKey: "orders#operation-persist",
     facts: [firstFact, secondFact],
     highlights: [highlight],
     unresolvedQuestions: [],
@@ -234,6 +246,18 @@ describe("cold repository knowledge batching", () => {
         publicSafetyStatus: "not_eligible",
         validatedThroughSha: commitSha,
         subsystemKey: "orders",
+        metadata: {
+          schemaVersion: "repository-knowledge-metadata-v1",
+          managedBy: "repository_knowledge_sync",
+          refreshRunId: "refresh-1",
+          sourceIds: ["source-1"],
+          subsystemKey: "orders",
+          synthesisKey: "orders#operation-persist",
+          knowledgeRoles: ["implementation"],
+          implementationStates: ["implemented"],
+          operationKeys: ["orders.persist"],
+          operationFacets: ["persistence"],
+        },
       }),
       expect.objectContaining({ statement: prepared.facts[1]!.candidate.statement }),
     ]));
@@ -247,6 +271,15 @@ describe("cold repository knowledge batching", () => {
         visibility: "private",
         publicSafetyStatus: "failed",
         validatedThroughSha: commitSha,
+        metadata: expect.objectContaining({
+          schemaVersion: "repository-knowledge-metadata-v1",
+          sourceIds: ["source-1"],
+          synthesisKey: "orders#operation-persist",
+          knowledgeRoles: ["implementation"],
+          implementationStates: ["implemented"],
+          operationKeys: ["orders.persist"],
+          operationFacets: ["persistence"],
+        }),
       }),
     ]);
 
@@ -286,11 +319,15 @@ describe("cold repository knowledge batching", () => {
         reason: "Current repository evidence supported a new Project Fact.",
         policyVersion: "knowledge-lifecycle-v3",
         modelId: "test-model",
-        provenance: {
+        provenance: expect.objectContaining({
           evidenceIds: ["evidence-1", "evidence-shared"],
           commitSha,
           subsystemKey: "orders",
-        },
+          repositoryKnowledge: expect.objectContaining({
+            implementationStates: ["implemented"],
+            operationKeys: ["orders.persist"],
+          }),
+        }),
       }),
       expect.objectContaining({
         entityKind: "highlight",
@@ -342,6 +379,47 @@ describe("cold repository knowledge batching", () => {
     expect(transaction.evidenceItem.updateMany).not.toHaveBeenCalled();
     expect(mocks.reviewableChanges).not.toHaveBeenCalled();
     expect(queued).not.toHaveBeenCalled();
+  });
+
+  it("persists a partial limitation state from its exact cited source entries", async () => {
+    const prepared = inputs();
+    const partialSource = {
+      ...source,
+      statement: "Order persistence exists, but retry recovery is incomplete.",
+      knowledgeRole: "limitation" as const,
+      implementationState: "partial" as const,
+      operationKey: "orders.retry_recovery",
+      operationFacet: "boundary" as const,
+    };
+    const limitationFact = {
+      ...prepared.facts[0]!,
+      subsystem: {
+        ...prepared.facts[0]!.subsystem,
+        synthesisKey: "orders#limitation-retry-recovery",
+        notebook: [partialSource],
+      },
+      sourceEntries: [partialSource],
+    };
+
+    await createColdKnowledgeBatch({
+      runId: "refresh-1",
+      workItemId: "work-item-1",
+      facts: [limitationFact],
+      highlights: [],
+      enqueueEmbedding: vi.fn(),
+    });
+
+    expect(transaction.projectFact.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: [expect.objectContaining({
+        metadata: expect.objectContaining({
+          synthesisKey: "orders#limitation-retry-recovery",
+          knowledgeRoles: ["limitation"],
+          implementationStates: ["partial"],
+          operationKeys: ["orders.retry_recovery"],
+          operationFacets: ["boundary"],
+        }),
+      })],
+    }));
   });
 
   it("re-reads a user row after the cold check, preserves its wording, and stops on a lost CAS", async () => {
@@ -561,6 +639,18 @@ describe("cold repository knowledge batching", () => {
 
   it("preserves review ownership during automatic unchanged-text revalidation", async () => {
     const prepared = inputs();
+    const previousMetadata = {
+      schemaVersion: "repository-knowledge-metadata-v1",
+      managedBy: "repository_knowledge_sync",
+      refreshRunId: "refresh-old",
+      sourceIds: ["source-1"],
+      subsystemKey: "orders",
+      synthesisKey: "orders#operation-persist",
+      knowledgeRoles: ["implementation"],
+      implementationStates: ["implemented"],
+      operationKeys: ["orders.persist"],
+      operationFacets: ["persistence"],
+    };
     const existingFact = {
       id: "reviewed-user-fact",
       workItemId: "work-item-1",
@@ -571,6 +661,7 @@ describe("cold repository knowledge batching", () => {
       reviewState: "reviewed",
       approvalSource: "user",
       supersedesProjectFactId: null,
+      metadata: previousMetadata,
       updatedAt: new Date("2026-08-29T10:00:01.000Z"),
       validatedThroughSha: null,
       evidence: [],
@@ -588,7 +679,21 @@ describe("cold repository knowledge batching", () => {
     expect(result.appliedFactIdsByKey.get("fact-1")).toBe("reviewed-user-fact");
     expect(transaction.projectFact.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ reviewState: "reviewed" }),
+        where: expect.objectContaining({
+          metadata: { equals: previousMetadata },
+        }),
+        data: expect.objectContaining({
+          reviewState: "reviewed",
+          metadata: expect.objectContaining({
+            refreshRunId: "refresh-1",
+            sourceIds: ["source-1"],
+            synthesisKey: "orders#operation-persist",
+            knowledgeRoles: ["implementation"],
+            implementationStates: ["implemented"],
+            operationKeys: ["orders.persist"],
+            operationFacets: ["persistence"],
+          }),
+        }),
       }),
     );
     expect(mocks.autoResolvedChanges).toHaveBeenCalledWith([
@@ -604,6 +709,50 @@ describe("cold repository knowledge batching", () => {
         }),
       }),
     ], transaction);
+  });
+
+  it("does not revalidate a same-text claim when its explicit operation state changed", async () => {
+    const prepared = inputs();
+    const existingFact = {
+      id: "planned-user-fact",
+      workItemId: "work-item-1",
+      subsystemKey: "orders",
+      statement: prepared.facts[0]!.candidate.statement,
+      status: "approved",
+      lifecycleStatus: "needs_validation",
+      reviewState: "reviewed",
+      approvalSource: "user",
+      supersedesProjectFactId: null,
+      metadata: {
+        schemaVersion: "repository-knowledge-metadata-v1",
+        managedBy: "repository_knowledge_sync",
+        refreshRunId: "refresh-old",
+        sourceIds: ["source-1"],
+        subsystemKey: "orders",
+        synthesisKey: "orders#operation-persist",
+        knowledgeRoles: ["limitation"],
+        implementationStates: ["planned"],
+        operationKeys: ["orders.persist"],
+        operationFacets: ["boundary"],
+      },
+      updatedAt: new Date("2026-08-29T10:00:01.000Z"),
+      validatedThroughSha: null,
+      evidence: [],
+    };
+
+    const result = await revalidateExistingKnowledge({
+      runId: "refresh-1",
+      workItemId: "work-item-1",
+      facts: [prepared.facts[0]!],
+      highlights: [],
+      existingFacts: [existingFact as never],
+      existingHighlights: [],
+    });
+
+    expect(result.matchedKeys).toEqual(new Set());
+    expect(result.appliedFactIdsByKey.size).toBe(0);
+    expect(transaction.projectFact.updateMany).not.toHaveBeenCalled();
+    expect(mocks.autoResolvedChanges).not.toHaveBeenCalled();
   });
 
   it("keeps audit identities distinct for identical claims in different scopes", async () => {

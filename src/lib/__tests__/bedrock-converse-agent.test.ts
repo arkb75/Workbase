@@ -12,6 +12,7 @@ import {
   BedrockConverseLimitError,
   BedrockConverseModelCapabilityError,
   BedrockConverseProviderError,
+  bedrockConverseAgentSemanticTokenCount,
   defineBedrockConverseTool,
   estimateBedrockConverseInputTokens,
   sanitizeBedrockConverseEventValue,
@@ -537,6 +538,39 @@ describe("BedrockConverseAgent", () => {
     expect(transport.calls).toHaveLength(1);
   });
 
+  it("separates newly processed semantic tokens from cached transcript replay", async () => {
+    expect(bedrockConverseAgentSemanticTokenCount({
+      totalTokens: 20_000,
+      outputTokens: 1_000,
+      cacheReadInputTokens: 16_000,
+    })).toBe(4_000);
+
+    const { agent } = makeAgent([
+      assistantResponse({
+        stopReason: "end_turn",
+        content: [{ text: "Finished after too much new semantic work." }],
+        usage: {
+          inputTokens: 18_000,
+          outputTokens: 2_000,
+          totalTokens: 20_000,
+          cacheReadInputTokens: 5_000,
+        },
+      }),
+    ]);
+
+    await expect(agent.run({
+      messages: [userMessage()],
+      limits: {
+        maxTotalTokens: 50_000,
+        maxSemanticTokens: 10_000,
+      },
+    })).rejects.toMatchObject({
+      code: "token_limit_exceeded",
+      limit: 10_000,
+      actual: 15_000,
+    });
+  });
+
   it("estimates model-visible JSON and tool schema size conservatively", () => {
     const small = estimateBedrockConverseInputTokens({
       systemPrompt: "Answer briefly.",
@@ -615,6 +649,34 @@ describe("BedrockConverseAgent", () => {
     ).rejects.toMatchObject({ code: "protocol_error" });
   });
 
+  it("classifies incomplete provider envelopes as retryable interruptions", async () => {
+    const missingMessage = makeAgent([{
+      stopReason: "end_turn",
+      usage: usage(3, 2),
+      requestId: "request-incomplete-message",
+    } as unknown as BedrockConverseTransportResponse]);
+    await expect(
+      missingMessage.agent.run({ messages: [userMessage()] }),
+    ).rejects.toMatchObject({
+      code: "provider_error",
+      providerCode: "incomplete_response",
+      retryable: true,
+    });
+
+    const missingStopReason = makeAgent([{
+      message: { role: "assistant", content: [{ text: "Partial" }] },
+      usage: usage(3, 2),
+      requestId: "request-incomplete-stop",
+    } as unknown as BedrockConverseTransportResponse]);
+    await expect(
+      missingStopReason.agent.run({ messages: [userMessage()] }),
+    ).rejects.toMatchObject({
+      code: "provider_error",
+      providerCode: "incomplete_response",
+      retryable: true,
+    });
+  });
+
   it("surfaces model capability failures separately from provider failures", async () => {
     const capabilityError = new Error(
       "This model does not support tool use with the Converse API.",
@@ -683,6 +745,56 @@ describe("BedrockConverseAgent", () => {
       agent.run({ messages: [userMessage()] }),
     ).resolves.toMatchObject({
       usage: { unknownUsageAttempts: 1 },
+    });
+  });
+
+  it("does not double-count retry attempts already reported with unknown usage", async () => {
+    const transport = new FakeTransport([
+      {
+        ...assistantResponse({
+          stopReason: "end_turn",
+          content: [{ text: "Done." }],
+          usage: {
+            attempts: [{
+              inputTokens: 7,
+              outputTokens: 3,
+              totalTokens: 10,
+              cost: 0.001,
+              providerAttemptCount: 1,
+            }],
+            failedAttempts: [{
+              provider: "openrouter",
+              modelId: "openai/gpt-5.6-terra",
+              requestId: "req_limited",
+              httpStatus: 429,
+            }],
+            unknownUsageAttempts: 1,
+            providerAttemptCount: 2,
+          } as unknown as TokenUsage,
+        }),
+        provider: "openrouter",
+        modelId: "openai/gpt-5.6-terra",
+        costUsd: 0.001,
+      },
+    ]);
+    const agent = new BedrockConverseAgent(transport, {
+      modelId: "openai/gpt-5.6-terra",
+      providerLabel: "OpenRouter",
+    });
+
+    await expect(
+      agent.run({ messages: [userMessage()] }),
+    ).resolves.toMatchObject({
+      usage: {
+        inputTokens: 7,
+        outputTokens: 3,
+        totalTokens: 10,
+        providerAttemptCount: 2,
+        unknownUsageAttempts: 1,
+        failedAttempts: [expect.objectContaining({
+          requestId: "req_limited",
+        })],
+      },
     });
   });
 

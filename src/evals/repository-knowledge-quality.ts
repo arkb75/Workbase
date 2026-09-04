@@ -2,12 +2,14 @@ export const REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION =
   "repository-knowledge-evaluation-v1" as const;
 /** Fingerprints scorer semantics and curated fixture expectations, not JSON shape. */
 export const REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION =
-  "repository-knowledge-evaluator-v7" as const;
+  "repository-knowledge-evaluator-v8" as const;
 
 export type RepositoryKnowledgeItemKind = "highlight" | "fact";
 export type RepositoryKnowledgeClaimState =
   | "implemented"
+  | "partial"
   | "planned"
+  | "bounded_absence"
   | "unknown";
 
 export interface RepositoryEvaluationFile {
@@ -89,6 +91,8 @@ export interface RepositoryKnowledgeEvaluationRun {
   fixtureId: string;
   repository: string | null;
   commitSha?: string | null;
+  /** Present for a database observation bound to one repository refresh. */
+  refreshRunId?: string | null;
   items: RepositoryKnowledgeEvaluationItem[];
   domains?: Array<{ key?: string | null; label: string }>;
   discoveredCapabilities?: Array<{
@@ -99,10 +103,20 @@ export interface RepositoryKnowledgeEvaluationRun {
   inventory: {
     scannableFiles: number;
     analyzedFiles: number;
+    semanticCoverageBasis?: "legacy_semantic_universe" | "agentic_snapshot_read_set";
     semanticEligibleFiles?: number | null;
+    /** Exact-source files retained in agentic investigator read-set attestations. */
+    semanticInspectedFiles?: number;
+    /** Exact-source files independently inspected by the coverage verifier. */
+    semanticVerifierInspectedFiles?: number;
     semanticAnalyzedFiles: number;
+    /** Durably materialized files referenced by current facts or Highlights. */
+    semanticCitedFiles?: number;
     analyzedPaths?: string[];
+    semanticInspectedPaths?: string[];
+    semanticVerifierInspectedPaths?: string[];
     semanticAnalyzedPaths?: string[];
+    semanticCitedPaths?: string[];
   };
   coverage: {
     static: number | null;
@@ -297,11 +311,9 @@ function itemClaimSurfaces(item: RepositoryKnowledgeEvaluationItem) {
 function inferredClaimState(
   item: RepositoryKnowledgeEvaluationItem,
 ): RepositoryKnowledgeClaimState {
-  // Repository observations are assertive current-state knowledge by
-  // contract: planned documentation is filtered before synthesis. State must
-  // be explicit when another evaluator adapter supports planned or unknown
-  // knowledge; guessing from prose makes correctness depend on wording and
-  // misreads names such as Next.js or "planning engine".
+  // Persistence-backed repository observations provide an explicit state.
+  // Keep the implemented default only for legacy evaluator inputs that omit
+  // claimState; guessing from prose would make correctness depend on wording.
   return item.claimState ?? "implemented";
 }
 

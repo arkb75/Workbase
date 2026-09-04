@@ -37,7 +37,7 @@ vi.mock("@/src/services/bedrock-runtime", () => ({
             selections: [],
             omissions: prompt.candidates.map(({ candidateId }) => ({
               candidateId,
-              reason: "lower_relative_salience",
+              reason: "routine_supporting_detail",
             })),
           };
           const errors = input.extraValidation?.(data) ?? [];
@@ -109,6 +109,10 @@ function semanticAnalysis(): RepositoryFileAnalysis {
         path,
         subsystemKeys: ["project_domain:payments"],
         semanticSignals: ["domain.payment_idempotency"],
+        knowledgeRole: "implementation",
+        operationKey: "charge_payment",
+        implementationState: "implemented",
+        operationFacet: "persistence",
         evidenceExcerpt: sourceExcerpt,
         evidenceMode: "semantic",
       },
@@ -125,6 +129,10 @@ function semanticAnalysis(): RepositoryFileAnalysis {
         path,
         subsystemKeys: ["project_domain:payments"],
         semanticSignals: [],
+        knowledgeRole: "implementation",
+        operationKey: "charge_payment",
+        implementationState: "implemented",
+        operationFacet: "side_effect",
         evidenceExcerpt: "20: metrics.recordLatency(elapsedMs);",
         evidenceMode: "semantic",
       },
@@ -162,6 +170,7 @@ function refreshRun() {
         semanticStatus: "succeeded",
         semanticAnalysis: semanticAnalysis(),
         changeType: "modified",
+        disposition: "analyzed",
       }],
     }],
   };
@@ -259,6 +268,16 @@ describe("repository synthesis model main path", () => {
   it("runs and durably attests synthesis followed by its independent critic", async () => {
     const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
 
+    expect(prismaMock.knowledgeRefreshRun.findUniqueOrThrow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          snapshots: {
+            include: { files: { where: { semanticRefreshRunId: "refresh-1" } } },
+          },
+        }),
+      }),
+    );
+
     expect(generateStructuredMock).toHaveBeenCalledTimes(2);
     expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
       "repository_architecture_synthesis",
@@ -281,6 +300,12 @@ describe("repository synthesis model main path", () => {
       maxHighlights: 0,
     });
     expect(synthesisPrompt.subsystems[0].notebook[0].sourceExcerpt).toBe(sourceExcerpt);
+    expect(synthesisPrompt.subsystems[0].operationCommunity).toBe("charge_payment");
+    expect(synthesisPrompt.subsystems[0].notebook[0]).toMatchObject({
+      operationKey: "charge_payment",
+      implementationState: "implemented",
+      operationFacet: "persistence",
+    });
     expect(synthesisPrompt.subsystems[0].notebook[0]).not.toHaveProperty("sourceId");
     expect(synthesisPrompt.subsystems[0].notebook[0]).not.toHaveProperty("repository");
     expect(synthesisPrompt.subsystems[0].notebook[0]).not.toHaveProperty("commitSha");
@@ -301,6 +326,7 @@ describe("repository synthesis model main path", () => {
     expect(synthesis).toEqual([
       expect.objectContaining({
         subsystemKey: "project_domain:payments",
+        operationCommunity: "charge_payment",
         approvalEligible: true,
         facts: [expect.objectContaining({ statement, citationIndexes: [1] })],
       }),
@@ -353,6 +379,133 @@ describe("repository synthesis model main path", () => {
     });
   });
 
+  it("preserves an exact limitation outside capability compression and Highlight selection", async () => {
+    const limitationStatement =
+      "This repository does not implement payment settlement or custody.";
+    const run = refreshRun();
+    const analysis = run.snapshots[0]!.files[0]!.semanticAnalysis as RepositoryFileAnalysis;
+    analysis.facts.push({
+      statement: limitationStatement,
+      category: "behavior",
+      confidence: "high",
+      sensitivityFlag: false,
+      lineStart: 30,
+      lineEnd: 31,
+      productImportance: 5,
+      implementationBreadth: 2,
+      technicalDifficulty: 2,
+      path,
+      subsystemKeys: ["project_domain:payments"],
+      semanticSignals: ["limitation"],
+      knowledgeRole: "limitation",
+      evidenceExcerpt: "30: // Settlement and custody are outside this repository.\n31: export type Quote = Readonly<QuoteShape>;",
+      evidenceMode: "semantic",
+    });
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue(run);
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
+      "repository_architecture_synthesis",
+      "repository_synthesis_entailment_critic",
+      "repository_limitation_entailment_critic",
+    ]);
+    const primaryPrompt = JSON.parse(generateStructuredMock.mock.calls[0]![0].userPrompt);
+    expect(primaryPrompt.subsystems[0].notebook.map(
+      (candidate: { statement: string }) => candidate.statement
+    )).not.toContain(limitationStatement);
+    const limitationPrompt = JSON.parse(generateStructuredMock.mock.calls[2]![0].userPrompt);
+    expect(limitationPrompt.subsystems[0].claims).toEqual([
+      expect.objectContaining({
+        kind: "fact",
+        claim: { statement: limitationStatement },
+        citationIndexes: [1],
+      }),
+    ]);
+    expect(synthesis).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        facts: [expect.objectContaining({ statement: limitationStatement })],
+        highlights: [],
+        approvalEligible: true,
+        notebook: [expect.objectContaining({ knowledgeRole: "limitation" })],
+      }),
+    ]));
+  });
+
+  it("preserves explicit planned knowledge from a context-only repository file", async () => {
+    const plannedStatement =
+      "The roadmap plans organization-scoped settlement approval.";
+    const plannedPath = "ROADMAP.md";
+    const run = refreshRun();
+    run.snapshots[0]!.files = [{
+      path: plannedPath,
+      blobSha: "blob-roadmap",
+      analyzerVersion: null,
+      analysis: null,
+      semanticRefreshRunId: "refresh-1",
+      semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
+      semanticStatus: "succeeded",
+      semanticAnalysis: {
+        path: plannedPath,
+        summary: plannedStatement,
+        subsystemKeys: ["project_domain:payments"],
+        responsibilities: [plannedStatement],
+        symbols: [],
+        dependencies: [],
+        architectureSignals: ["planned"],
+        userFacingCapabilities: [],
+        unresolvedQuestions: [],
+        chunksAnalyzed: 1,
+        tokenUsage: [],
+        analysisMode: "semantic",
+        semanticStatus: "succeeded",
+        semanticSource: "model",
+        semanticDiagnostics: [{ status: "agentic_investigation" }],
+        facts: [{
+          statement: plannedStatement,
+          category: "behavior",
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1,
+          lineEnd: 1,
+          productImportance: 4,
+          implementationBreadth: 1,
+          technicalDifficulty: 2,
+          path: plannedPath,
+          subsystemKeys: ["project_domain:payments"],
+          semanticSignals: ["limitation", "implementation_state:planned"],
+          knowledgeRole: "limitation",
+          operationKey: "settlement_approval",
+          implementationState: "planned",
+          operationFacet: "architecture",
+          evidenceExcerpt: "1: Planned: organization-scoped settlement approval.",
+          evidenceMode: "semantic",
+        }],
+      } satisfies RepositoryFileAnalysis,
+      changeType: "unchanged",
+      // Context-only files stay outside the production coverage denominator.
+      disposition: "excluded",
+    }];
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue(run);
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName))
+      .toEqual(["repository_limitation_entailment_critic"]);
+    expect(synthesis).toEqual([
+      expect.objectContaining({
+        facts: [expect.objectContaining({ statement: plannedStatement })],
+        highlights: [],
+        approvalEligible: true,
+        notebook: [expect.objectContaining({
+          path: plannedPath,
+          implementationState: "planned",
+          knowledgeRole: "limitation",
+        })],
+      }),
+    ]);
+  });
+
   it("maps a capped product domain into bounded, auditable operation communities", async () => {
     const broadRun = refreshRun();
     broadRun.snapshots[0]!.files = Array.from({ length: 37 }, (_entry, index) => {
@@ -395,6 +548,7 @@ describe("repository synthesis model main path", () => {
             : [operationFact],
         },
         changeType: "modified",
+        disposition: "analyzed",
       };
     });
     prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue(broadRun);

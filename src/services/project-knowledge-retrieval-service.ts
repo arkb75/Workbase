@@ -4,6 +4,10 @@ import type {
   ProjectKnowledgeHit,
   ProjectKnowledgePurpose,
 } from "@/src/domain/project-chat";
+import {
+  parseRepositoryKnowledgeMetadata,
+  repositoryKnowledgeClaimState,
+} from "@/src/domain/repository-knowledge";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { syncWorkItemDescriptionEvidenceForWorkItem } from "@/src/lib/evidence-persistence";
@@ -442,6 +446,7 @@ function highlightRanking(highlight: {
 function factRanking(fact: {
   confidence: string;
   category: string;
+  metadata: unknown;
   validatedThroughSha: string | null;
   productImportance: number | null;
   implementationBreadth: number | null;
@@ -450,6 +455,19 @@ function factRanking(fact: {
   evidence: Array<{ evidenceItem: { type: string } }>;
 }, validation: RepositoryValidationState) {
   const systemCategory = fact.category === "architecture" || fact.category === "data_flow" || fact.category === "behavior";
+  const repositoryMetadata = parseRepositoryKnowledgeMetadata(fact.metadata);
+  const implementationState = repositoryKnowledgeClaimState(repositoryMetadata);
+  const uncertainty = !repositoryMetadata
+    ? "Technical implementation is verified; personal ownership and impact require Highlight context."
+    : implementationState === "implemented"
+      ? "Repository evidence verifies implementation; personal ownership and impact require Highlight context."
+      : implementationState === "partial"
+        ? "Repository evidence supports only partial implementation; do not present it as complete. Personal ownership and impact remain unverified."
+        : implementationState === "planned"
+          ? "Repository evidence records this as planned, not implemented. Personal ownership and impact remain unverified."
+          : implementationState === "bounded_absence"
+            ? "Repository evidence records a bounded absence, not an implemented capability."
+            : "Repository evidence supports this Fact, but its implementation state is mixed or unclassified. Personal ownership and impact remain unverified.";
   return {
     evidenceStrength: fact.evidence.length ? (fact.confidence === "high" ? 5 : fact.confidence === "medium" ? 4 : 2) : 1,
     // Missing scores are uncertainty, not evidence of importance. Broad facts
@@ -463,7 +481,7 @@ function factRanking(fact: {
     distinctiveness: fact.distinctiveness ?? 2,
     freshness: repositoryKnowledgeFreshnessScore(validation),
     impactBonus: 0,
-    uncertainty: "Technical implementation is verified; personal ownership and impact require Highlight context.",
+    uncertainty,
   };
 }
 
@@ -921,6 +939,7 @@ export const projectKnowledgeRetrievalService = {
           visibility: highlight.visibility,
           sensitivityFlag: highlight.sensitivityFlag,
           subsystemKey,
+          repositoryKnowledge: parseRepositoryKnowledgeMetadata(highlight.metadata),
           validatedThroughSha: highlight.validatedThroughSha,
           accomplishmentRanking,
           retrievalRelevance: normalizedRetrievalRelevance({
@@ -968,6 +987,7 @@ export const projectKnowledgeRetrievalService = {
               status: "approved",
               sensitivityFlag: fact.sensitivityFlag,
               subsystemKey: fact.subsystemKey,
+              repositoryKnowledge: parseRepositoryKnowledgeMetadata(fact.metadata),
               validatedThroughSha: fact.validatedThroughSha,
               accomplishmentRanking: factRanking(fact, validationStateFor(fact)),
               retrievalRelevance: normalizedRetrievalRelevance({

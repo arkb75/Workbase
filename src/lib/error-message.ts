@@ -76,6 +76,21 @@ export function classifyWorkflowFailure(error: unknown): ClassifiedWorkflowFailu
   const raw = errorMessageFromUnknown(error);
   const providerFailure = providerFailureSemantics(error);
   if (
+    /persisted repository investigation checkpoint|repository investigation source attestation|checkpoint contains stale (?:claim evidence|exact read identity)|checkpoint does not match (?:its )?pinned/i.test(
+      raw,
+    ) ||
+    /repository refresh .{0,120}(?:is (?:failed|cancelled)|cannot (?:continue|execute))/i.test(
+      raw,
+    )
+  ) {
+    return {
+      code: "workflow_failed",
+      message: "Workbase rejected an invalid or terminal repository-refresh state.",
+      recovery: "Start a fresh refresh after inspecting the saved run diagnostics; retrying the same terminal state cannot repair it.",
+      retryable: false,
+    };
+  }
+  if (
     providerFailure?.code === "iteration_limit_exceeded" ||
     providerFailure?.code === "tool_call_limit_exceeded" ||
     providerFailure?.code === "token_limit_exceeded" ||

@@ -118,10 +118,18 @@ text-repair transport, failed attempts, or deterministic fallback output.
 npm run eval:repository-knowledge:live -- \
   --variant adaptive \
   --fixture circlefund-fintech \
-  --fixture amazon-marketplace-analytics
+  --fixture amazon-marketplace-analytics \
+  --output docs/evals/adaptive-live-run.json
 ```
 
-Omit `--fixture` to run all six real profiles. The evaluation user comes from
+The runner requires clean tracked Workbase files and rejects non-ignored
+untracked inputs except the explicitly inert local-tooling paths `.agents/`,
+`.claude/`, `.windsurf/`, and `skills-lock.json`. It records its exact commit,
+branch, untracked policy, and sorted inert-path inventory in the artifact, and
+refuses to overwrite an existing `--output` file. This keeps a saved run
+attributable to the implementation that produced it; the same JSON is also
+printed to stdout. Omit `--fixture` to run all seven real profiles. The
+evaluation user comes from
 `WORKBASE_DEMO_USER_EMAIL`, or may be supplied with `--user-email`; that user
 must already have a GitHub connection. The runner prints the work-item and
 refresh-run IDs needed for database scoring and later cleanup. It does not
@@ -134,6 +142,36 @@ active work safely:
 npm run eval:repository-knowledge:live -- \
   --cleanup-work-item <temporary-work-item-id> \
   --cleanup-work-item <another-temporary-work-item-id>
+```
+
+## Bind a source-audit packet to the live implementation
+
+A current semantic source-audit score must be linked to the saved live-run
+artifact. The exporter validates the exact fixture repository and pinned
+commit, work-item ID, refresh-run ID, completed state, and run-time main-path
+integrity. It then stores a canonical digest of the complete live artifact plus
+the Workbase implementation commit and branch in the packet. A current packet
+without this binding is ineligible; the explicitly labeled historical controls
+may omit it.
+
+```bash
+npm run eval:repository-source-audit:export -- \
+  --fixture circlefund-fintech \
+  --work-item <work-item-id-from-live-run> \
+  --live-run docs/evals/adaptive-live-run.json \
+  --output docs/evals/circlefund-current-packet.json
+```
+
+After filling the packet's adjudication template, score it against the clean
+pinned project checkout. The score carries the same live-artifact digest and
+implementation identity; the comparator rejects a current score if that
+verified binding is absent or inconsistent.
+
+```bash
+npm run eval:repository-source-audit:score -- \
+  --packet docs/evals/circlefund-current-packet.json \
+  --adjudication docs/evals/circlefund-current-adjudication.json \
+  --repository-root /tmp/repos/CircleFund
 ```
 
 ## Obtain an observation from a branch

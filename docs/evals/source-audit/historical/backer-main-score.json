@@ -1,0 +1,586 @@
+{
+  "schemaVersion": "repository-source-audit-score-v1",
+  "provenance": {
+    "packetSchemaVersion": "repository-source-audit-adjudication-packet-v1",
+    "packetDigest": "583414d63681b41553f3a92029873de2db8a9f6e18be8a2718d06456d292bee8",
+    "adjudicationDigest": "718f5eaf2f7cb6943256395b6a0749bf72a61e3cb9e194fc5d90350631f728e5",
+    "manifestDigest": "9c860d9c174729928698e03a6ce6b6a87f045bfb71ca127f42ef6bab1954d186",
+    "sourceAuditDigest": "9b2b44593acc0fedf4a7cae00e5504e67c9627a0d3fbe7ae483453a9210c0158",
+    "auditDate": "2026-09-04",
+    "workItemId": "cmth3q1mn000021unt2y632kn",
+    "fixtureId": "backer-marketplace",
+    "repository": "arkb75/Backer",
+    "commitSha": "b5e8e6574545475420b7d51f3b7c50e2a3602e5c",
+    "sourceScope": "tracked_git_tree",
+    "sourceDigest": "9841d457c5e53b7575eef410af3fbea141336c36e785bf9ada00443c29051f93"
+  },
+  "certification": {
+    "status": "historical_control",
+    "currentRunEligible": false,
+    "historicalControlOverrideUsed": true,
+    "executionIntegrity": {
+      "passed": false,
+      "issues": [
+        "3 capability synthesis generation(s) have no valid synthesis-phase attestation.",
+        "No audited capability synthesis generation ran.",
+        "No audited semantic extraction generation ran.",
+        "No audited semantic planning generation ran.",
+        "Repository refresh is missing its persisted semantic evidence universe; rerun the repository refresh before evaluation.",
+        "Repository semantic planning has no audited generation reference.",
+        "Repository semantic planning used its deterministic fallback.",
+        "capability_synthesis generation 1 ended with status provider_error.",
+        "capability_synthesis generation 1 has incomplete model-usage evidence.",
+        "capability_synthesis generation 1 has no provider request ID.",
+        "capability_synthesis generation 1 used model openai/gpt-5.6-luna; expected openai/gpt-5.6-terra."
+      ],
+      "modelIdentities": [
+        "capability_synthesis:openrouter:openai/gpt-5.6-luna",
+        "capability_synthesis:openrouter:openai/gpt-5.6-terra"
+      ],
+      "policyVersions": [
+        "analyzerVersion=repository-coverage-v16",
+        "coveragePolicyVersion=repository-coverage-v8",
+        "lifecyclePolicyVersion=knowledge-lifecycle-v3",
+        "orchestration.policyVersion=repository-orchestration-v12",
+        "orchestrationPolicyVersion=repository-orchestration-v12",
+        "semanticAnalyzerVersion=repository-coverage-v18",
+        "synthesisPolicyVersion=repository-synthesis-v32"
+      ]
+    },
+    "sourceTreeVerification": {
+      "status": "verified",
+      "repositoryRoot": "/Users/rafaykhurram/projects/Backer",
+      "computedSourceDigest": "9841d457c5e53b7575eef410af3fbea141336c36e785bf9ada00443c29051f93"
+    }
+  },
+  "diagnostics": {
+    "scoringUniverse": {
+      "knowledgeUnits": 17,
+      "unitsByState": {
+        "implemented": 12,
+        "partial": 0,
+        "planned": 0,
+        "absent": 5
+      },
+      "unitsByImportance": {
+        "major": 12,
+        "supporting": 5
+      },
+      "unitsByHighlightRelevance": {
+        "must": 8,
+        "should": 4,
+        "not_expected": 5
+      },
+      "userQuestions": 13,
+      "observedHighlights": 3
+    },
+    "savedOutputs": {
+      "highlights": 3,
+      "facts": 12,
+      "total": 15,
+      "evidenceReferences": 21,
+      "exactRangeAndQuoteReferences": 21,
+      "outputsWithoutEvidence": 0
+    },
+    "adjudication": {
+      "unitAdjudications": 17,
+      "highlightAdjudications": 3,
+      "questionAdjudications": 13,
+      "contradictedUnitIds": [],
+      "duplicateHighlightIds": [],
+      "lowValueHighlightIds": [],
+      "lessThanFullyAnswerableQuestions": [
+        "Are media uploads authenticated and tied to an owner?",
+        "Can a conversation associate an unrelated founder and product, and what enables a founder to contact an investor?",
+        "Do impression and watch events affect the next request or only a later operator-run model retrain?",
+        "Does account identity support email verification, password recovery, and race-safe email uniqueness?",
+        "Does committing move money, and are its ledger, amount, interest, and message writes atomic and idempotent?",
+        "How are startup pitches created, and who is authorized to edit, delete, or invite collaborators to them?",
+        "How do co-founder invitations expire, revoke, accept, and link membership, and can acceptance leave partial state?",
+        "How do founder and investor registration and sessions work, and is the selected role actually enforced during onboarding?",
+        "How is the reels candidate set built: can every product appear, does it require video, and which signals determine rank?",
+        "What differs among a heart like, a COMMITTED interest, and the investment commit route?",
+        "What profile data exists for founders and investors, and which fields drive feed matching?",
+        "What records and uploaded assets remain after a product is deleted?",
+        "Which runtime store is authoritative, DynamoDB or Prisma?"
+      ]
+    },
+    "countNeutral": true
+  },
+  "semanticDetails": {
+    "units": [
+      {
+        "unitId": "backer.account-verification-recovery",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Verifies account email ownership and supports forgotten-password recovery or password reset.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "identity",
+        "kind": "constraint",
+        "uncertainty": "The tracked authentication surface contains credential registration and login but no verification or recovery route."
+      },
+      {
+        "unitId": "backer.atomic-idempotent-domain-workflows",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Applies commitment, invitation acceptance, and product deletion as atomic and idempotent domain operations with complete related-record cleanup.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "data-integrity",
+        "kind": "constraint",
+        "uncertainty": "A commitment retry can duplicate both its Investment row and amountRaised increment. Invite acceptance and deletion are multi-step, and deletion omits investments, feed events, and S3 assets."
+      },
+      {
+        "unitId": "backer.cofounder-invitations",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Supports member-created co-founder invitations, optional SES delivery, in-app listing, accept/decline, and automatic linking during onboarding.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "teams",
+        "kind": "workflow",
+        "uncertainty": "Any founder with a product membership may invite; no owner role is enforced. Invites have no expiration or revoke workflow, and acceptance writes membership before separately updating invite status."
+      },
+      {
+        "unitId": "backer.company-lifecycle",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Lets founders create, update, and delete startup/company pitches and links the creator as a team member.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "startup-pitches",
+        "kind": "workflow",
+        "uncertainty": "Edit and delete authorize any FounderProduct membership; the free-form membership role is not used to distinguish an owner from an invited collaborator."
+      },
+      {
+        "unitId": "backer.consistent-role-ownership-authorization",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Enforces the registered founder or investor role during onboarding and distinguishes startup owners from invited collaborators for destructive and administrative actions.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "authorization",
+        "kind": "constraint",
+        "uncertainty": "Both onboarding routes require a session but do not check the registered userType, while product administration and invitations treat any founder-product membership as ownership."
+      },
+      {
+        "unitId": "backer.dynamodb-runtime",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Uses a DynamoDB repository as the active runtime data path for profiles, relationships, feed state, invitations, messaging, and investments.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "persistence",
+        "kind": "architecture",
+        "uncertainty": null
+      },
+      {
+        "unitId": "backer.feed-event-ml-pipeline",
+        "knowledgeCoverage": "substantial",
+        "highlightCoverage": "substantial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "substantial",
+        "contradictsAudit": false,
+        "claim": "Captures investor feed interactions and provides an offline logistic-regression training pipeline whose artifact can be loaded by the runtime ranker.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "discovery",
+        "kind": "data",
+        "uncertainty": "The checked-in artifact contains only 48 examples (41 train/7 test), 16 investors, 9 products, and zero feed events at lib/feed/model/feed-model.json:22-49; training is operator-run, not online."
+      },
+      {
+        "unitId": "backer.founder-profile",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Onboards founders, persists rich editable profiles, and renders public founder identities with company and engagement statistics.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "marketplace-profiles",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "backer.interest-lifecycle",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Lets investors like startups, promote an existing interest to COMMITTED, and preserve committed state against a later unlike action.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "investor-engagement",
+        "kind": "workflow",
+        "uncertainty": "The interest endpoint can label an interest COMMITTED without creating an Investment row, incrementing product amountRaised, or opening a conversation."
+      },
+      {
+        "unitId": "backer.investment-commitment-ledger",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Records investment commitments, increments displayed amount raised, creates committed interest when none exists, and opens an automatic founder conversation.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "investment-intent",
+        "kind": "workflow",
+        "uncertainty": "This records intent only and does not move or settle money. Its sequential writes are neither transactional nor idempotent, and an existing LIKED interest is not promoted or updated by this route."
+      },
+      {
+        "unitId": "backer.investor-profile",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": null,
+        "contradictsAudit": false,
+        "claim": "Onboards investors with stage/tag preferences and portfolio history and exposes editable investor profiles.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "marketplace-profiles",
+        "kind": "workflow",
+        "uncertainty": null
+      },
+      {
+        "unitId": "backer.media-upload",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Uploads validated image/video assets to S3 for profile and pitch surfaces.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "media",
+        "kind": "integration",
+        "uncertainty": "The route contains no code-level authentication or ownership check."
+      },
+      {
+        "unitId": "backer.online-model-training",
+        "knowledgeCoverage": "tangential",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": false,
+        "qualifierCoverage": "tangential",
+        "contradictsAudit": false,
+        "claim": "Retrains the feed model continuously from live events.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "discovery",
+        "kind": "constraint",
+        "uncertainty": "Training is an operator-run script and runtime loads a checked-in file artifact."
+      },
+      {
+        "unitId": "backer.payment-processing",
+        "knowledgeCoverage": "none",
+        "highlightCoverage": "none",
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Processes or settles investment payments.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "payments",
+        "kind": "constraint",
+        "uncertainty": "No Stripe, payment, settlement, or escrow integration exists; current code records commitments only."
+      },
+      {
+        "unitId": "backer.personalized-reels-feed",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "tangential",
+        "contradictsAudit": false,
+        "claim": "Builds an investor reels feed from startup/founder pitch videos and ranks it with preference, text, popularity, freshness, seen-penalty, and exploration features.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "discovery",
+        "kind": "capability",
+        "uncertainty": "Candidate assembly selects at most one product per founder and requires a pitch video. Request-time ranking consumes interests, while fresh feed events only enter later operator-run training."
+      },
+      {
+        "unitId": "backer.role-auth",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "tangential",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Registers founders and investors with credentials and propagates role-bearing authenticated sessions into protected routes.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "identity",
+        "kind": "workflow",
+        "uncertainty": "Email uniqueness is enforced by a query followed by a conditional write on a random item ID, so concurrent registration is not race-safe."
+      },
+      {
+        "unitId": "backer.role-aware-messaging",
+        "knowledgeCoverage": "partial",
+        "highlightCoverage": "partial",
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "qualifierCoverage": "none",
+        "contradictsAudit": false,
+        "claim": "Supports founder-investor conversations with participant authorization, founder contact preconditions, message delivery, and unread tracking.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "messaging",
+        "kind": "workflow",
+        "uncertainty": "Conversation creation validates founder and product independently without verifying their association. Founder-initiated eligibility is founder-wide rather than product-specific, and query-then-put creation does not enforce composite uniqueness across random-ID items."
+      }
+    ],
+    "highlights": [
+      {
+        "highlightId": "cmth3ueyr008221un49gwyi71",
+        "matchedUnitIds": [
+          "backer.role-aware-messaging"
+        ],
+        "salience": "supporting_insight",
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth3uizr008d21unycsd7tmo",
+        "matchedUnitIds": [
+          "backer.role-auth",
+          "backer.founder-profile",
+          "backer.investor-profile",
+          "backer.company-lifecycle",
+          "backer.interest-lifecycle",
+          "backer.investment-commitment-ledger",
+          "backer.role-aware-messaging",
+          "backer.cofounder-invitations"
+        ],
+        "salience": "supporting_insight",
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth3umsu008q21unugvph5d2",
+        "matchedUnitIds": [
+          "backer.personalized-reels-feed",
+          "backer.feed-event-ml-pipeline",
+          "backer.dynamodb-runtime"
+        ],
+        "salience": "supporting_insight",
+        "semanticDuplicateOf": null
+      }
+    ],
+    "questions": [
+      {
+        "question": "Are media uploads authenticated and tied to an owner?",
+        "answerability": "none",
+        "supportingUnitIds": [],
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Can a conversation associate an unrelated founder and product, and what enables a founder to contact an investor?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "backer.role-aware-messaging"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Do impression and watch events affect the next request or only a later operator-run model retrain?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "backer.personalized-reels-feed",
+          "backer.feed-event-ml-pipeline",
+          "backer.online-model-training"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Does account identity support email verification, password recovery, and race-safe email uniqueness?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "backer.role-auth",
+          "backer.account-verification-recovery"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Does committing move money, and are its ledger, amount, interest, and message writes atomic and idempotent?",
+        "answerability": "none",
+        "supportingUnitIds": [],
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "How are startup pitches created, and who is authorized to edit, delete, or invite collaborators to them?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "backer.company-lifecycle",
+          "backer.cofounder-invitations",
+          "backer.consistent-role-ownership-authorization"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "How do co-founder invitations expire, revoke, accept, and link membership, and can acceptance leave partial state?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "backer.cofounder-invitations"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "How do founder and investor registration and sessions work, and is the selected role actually enforced during onboarding?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "backer.role-auth",
+          "backer.consistent-role-ownership-authorization"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "How is the reels candidate set built: can every product appear, does it require video, and which signals determine rank?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "backer.personalized-reels-feed"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "What differs among a heart like, a COMMITTED interest, and the investment commit route?",
+        "answerability": "tangential",
+        "supportingUnitIds": [
+          "backer.interest-lifecycle",
+          "backer.investment-commitment-ledger"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "What profile data exists for founders and investors, and which fields drive feed matching?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "backer.founder-profile",
+          "backer.investor-profile",
+          "backer.personalized-reels-feed"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "What records and uploaded assets remain after a product is deleted?",
+        "answerability": "none",
+        "supportingUnitIds": [],
+        "evidenceSupported": false,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      },
+      {
+        "question": "Which runtime store is authoritative, DynamoDB or Prisma?",
+        "answerability": "partial",
+        "supportingUnitIds": [
+          "backer.dynamodb-runtime"
+        ],
+        "evidenceSupported": true,
+        "stateCorrect": true,
+        "contradictsAudit": false
+      }
+    ]
+  },
+  "outcome": {
+    "weightedKnowledgeRecall": 0.392857,
+    "majorKnowledgeRecall": 0.388889,
+    "supportingKnowledgeRecall": 0.416667,
+    "mustHighlightRecall": 0.3125,
+    "weightedHighlightRecall": 0.3125,
+    "matchedUnitGrounding": 1,
+    "stateCorrectness": 0.916667,
+    "qualifierPreservation": 0.089286,
+    "constraintRecall": 0,
+    "constraintCorrectness": 0,
+    "contradictionRate": 0,
+    "fullMajorUnitIds": [],
+    "missedMajorUnitIds": [
+      "backer.role-auth",
+      "backer.founder-profile",
+      "backer.investor-profile",
+      "backer.company-lifecycle",
+      "backer.personalized-reels-feed",
+      "backer.interest-lifecycle",
+      "backer.investment-commitment-ledger",
+      "backer.role-aware-messaging",
+      "backer.cofounder-invitations"
+    ],
+    "questionAnswerability": 0.288462,
+    "fullyAnswerableQuestionRate": 0,
+    "highlightSalience": 0.5,
+    "majorHighlightAllocationRate": 0,
+    "duplicateHighlightRate": 0
+  }
+}

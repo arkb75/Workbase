@@ -1,0 +1,1302 @@
+{
+  "schemaVersion": "repository-source-audit-adjudication-packet-v1",
+  "manifestDigest": "9c860d9c174729928698e03a6ce6b6a87f045bfb71ca127f42ef6bab1954d186",
+  "auditDate": "2026-09-04",
+  "method": "README text and filenames were search hypotheses only. Each implemented unit is backed by a reachable handler, route, UI flow, executable entry point, or durable service seam in the clean pinned checkout. Relative anchors resolve against the repository source_root below.",
+  "workItemId": "cmth3q1mn000021unt2y632kn",
+  "sourceAudit": {
+    "fixtureId": "backer-marketplace",
+    "repository": "arkb75/Backer",
+    "commitSha": "b5e8e6574545475420b7d51f3b7c50e2a3602e5c",
+    "sourceScope": "tracked_git_tree",
+    "sourceDigest": "9841d457c5e53b7575eef410af3fbea141336c36e785bf9ada00443c29051f93",
+    "knowledgeUnits": [
+      {
+        "id": "backer.role-auth",
+        "claim": "Registers founders and investors with credentials and propagates role-bearing authenticated sessions into protected routes.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "identity",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "app/api/register/route.ts",
+            "lineStart": 6,
+            "lineEnd": 45
+          },
+          {
+            "path": "lib/auth.ts",
+            "lineStart": 7,
+            "lineEnd": 70
+          },
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 153,
+            "lineEnd": 223
+          }
+        ],
+        "uncertainty": "Email uniqueness is enforced by a query followed by a conditional write on a random item ID, so concurrent registration is not race-safe."
+      },
+      {
+        "id": "backer.founder-profile",
+        "claim": "Onboards founders, persists rich editable profiles, and renders public founder identities with company and engagement statistics.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "marketplace-profiles",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "app/api/onboarding/founder/route.ts",
+            "lineStart": 11,
+            "lineEnd": 79
+          },
+          {
+            "path": "app/api/profile/founder/route.ts",
+            "lineStart": 22,
+            "lineEnd": 99
+          },
+          {
+            "path": "app/founder/[id]/page.tsx",
+            "lineStart": 19,
+            "lineEnd": 99
+          }
+        ]
+      },
+      {
+        "id": "backer.investor-profile",
+        "claim": "Onboards investors with stage/tag preferences and portfolio history and exposes editable investor profiles.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "marketplace-profiles",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "app/api/onboarding/investor/route.ts",
+            "lineStart": 7,
+            "lineEnd": 71
+          },
+          {
+            "path": "app/api/profile/investor/route.ts",
+            "lineStart": 22,
+            "lineEnd": 95
+          },
+          {
+            "path": "app/investor/[id]/page.tsx",
+            "lineStart": 13,
+            "lineEnd": 42
+          }
+        ]
+      },
+      {
+        "id": "backer.company-lifecycle",
+        "claim": "Lets founders create, update, and delete startup/company pitches and links the creator as a team member.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "startup-pitches",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "app/api/company/route.ts",
+            "lineStart": 47,
+            "lineEnd": 115
+          },
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 616,
+            "lineEnd": 748
+          },
+          {
+            "path": "app/api/product/[id]/route.ts",
+            "lineStart": 65,
+            "lineEnd": 190
+          }
+        ],
+        "uncertainty": "Edit and delete authorize any FounderProduct membership; the free-form membership role is not used to distinguish an owner from an invited collaborator."
+      },
+      {
+        "id": "backer.personalized-reels-feed",
+        "claim": "Builds an investor reels feed from startup/founder pitch videos and ranks it with preference, text, popularity, freshness, seen-penalty, and exploration features.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "discovery",
+        "kind": "capability",
+        "anchors": [
+          {
+            "path": "app/investor/feed/page.tsx",
+            "lineStart": 18,
+            "lineEnd": 111
+          },
+          {
+            "path": "lib/feed/ranking.ts",
+            "lineStart": 23,
+            "lineEnd": 83
+          },
+          {
+            "path": "lib/feed/mlFeatures.ts",
+            "lineStart": 223,
+            "lineEnd": 277
+          }
+        ],
+        "uncertainty": "Candidate assembly selects at most one product per founder and requires a pitch video. Request-time ranking consumes interests, while fresh feed events only enter later operator-run training."
+      },
+      {
+        "id": "backer.interest-lifecycle",
+        "claim": "Lets investors like startups, promote an existing interest to COMMITTED, and preserve committed state against a later unlike action.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "investor-engagement",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 1309,
+            "lineEnd": 1392
+          },
+          {
+            "path": "app/api/product/[id]/like/route.ts",
+            "lineStart": 18,
+            "lineEnd": 77
+          },
+          {
+            "path": "app/api/interest/like/route.ts",
+            "lineStart": 14,
+            "lineEnd": 110
+          }
+        ],
+        "uncertainty": "The interest endpoint can label an interest COMMITTED without creating an Investment row, incrementing product amountRaised, or opening a conversation."
+      },
+      {
+        "id": "backer.investment-commitment-ledger",
+        "claim": "Records investment commitments, increments displayed amount raised, creates committed interest when none exists, and opens an automatic founder conversation.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "investment-intent",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "app/api/investments/commit/route.ts",
+            "lineStart": 17,
+            "lineEnd": 139
+          },
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 1839,
+            "lineEnd": 1867
+          },
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 1923,
+            "lineEnd": 1936
+          }
+        ],
+        "uncertainty": "This records intent only and does not move or settle money. Its sequential writes are neither transactional nor idempotent, and an existing LIKED interest is not promoted or updated by this route."
+      },
+      {
+        "id": "backer.role-aware-messaging",
+        "claim": "Supports founder-investor conversations with participant authorization, founder contact preconditions, message delivery, and unread tracking.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "messaging",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "app/api/messages/conversations/route.ts",
+            "lineStart": 18,
+            "lineEnd": 145
+          },
+          {
+            "path": "app/api/messages/send/route.ts",
+            "lineStart": 14,
+            "lineEnd": 102
+          },
+          {
+            "path": "app/api/messages/[conversationId]/route.ts",
+            "lineStart": 16,
+            "lineEnd": 57
+          }
+        ],
+        "uncertainty": "Conversation creation validates founder and product independently without verifying their association. Founder-initiated eligibility is founder-wide rather than product-specific, and query-then-put creation does not enforce composite uniqueness across random-ID items."
+      },
+      {
+        "id": "backer.cofounder-invitations",
+        "claim": "Supports member-created co-founder invitations, optional SES delivery, in-app listing, accept/decline, and automatic linking during onboarding.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "teams",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "app/api/company/invite/route.ts",
+            "lineStart": 19,
+            "lineEnd": 95
+          },
+          {
+            "path": "lib/email.ts",
+            "lineStart": 32,
+            "lineEnd": 100
+          },
+          {
+            "path": "app/api/invitations/route.ts",
+            "lineStart": 12,
+            "lineEnd": 30
+          },
+          {
+            "path": "app/api/invitations/[id]/respond/route.ts",
+            "lineStart": 19,
+            "lineEnd": 67
+          },
+          {
+            "path": "app/api/onboarding/founder/route.ts",
+            "lineStart": 67,
+            "lineEnd": 79
+          }
+        ],
+        "uncertainty": "Any founder with a product membership may invite; no owner role is enforced. Invites have no expiration or revoke workflow, and acceptance writes membership before separately updating invite status."
+      },
+      {
+        "id": "backer.media-upload",
+        "claim": "Uploads validated image/video assets to S3 for profile and pitch surfaces.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "media",
+        "kind": "integration",
+        "anchors": [
+          {
+            "path": "app/api/upload/route.ts",
+            "lineStart": 7,
+            "lineEnd": 9
+          },
+          {
+            "path": "app/api/upload/route.ts",
+            "lineStart": 101,
+            "lineEnd": 161
+          },
+          {
+            "path": "components/onboarding/PhotoUploadGrid.tsx",
+            "lineStart": 19,
+            "lineEnd": 45
+          }
+        ],
+        "uncertainty": "The route contains no code-level authentication or ownership check."
+      },
+      {
+        "id": "backer.feed-event-ml-pipeline",
+        "claim": "Captures investor feed interactions and provides an offline logistic-regression training pipeline whose artifact can be loaded by the runtime ranker.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "discovery",
+        "kind": "data",
+        "anchors": [
+          {
+            "path": "app/api/feed/events/route.ts",
+            "lineStart": 11,
+            "lineEnd": 21
+          },
+          {
+            "path": "app/api/feed/events/route.ts",
+            "lineStart": 30,
+            "lineEnd": 76
+          },
+          {
+            "path": "scripts/train-feed-model.ts",
+            "lineStart": 69,
+            "lineEnd": 283
+          },
+          {
+            "path": "lib/feed/model.ts",
+            "lineStart": 32,
+            "lineEnd": 77
+          }
+        ],
+        "uncertainty": "The checked-in artifact contains only 48 examples (41 train/7 test), 16 investors, 9 products, and zero feed events at lib/feed/model/feed-model.json:22-49; training is operator-run, not online."
+      },
+      {
+        "id": "backer.dynamodb-runtime",
+        "claim": "Uses a DynamoDB repository as the active runtime data path for profiles, relationships, feed state, invitations, messaging, and investments.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "persistence",
+        "kind": "architecture",
+        "anchors": [
+          {
+            "path": "lib/db/config.ts",
+            "lineStart": 8,
+            "lineEnd": 31
+          },
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 1,
+            "lineEnd": 1936
+          }
+        ]
+      },
+      {
+        "id": "backer.payment-processing",
+        "claim": "Processes or settles investment payments.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "payments",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "app/api/investments/commit/route.ts",
+            "lineStart": 17,
+            "lineEnd": 139
+          },
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 1839,
+            "lineEnd": 1867
+          }
+        ],
+        "uncertainty": "No Stripe, payment, settlement, or escrow integration exists; current code records commitments only."
+      },
+      {
+        "id": "backer.online-model-training",
+        "claim": "Retrains the feed model continuously from live events.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "discovery",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "app/investor/feed/page.tsx",
+            "lineStart": 83,
+            "lineEnd": 111
+          },
+          {
+            "path": "scripts/train-feed-model.ts",
+            "lineStart": 237,
+            "lineEnd": 283
+          },
+          {
+            "path": "lib/feed/model.ts",
+            "lineStart": 32,
+            "lineEnd": 77
+          }
+        ],
+        "uncertainty": "Training is an operator-run script and runtime loads a checked-in file artifact."
+      },
+      {
+        "id": "backer.consistent-role-ownership-authorization",
+        "claim": "Enforces the registered founder or investor role during onboarding and distinguishes startup owners from invited collaborators for destructive and administrative actions.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "authorization",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "app/api/onboarding/founder/route.ts",
+            "lineStart": 11,
+            "lineEnd": 65
+          },
+          {
+            "path": "app/api/onboarding/investor/route.ts",
+            "lineStart": 7,
+            "lineEnd": 69
+          },
+          {
+            "path": "app/api/product/[id]/route.ts",
+            "lineStart": 65,
+            "lineEnd": 77
+          },
+          {
+            "path": "app/api/company/invite/route.ts",
+            "lineStart": 55,
+            "lineEnd": 59
+          }
+        ],
+        "uncertainty": "Both onboarding routes require a session but do not check the registered userType, while product administration and invitations treat any founder-product membership as ownership."
+      },
+      {
+        "id": "backer.atomic-idempotent-domain-workflows",
+        "claim": "Applies commitment, invitation acceptance, and product deletion as atomic and idempotent domain operations with complete related-record cleanup.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "data-integrity",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "app/api/investments/commit/route.ts",
+            "lineStart": 71,
+            "lineEnd": 131
+          },
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 1105,
+            "lineEnd": 1153
+          },
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 1211,
+            "lineEnd": 1307
+          }
+        ],
+        "uncertainty": "A commitment retry can duplicate both its Investment row and amountRaised increment. Invite acceptance and deletion are multi-step, and deletion omits investments, feed events, and S3 assets."
+      },
+      {
+        "id": "backer.account-verification-recovery",
+        "claim": "Verifies account email ownership and supports forgotten-password recovery or password reset.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "identity",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "app/api/register/route.ts",
+            "lineStart": 6,
+            "lineEnd": 45
+          },
+          {
+            "path": "lib/auth.ts",
+            "lineStart": 7,
+            "lineEnd": 71
+          }
+        ],
+        "uncertainty": "The tracked authentication surface contains credential registration and login but no verification or recovery route."
+      }
+    ],
+    "userQuestions": [
+      "How do founder and investor registration and sessions work, and is the selected role actually enforced during onboarding?",
+      "What profile data exists for founders and investors, and which fields drive feed matching?",
+      "How are startup pitches created, and who is authorized to edit, delete, or invite collaborators to them?",
+      "How is the reels candidate set built: can every product appear, does it require video, and which signals determine rank?",
+      "Do impression and watch events affect the next request or only a later operator-run model retrain?",
+      "What differs among a heart like, a COMMITTED interest, and the investment commit route?",
+      "Does committing move money, and are its ledger, amount, interest, and message writes atomic and idempotent?",
+      "Can a conversation associate an unrelated founder and product, and what enables a founder to contact an investor?",
+      "How do co-founder invitations expire, revoke, accept, and link membership, and can acceptance leave partial state?",
+      "What records and uploaded assets remain after a product is deleted?",
+      "Are media uploads authenticated and tied to an owner?",
+      "Does account identity support email verification, password recovery, and race-safe email uniqueness?",
+      "Which runtime store is authoritative, DynamoDB or Prisma?"
+    ]
+  },
+  "observation": {
+    "fixtureId": "backer-marketplace",
+    "repository": "arkb75/Backer",
+    "commitSha": "b5e8e6574545475420b7d51f3b7c50e2a3602e5c",
+    "executionIntegrity": {
+      "passed": false,
+      "issues": [
+        "No audited semantic planning generation ran.",
+        "No audited semantic extraction generation ran.",
+        "No audited capability synthesis generation ran.",
+        "3 capability synthesis generation(s) have no valid synthesis-phase attestation.",
+        "capability_synthesis generation 1 ended with status provider_error.",
+        "capability_synthesis generation 1 used model openai/gpt-5.6-luna; expected openai/gpt-5.6-terra.",
+        "capability_synthesis generation 1 has no provider request ID.",
+        "capability_synthesis generation 1 has incomplete model-usage evidence.",
+        "Repository semantic planning used its deterministic fallback.",
+        "Repository semantic planning has no audited generation reference.",
+        "Repository refresh is missing its persisted semantic evidence universe; rerun the repository refresh before evaluation."
+      ],
+      "modelIdentities": [
+        "capability_synthesis:openrouter:openai/gpt-5.6-luna",
+        "capability_synthesis:openrouter:openai/gpt-5.6-terra"
+      ],
+      "policyVersions": [
+        "analyzerVersion=repository-coverage-v16",
+        "coveragePolicyVersion=repository-coverage-v8",
+        "lifecyclePolicyVersion=knowledge-lifecycle-v3",
+        "orchestration.policyVersion=repository-orchestration-v12",
+        "orchestrationPolicyVersion=repository-orchestration-v12",
+        "semanticAnalyzerVersion=repository-coverage-v18",
+        "synthesisPolicyVersion=repository-synthesis-v32"
+      ]
+    },
+    "adjudicationEligible": false,
+    "inventory": {
+      "scannableFiles": 158,
+      "analyzedFiles": 158,
+      "semanticEligibleFiles": null,
+      "semanticAnalyzedFiles": 6,
+      "analyzedPaths": [
+        ".eslintrc.json",
+        ".gitignore",
+        "DATABASE_SETUP.md",
+        "app/api/auth/[...nextauth]/route.ts",
+        "app/api/company/invite/route.ts",
+        "app/api/company/route.ts",
+        "app/api/feed/events/route.ts",
+        "app/api/interest/like/route.ts",
+        "app/api/investments/commit/route.ts",
+        "app/api/invitations/[id]/respond/route.ts",
+        "app/api/invitations/route.ts",
+        "app/api/messages/[conversationId]/route.ts",
+        "app/api/messages/conversations/route.ts",
+        "app/api/messages/send/route.ts",
+        "app/api/onboarding/founder/route.ts",
+        "app/api/onboarding/investor/route.ts",
+        "app/api/product/[id]/like/route.ts",
+        "app/api/product/[id]/route.ts",
+        "app/api/profile/founder/route.ts",
+        "app/api/profile/investor/route.ts",
+        "app/api/register/route.ts",
+        "app/api/upload/route.ts",
+        "app/founder/[id]/page.tsx",
+        "app/founder/messages/[conversationId]/page.tsx",
+        "app/founder/messages/page.tsx",
+        "app/founder/products/page.tsx",
+        "app/founder/products/products.module.css",
+        "app/globals.css",
+        "app/investor/[id]/loading.module.css",
+        "app/investor/[id]/loading.tsx",
+        "app/investor/[id]/page.tsx",
+        "app/investor/feed/loading.tsx",
+        "app/investor/feed/page.tsx",
+        "app/investor/messages/[conversationId]/page.tsx",
+        "app/investor/messages/page.tsx",
+        "app/investor/onboarding/page.tsx",
+        "app/layout.tsx",
+        "app/login/page.tsx",
+        "app/onboarding/page.tsx",
+        "app/page.tsx",
+        "app/product/[id]/edit/page.tsx",
+        "app/product/[id]/page.tsx",
+        "app/register/page.tsx",
+        "app/start-company/page.tsx",
+        "components/auth/AuthForm.module.css",
+        "components/auth/AuthLayout.module.css",
+        "components/auth/AuthLayout.tsx",
+        "components/auth/LoginForm.tsx",
+        "components/auth/RegisterForm.tsx",
+        "components/company/Company.module.css",
+        "components/company/CompanyWizard.tsx",
+        "components/feed/ReelCard.module.css",
+        "components/feed/ReelCard.tsx",
+        "components/feed/ReelsFeed.module.css",
+        "components/feed/ReelsFeed.tsx",
+        "components/founder/CofounderInvitesPanel.module.css",
+        "components/founder/CofounderInvitesPanel.tsx",
+        "components/founder/FounderBottomNav.module.css",
+        "components/founder/FounderBottomNav.tsx",
+        "components/founder/FounderControls.tsx",
+        "components/founder/FounderEditForm.tsx",
+        "components/founder/FounderProfile.module.css",
+        "components/founder/FounderProfile.tsx",
+        "components/founder/FounderVideo.module.css",
+        "components/founder/FounderVideo.tsx",
+        "components/founder/ProductCard.module.css",
+        "components/founder/ProductCard.tsx",
+        "components/investment/InvestmentModal.module.css",
+        "components/investment/InvestmentModal.tsx",
+        "components/investor/InvestorBottomNav.module.css",
+        "components/investor/InvestorBottomNav.tsx",
+        "components/investor/InvestorEditForm.tsx",
+        "components/investor/InvestorProfile.module.css",
+        "components/investor/InvestorProfile.tsx",
+        "components/investor/LogoutButton.module.css",
+        "components/investor/LogoutButton.tsx",
+        "components/investor/PortfolioGrid.module.css",
+        "components/investor/PortfolioGrid.tsx",
+        "components/messages/ChatView.module.css",
+        "components/messages/ConversationList.module.css",
+        "components/messages/ConversationList.tsx",
+        "components/messages/MessagesPage.module.css",
+        "components/messages/index.ts",
+        "components/onboarding/IndustryTagInput.tsx",
+        "components/onboarding/InvestorOnboardingWizard.tsx",
+        "components/onboarding/Onboarding.module.css",
+        "components/onboarding/OnboardingWizard.tsx",
+        "components/onboarding/PhotoUploadGrid.tsx",
+        "components/onboarding/PortfolioInput.tsx",
+        "components/onboarding/PromptSelector.tsx",
+        "components/product/ProductActions.module.css",
+        "components/product/ProductActions.tsx",
+        "components/product/ProductEditForm.module.css",
+        "components/product/ProductEditForm.tsx",
+        "components/product/ProductProfile.module.css",
+        "components/product/ProductProfile.tsx",
+        "components/product/TeamCard.module.css",
+        "components/product/TeamCard.tsx",
+        "components/profile/ProfileEditForm.module.css",
+        "components/ui/BackButton.module.css",
+        "components/ui/BackButton.tsx",
+        "components/ui/ExperienceList.module.css",
+        "components/ui/ExperienceList.tsx",
+        "components/ui/PhotoCard.module.css",
+        "components/ui/PhotoCard.tsx",
+        "components/ui/ProfileHeader.module.css",
+        "components/ui/ProfileHeader.tsx",
+        "components/ui/ProfileLayout.module.css",
+        "components/ui/ProfileLayout.tsx",
+        "components/ui/PromptCard.module.css",
+        "components/ui/PromptCard.tsx",
+        "components/ui/SocialLinks.module.css",
+        "components/ui/SocialLinks.tsx",
+        "components/ui/StatsGrid.module.css",
+        "components/ui/StatsGrid.tsx",
+        "components/ui/TagList.module.css",
+        "components/ui/TagList.tsx",
+        "components/ui/ThemeToggle.module.css",
+        "components/ui/ThemeToggle.tsx",
+        "components/ui/VideoPlayer.module.css",
+        "components/ui/VideoPlayer.tsx",
+        "components/ui/index.ts",
+        "global.d.ts",
+        "lib/auth.ts",
+        "lib/db/client.ts",
+        "lib/db/config.ts",
+        "lib/db/types.ts",
+        "lib/email.ts",
+        "lib/feed/clientEvents.ts",
+        "lib/feed/mlFeatures.ts",
+        "lib/feed/model.ts",
+        "lib/feed/model/feed-model.json",
+        "lib/feed/ranking.ts",
+        "lib/prisma.ts",
+        "lib/types.ts",
+        "lib/ui/reelProductTransition.ts",
+        "middleware.ts",
+        "next.config.mjs",
+        "package.json",
+        "prisma.config.ts",
+        "prisma/migrations/20260207222924_init/migration.sql",
+        "prisma/migrations/20260207224130_add_photos_prompts/migration.sql",
+        "prisma/migrations/20260207231213_add_product_fields/migration.sql",
+        "prisma/migrations/20260207235831_add_investor_profile_fields/migration.sql",
+        "prisma/migrations/migration_lock.toml",
+        "prisma/seed.ts",
+        "scripts/check-products.ts",
+        "scripts/cleanup-duplicate-conversations.ts",
+        "scripts/setup-dynamodb.ts",
+        "tsconfig.json",
+        "types/next-auth.d.ts",
+        "README.md",
+        "app/founder/edit/page.tsx",
+        "app/investor/edit/page.tsx",
+        "components/messages/ChatView.tsx",
+        "lib/db/repository.ts",
+        "prisma/schema.prisma",
+        "scripts/train-feed-model.ts"
+      ],
+      "semanticAnalyzedPaths": [
+        "README.md",
+        "app/founder/edit/page.tsx",
+        "app/investor/edit/page.tsx",
+        "components/messages/ChatView.tsx",
+        "lib/db/repository.ts",
+        "prisma/schema.prisma"
+      ]
+    },
+    "coverage": {
+      "static": 1,
+      "semantic": null,
+      "knowledge": 0.1
+    },
+    "performance": {
+      "durationMs": 237696,
+      "modelCalls": 3,
+      "totalTokens": 5781,
+      "estimatedCostUsd": 0.030789499999999997
+    },
+    "savedOutputCounts": {
+      "highlights": 3,
+      "facts": 12,
+      "total": 15,
+      "evidenceReferences": 21,
+      "exactRangeAndQuoteReferences": 21,
+      "outputsWithoutEvidence": 0
+    },
+    "savedOutputs": [
+      {
+        "id": "cmth3t10z006s21undjhu0b1j",
+        "kind": "fact",
+        "text": "The conversation view renders message history with partner and optional product context, keeps the latest message in view, and supports returning to the prior screen.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "components/messages/ChatView.tsx",
+            "lineStart": 33,
+            "lineEnd": 54,
+            "quote": "export default function ChatView({\n    conversationId,\n    messages: initialMessages,\n    currentUserType,\n    currentUserId,\n    otherPartyName,\n    productName,\n    backPath,\n    canSend = true,\n    cannotSendReason,\n}: ChatViewProps) {\n    const router = useRouter()\n    const [messages, setMessages] = useState<Message[]>(initialMessages)\n    const [newMessage, setNewMessage] = useState('')\n    const [sending, setSending] = useState(false)\n    const [error, setError] = useState<string | null>(null)\n    const messagesEndRef = useRef<HTMLDivElement>(null)\n\n    // Scroll to bottom when messages change\n    useEffect(() => {\n        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })\n    }, [messages])",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "components/messages/ChatView.tsx",
+            "lineStart": 95,
+            "lineEnd": 165,
+            "quote": "    return (\n        <div className={styles.container}>\n            <div className={styles.header}>\n                <button\n                    className={styles.backButton}\n                    onClick={() => router.push(backPath)}\n                    aria-label=\"Back\"\n                >\n                    ←\n                </button>\n                <div className={styles.headerInfo}>\n                    <div className={styles.headerName}>{otherPartyName}</div>\n                    {productName && (\n                        <div className={styles.headerProduct}>Re: {productName}</div>\n                    )}\n                </div>\n            </div>\n\n            <div className={styles.messagesContainer}>\n                {messages.length === 0 ? (\n                    <div className={styles.emptyChat}>\n                        <p>No messages yet. Start the conversation!</p>\n                    </div>\n                ) : (\n                    messages.map((message) => {\n                        const isOwn =\n                            (currentUserType === 'INVESTOR' && message.senderType === 'INVESTOR') ||\n                            (currentUserType === 'FOUNDER' && message.senderType === 'FOUNDER')\n\n                        return (\n                            <div\n                                key={message.id}\n                                className={`${styles.messageBubble} ${isOwn ? styles.messageOwn : styles.messageOther\n                                    }`}\n                            >\n                                <div className={styles.messageContent}>{message.content}</div>\n                                <div className={styles.messageTime}>\n                                    {formatTime(message.createdAt)}\n                                </div>\n                            </div>\n                        )\n                    })\n                )}\n                <div ref={messagesEndRef} />\n            </div>\n\n            {error && <div className={styles",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3t4qo006w21unnvhvpzg0",
+        "kind": "fact",
+        "text": "Sending a message posts the conversation ID and trimmed content to an API, appends the returned message locally, and surfaces request failures; sending is disabled when unavailable or in progress.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "components/messages/ChatView.tsx",
+            "lineStart": 67,
+            "lineEnd": 85,
+            "quote": "                    conversationId,\n                    content: newMessage.trim(),\n                }),\n            })\n\n            const data = await response.json()\n\n            if (!response.ok) {\n                throw new Error(data.error || 'Failed to send message')\n            }\n\n            // Add message to list\n            setMessages((prev) => [...prev, data.message])\n            setNewMessage('')\n        } catch (err: any) {\n            setError(err.message)\n        } finally {\n            setSending(false)\n        }",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "components/messages/ChatView.tsx",
+            "lineStart": 95,
+            "lineEnd": 165,
+            "quote": "    return (\n        <div className={styles.container}>\n            <div className={styles.header}>\n                <button\n                    className={styles.backButton}\n                    onClick={() => router.push(backPath)}\n                    aria-label=\"Back\"\n                >\n                    ←\n                </button>\n                <div className={styles.headerInfo}>\n                    <div className={styles.headerName}>{otherPartyName}</div>\n                    {productName && (\n                        <div className={styles.headerProduct}>Re: {productName}</div>\n                    )}\n                </div>\n            </div>\n\n            <div className={styles.messagesContainer}>\n                {messages.length === 0 ? (\n                    <div className={styles.emptyChat}>\n                        <p>No messages yet. Start the conversation!</p>\n                    </div>\n                ) : (\n                    messages.map((message) => {\n                        const isOwn =\n                            (currentUserType === 'INVESTOR' && message.senderType === 'INVESTOR') ||\n                            (currentUserType === 'FOUNDER' && message.senderType === 'FOUNDER')\n\n                        return (\n                            <div\n                                key={message.id}\n                                className={`${styles.messageBubble} ${isOwn ? styles.messageOwn : styles.messageOther\n                                    }`}\n                            >\n                                <div className={styles.messageContent}>{message.content}</div>\n                                <div className={styles.messageTime}>\n                                    {formatTime(message.createdAt)}\n                                </div>\n                            </div>\n                        )\n                    })\n                )}\n                <div ref={messagesEndRef} />\n            </div>\n\n            {error && <div className={styles",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3t8gv007021untyezjptg",
+        "kind": "fact",
+        "text": "The investor edit route checks for an authenticated investor, redirects unauthenticated or non-investor users, and redirects users without an investor profile to onboarding before rendering the edit form with their record.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "app/investor/edit/page.tsx",
+            "lineStart": 9,
+            "lineEnd": 13,
+            "quote": "export default async function InvestorEditPage() {\n    const session = await getServerSession(authOptions)\n    if (!session?.user?.id) {\n        redirect(\"/login\")\n    }",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "app/investor/edit/page.tsx",
+            "lineStart": 14,
+            "lineEnd": 16,
+            "quote": "    if (session.user.userType !== \"INVESTOR\") {\n        redirect(\"/\")\n    }",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "app/investor/edit/page.tsx",
+            "lineStart": 18,
+            "lineEnd": 25,
+            "quote": "    const investor = await getInvestorByUserId(session.user.id)\n    if (!investor) {\n        redirect(\"/investor/onboarding\")\n    }\n\n    return (\n        <main style={{ minHeight: \"100vh\", background: \"var(--color-bg)\", paddingBottom: \"24px\" }}>\n            <InvestorEditForm investor={investor} />",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3tc0w007521un7l2vw6g6",
+        "kind": "fact",
+        "text": "The documented product loop supports founder and investor registration/login, investor onboarding, a reels-style investor feed, product interest or commitment, and messaging.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 14,
+            "lineEnd": 21,
+            "quote": "## Core Product Flows\n\n- Founder and investor registration/login\n- Founder onboarding/profile + startup/company creation\n- Investor onboarding/profile + reels-style feed (`/investor/feed`)\n- Product like/interest and commitment flow\n- Founder/investor messaging\n- Co-founder invite flow",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3tfr4007821undyvrczkz",
+        "kind": "fact",
+        "text": "The feed records investor interactions—including impressions, watch milestones, product opens, likes, unlikes, message clicks, and commits—through an API into DynamoDB.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 145,
+            "lineEnd": 148,
+            "quote": "### Event Logging for Online Signals\n\nThe feed now records investor interaction events (impressions, watch milestones, product opens, like/unlike, message click, commit) via `POST /api/feed/events` into DynamoDB table `DYNAMODB_TABLE_FEED_EVENTS`.\n",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3tjgx007b21unswy6yf4v",
+        "kind": "fact",
+        "text": "Feed ranking is described as loading persisted model weights at runtime and using heuristic scoring when the artifact is absent.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 121,
+            "lineEnd": 143,
+            "quote": "## ML Feed Ranking\n\nThe investor reels feed uses a trainable logistic ranking model. At request time, each candidate startup is featurized and scored, then sorted by predicted relevance.\n\n### Feature Signals\n\n- Stage match between investor preference and startup stage\n- Investor stage affinity learned from prior investor actions\n- Text affinity between investor history/tags and startup content\n- Interest tag overlap\n- Global product popularity from likes/commitments\n- Freshness decay\n\n### Training Pipeline\n\n- Training script: `scripts/train-feed-model.ts`\n- Model artifact output: `lib/feed/model/feed-model.json` (or `FEED_MODEL_PATH`)\n- Data sources:\n  - `investorInterests` (`LIKED`/`COMMITTED`) for supervised positives\n  - sampled negatives from unseen products per investor\n  - optional behavioral signal enrichment from `feedEvents`\n\nThe runtime ranker in `lib/feed/ranking.ts` loads model weights via `lib/feed/model.ts`. If no model artifact is found, it falls back to deterministic heuristic scoring.",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3tn18007e21uno0i0ilf0",
+        "kind": "fact",
+        "text": "The schema models authenticated users with a typed UserType enum and optional one-to-one founder and investor profile relations.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 17,
+            "lineEnd": 33,
+            "quote": "model User {\n  id            String    @id @default(uuid())\n  email         String    @unique\n  passwordHash  String\n  userType      UserType\n  createdAt     DateTime  @default(now())\n  updatedAt     DateTime  @updatedAt\n  \n  // Relations\n  founder       Founder?\n  investor      Investor?\n}\n\nenum UserType {\n  FOUNDER\n  INVESTOR\n}",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3tqoe007h21unwx1uyi5e",
+        "kind": "fact",
+        "text": "Founder data is represented through foreign-key-linked profile, experience, tag, and join-table models, with cascade deletion and indexes on the related structures.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 39,
+            "lineEnd": 118,
+            "quote": "model Founder {\n  id                String    @id @default(uuid())\n  userId            String    @unique\n  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)\n  \n  // Basic Info\n  name              String    @db.VarChar(100)\n  headline          String    @db.VarChar(80)\n  location          String    @db.VarChar(50)\n  bio               String    @db.VarChar(500)\n  \n  // Video & Media\n  videoUrl          String?\n  \n  // Profile Details\n  founderType       FounderType\n  yearsExperience   Int?\n  \n  // Social Links\n  linkedinUrl       String?\n  twitterUrl        String?\n  websiteUrl        String?\n  \n  createdAt         DateTime  @default(now())\n  updatedAt         DateTime  @updatedAt\n  \n  // Relations\n  products          FounderProduct[]\n  workExperience    WorkExperience[]\n  skills            Skill[]\n  investorInterests InvestorInterest[]\n  photos            FounderPhoto[]\n  prompts           FounderPrompt[]\n}\n\nenum FounderType {\n  FIRST_TIME\n  SERIAL\n  EXITED\n}\n\n// ============================================\n// Product\n// ============================================\n\nmodel Product {\n  id            String          @id @default(uuid())\n  name          String          @db.VarChar(100)\n  tagline       String          @db.VarChar(200)\n  description   String?         @db.VarChar(1000) // Full pitch description\n  problem       String?         @db.VarChar(500)  // Problem statement\n  solution      String?         @db.VarChar(500)  // Solution overview\n  videoUrl      String?\n  logoUrl       String?                            // Company logo\n  websiteUrl    String?                            // Company website\n  status        ProductStatus   @default(IDEA)\n  stage         String?         @db.VarChar(50)   // \"Pre-seed\", \"Seed\", etc.\n  askAmount     Int?                               // Funding ask in USD\n  amountRaised  Int             @default(0)        // in USD\n  \n  createdAt     DateTime        @default(now())\n  updatedAt     Dat",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3tu8a007k21un3cvy2nuy",
+        "kind": "fact",
+        "text": "Investor profiles are stored as typed entities with unique links to user records rather than as unstructured profile data.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 178,
+            "lineEnd": 187,
+            "quote": "model Investor {\n  id                        String                  @id @default(uuid())\n  userId                    String                  @unique\n  user                      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)\n  \n  // Basic Info\n  name                      String                  @db.VarChar(100)\n  firmName                  String?                 @db.VarChar(100)\n  title                     String?                 @db.VarChar(80)\n  bio                       String?                 @db.VarChar(500)",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3u40u007t21un7fiuiza4",
+        "kind": "fact",
+        "text": "The module provides founder lookup helpers that read founder records by id and by userId, normalizing results before returning them.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "project_domain:db",
+        "evidence": [
+          {
+            "path": "lib/db/repository.ts",
+            "lineStart": 225,
+            "lineEnd": 260,
+            "quote": "export async function getFounderById(id: string): Promise<FounderRecord | null> {\n    const founder = await getSingleById<FounderRecord>(DYNAMO_TABLES.founders, id)\n    return founder ? normalizeFounder(founder) : null\n}\n\nexport async function getFoundersByIds(ids: string[]): Promise<FounderRecord[]> {\n    const founders = await batchGetByIds<FounderRecord>(DYNAMO_TABLES.founders, ids)\n    return founders.map(normalizeFounder)\n}\n\nexport async function listFounders(): Promise<FounderRecord[]> {\n    const response = await dynamo.send(new ScanCommand({\n        TableName: DYNAMO_TABLES.founders,\n    }))\n\n    const items = (response.Items || []) as FounderRecord[]\n    return sortByCreatedAtDesc(items.map(normalizeFounder))\n}\n\nexport async function getFounderByUserId(userId: string): Promise<FounderRecord | null> {\n    const response = await dynamo.send(new QueryCommand({\n        TableName: DYNAMO_TABLES.founders,\n        IndexName: DYNAMO_INDEXES.founders.byUserId,\n        KeyConditionExpression: \"#userId = :userId\",\n        ExpressionAttributeNames: {\n            \"#userId\": \"userId\",\n        },\n        ExpressionAttributeValues: {\n            \":userId\": userId,\n        },\n        Limit: 1,\n    }))\n\n    const founder = (response.Items?.[0] as FounderRecord | undefined) || null\n    return founder ? normalizeFounder(founder) : null\n}",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3u7p1007w21uno4pmbfdt",
+        "kind": "fact",
+        "text": "The page requires an authenticated session and immediately redirects unauthenticated visitors to the login route.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "project_domain:founder",
+        "evidence": [
+          {
+            "path": "app/founder/edit/page.tsx",
+            "lineStart": 10,
+            "lineEnd": 13,
+            "quote": "    const session = await getServerSession(authOptions)\n    if (!session?.user?.id) {\n        redirect(\"/login\")\n    }",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3ub80007z21unfxaw3jya",
+        "kind": "fact",
+        "text": "The page requires an authenticated session and redirects unauthenticated users to the login route before any investor data is loaded.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "project_domain:investor",
+        "evidence": [
+          {
+            "path": "app/investor/edit/page.tsx",
+            "lineStart": 9,
+            "lineEnd": 13,
+            "quote": "export default async function InvestorEditPage() {\n    const session = await getServerSession(authOptions)\n    if (!session?.user?.id) {\n        redirect(\"/login\")\n    }",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3ueyr008221un49gwyi71",
+        "kind": "highlight",
+        "text": "Sending a message posts the conversation ID and trimmed content to an API, appends the returned message locally, and surfaces request failures; sending is disabled when unavailable or in progress.",
+        "summary": "Sending a message posts the conversation ID and trimmed content to an API, appends the returned message locally, and surfaces request failures; sending is disabled when unavailable or in progress.",
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "components/messages/ChatView.tsx",
+            "lineStart": 67,
+            "lineEnd": 85,
+            "quote": "                    conversationId,\n                    content: newMessage.trim(),\n                }),\n            })\n\n            const data = await response.json()\n\n            if (!response.ok) {\n                throw new Error(data.error || 'Failed to send message')\n            }\n\n            // Add message to list\n            setMessages((prev) => [...prev, data.message])\n            setNewMessage('')\n        } catch (err: any) {\n            setError(err.message)\n        } finally {\n            setSending(false)\n        }",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "components/messages/ChatView.tsx",
+            "lineStart": 95,
+            "lineEnd": 165,
+            "quote": "    return (\n        <div className={styles.container}>\n            <div className={styles.header}>\n                <button\n                    className={styles.backButton}\n                    onClick={() => router.push(backPath)}\n                    aria-label=\"Back\"\n                >\n                    ←\n                </button>\n                <div className={styles.headerInfo}>\n                    <div className={styles.headerName}>{otherPartyName}</div>\n                    {productName && (\n                        <div className={styles.headerProduct}>Re: {productName}</div>\n                    )}\n                </div>\n            </div>\n\n            <div className={styles.messagesContainer}>\n                {messages.length === 0 ? (\n                    <div className={styles.emptyChat}>\n                        <p>No messages yet. Start the conversation!</p>\n                    </div>\n                ) : (\n                    messages.map((message) => {\n                        const isOwn =\n                            (currentUserType === 'INVESTOR' && message.senderType === 'INVESTOR') ||\n                            (currentUserType === 'FOUNDER' && message.senderType === 'FOUNDER')\n\n                        return (\n                            <div\n                                key={message.id}\n                                className={`${styles.messageBubble} ${isOwn ? styles.messageOwn : styles.messageOther\n                                    }`}\n                            >\n                                <div className={styles.messageContent}>{message.content}</div>\n                                <div className={styles.messageTime}>\n                                    {formatTime(message.createdAt)}\n                                </div>\n                            </div>\n                        )\n                    })\n                )}\n                <div ref={messagesEndRef} />\n            </div>\n\n            {error && <div className={styles",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3uizr008d21unycsd7tmo",
+        "kind": "highlight",
+        "text": "Built a founder–investor product loop spanning onboarding, a reels-style discovery feed, product interest or commitments, and messaging.",
+        "summary": "The documented product surface connects account flows, investor discovery, engagement, and communication into an investment discovery workflow.",
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 14,
+            "lineEnd": 21,
+            "quote": "## Core Product Flows\n\n- Founder and investor registration/login\n- Founder onboarding/profile + startup/company creation\n- Investor onboarding/profile + reels-style feed (`/investor/feed`)\n- Product like/interest and commitment flow\n- Founder/investor messaging\n- Co-founder invite flow",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth3umsu008q21unugvph5d2",
+        "kind": "highlight",
+        "text": "Instrumented investor-feed interactions for DynamoDB capture and paired ranking with persisted model weights plus heuristic fallback scoring.",
+        "summary": "The feed design combines behavioral signal collection with model-backed ranking that can fall back when trained weights are unavailable.",
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 121,
+            "lineEnd": 143,
+            "quote": "## ML Feed Ranking\n\nThe investor reels feed uses a trainable logistic ranking model. At request time, each candidate startup is featurized and scored, then sorted by predicted relevance.\n\n### Feature Signals\n\n- Stage match between investor preference and startup stage\n- Investor stage affinity learned from prior investor actions\n- Text affinity between investor history/tags and startup content\n- Interest tag overlap\n- Global product popularity from likes/commitments\n- Freshness decay\n\n### Training Pipeline\n\n- Training script: `scripts/train-feed-model.ts`\n- Model artifact output: `lib/feed/model/feed-model.json` (or `FEED_MODEL_PATH`)\n- Data sources:\n  - `investorInterests` (`LIKED`/`COMMITTED`) for supervised positives\n  - sampled negatives from unseen products per investor\n  - optional behavioral signal enrichment from `feedEvents`\n\nThe runtime ranker in `lib/feed/ranking.ts` loads model weights via `lib/feed/model.ts`. If no model artifact is found, it falls back to deterministic heuristic scoring.",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "README.md",
+            "lineStart": 145,
+            "lineEnd": 148,
+            "quote": "### Event Logging for Online Signals\n\nThe feed now records investor interaction events (impressions, watch milestones, product opens, like/unlike, message click, commit) via `POST /api/feed/events` into DynamoDB table `DYNAMODB_TABLE_FEED_EVENTS`.\n",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      }
+    ]
+  },
+  "adjudicationTemplate": {
+    "unitAdjudications": [
+      {
+        "unitId": "backer.role-auth",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.founder-profile",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.investor-profile",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.company-lifecycle",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.personalized-reels-feed",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.interest-lifecycle",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.investment-commitment-ledger",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.role-aware-messaging",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.cofounder-invitations",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.media-upload",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.feed-event-ml-pipeline",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.dynamodb-runtime",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.payment-processing",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.online-model-training",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.consistent-role-ownership-authorization",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.atomic-idempotent-domain-workflows",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "backer.account-verification-recovery",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      }
+    ],
+    "highlightAdjudications": [
+      {
+        "highlightId": "cmth3ueyr008221un49gwyi71",
+        "matchedUnitIds": [],
+        "salience": null,
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth3uizr008d21unycsd7tmo",
+        "matchedUnitIds": [],
+        "salience": null,
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth3umsu008q21unugvph5d2",
+        "matchedUnitIds": [],
+        "salience": null,
+        "semanticDuplicateOf": null
+      }
+    ],
+    "questionAdjudications": [
+      {
+        "question": "How do founder and investor registration and sessions work, and is the selected role actually enforced during onboarding?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "What profile data exists for founders and investors, and which fields drive feed matching?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "How are startup pitches created, and who is authorized to edit, delete, or invite collaborators to them?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "How is the reels candidate set built: can every product appear, does it require video, and which signals determine rank?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Do impression and watch events affect the next request or only a later operator-run model retrain?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "What differs among a heart like, a COMMITTED interest, and the investment commit route?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Does committing move money, and are its ledger, amount, interest, and message writes atomic and idempotent?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Can a conversation associate an unrelated founder and product, and what enables a founder to contact an investor?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "How do co-founder invitations expire, revoke, accept, and link membership, and can acceptance leave partial state?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "What records and uploaded assets remain after a product is deleted?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Are media uploads authenticated and tied to an owner?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Does account identity support email verification, password recovery, and race-safe email uniqueness?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Which runtime store is authoritative, DynamoDB or Prisma?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      }
+    ]
+  }
+}

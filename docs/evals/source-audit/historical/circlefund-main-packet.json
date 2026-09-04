@@ -1,0 +1,1130 @@
+{
+  "schemaVersion": "repository-source-audit-adjudication-packet-v1",
+  "manifestDigest": "9c860d9c174729928698e03a6ce6b6a87f045bfb71ca127f42ef6bab1954d186",
+  "auditDate": "2026-09-04",
+  "method": "README text and filenames were search hypotheses only. Each implemented unit is backed by a reachable handler, route, UI flow, executable entry point, or durable service seam in the clean pinned checkout. Relative anchors resolve against the repository source_root below.",
+  "workItemId": "cmth435y900oo21unrzvzptg9",
+  "sourceAudit": {
+    "fixtureId": "circlefund-fintech",
+    "repository": "arkb75/CircleFund",
+    "commitSha": "22d1968ff13f649ad6ce06a07714b3ecc279121f",
+    "sourceScope": "tracked_git_tree",
+    "sourceDigest": "520cbd4c269a0b05a4d85771db64536b2632506a8fef3bd4c30228906f7192b6",
+    "knowledgeUnits": [
+      {
+        "id": "circle.email-only-account-session",
+        "claim": "Normalizes email, upserts or finds a user, and issues an HMAC-SHA256-signed HTTP-only, SameSite=Lax, 30-day cookie containing the user id.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "identity",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/server/services/auth-service.ts",
+            "lineStart": 13,
+            "lineEnd": 79
+          },
+          {
+            "path": "src/server/data/circle-repository.ts",
+            "lineStart": 11,
+            "lineEnd": 39
+          },
+          {
+            "path": "src/lib/session.ts",
+            "lineStart": 10,
+            "lineEnd": 74
+          }
+        ],
+        "uncertainty": "Neither signup nor login verifies a password, OTP, or email ownership. Signup for an existing unique email updates that user's name, and the signed token has no server-checked expiry or revocation state beyond the browser cookie lifetime."
+      },
+      {
+        "id": "circle.transactional-circle-setup",
+        "claim": "Creates a private circle, its borrowing-policy record, and an active administrator membership atomically, retrying random eight-character invite-code collisions up to six times.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "circle-governance",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/lib/validations/circles.ts",
+            "lineStart": 11,
+            "lineEnd": 19
+          },
+          {
+            "path": "src/server/services/circle-onboarding-service.ts",
+            "lineStart": 18,
+            "lineEnd": 48
+          },
+          {
+            "path": "src/server/services/circle-onboarding-service.ts",
+            "lineStart": 90,
+            "lineEnd": 140
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 44,
+            "lineEnd": 88
+          }
+        ]
+      },
+      {
+        "id": "circle.invite-code-membership",
+        "claim": "Lets an authenticated account join transactionally by normalized invite code, creates a new active member without duplicating an existing membership, and rejects suspended memberships.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "membership",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/server/services/circle-onboarding-service.ts",
+            "lineStart": 21,
+            "lineEnd": 29
+          },
+          {
+            "path": "src/server/services/circle-onboarding-service.ts",
+            "lineStart": 56,
+            "lineEnd": 88
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 44,
+            "lineEnd": 48
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 73,
+            "lineEnd": 88
+          },
+          {
+            "path": "README.md",
+            "lineStart": 105,
+            "lineEnd": 109
+          }
+        ],
+        "uncertainty": "The code is a reusable circle-wide bearer credential shown to members, with no invite record, recipient binding, expiry, use limit, delivery event, or rotation. Existing pending membership returns success without becoming active; immediate activation for a new join is explicitly documented MVP behavior, not evidence that borrowing approvalMode governs admission."
+      },
+      {
+        "id": "circle.policy-roster-dashboard",
+        "claim": "Shows a non-suspended member the shared invite code, configured policies, role-aware roster, and current calendar-month contribution totals and remaining target amounts.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "circle-operations",
+        "kind": "capability",
+        "anchors": [
+          {
+            "path": "src/server/services/circle-dashboard-service.ts",
+            "lineStart": 35,
+            "lineEnd": 126
+          },
+          {
+            "path": "src/server/data/circle-repository.ts",
+            "lineStart": 231,
+            "lineEnd": 278
+          },
+          {
+            "path": "src/components/circle/circle-dashboard.tsx",
+            "lineStart": 82,
+            "lineEnd": 190
+          },
+          {
+            "path": "src/components/circle/circle-dashboard.tsx",
+            "lineStart": 192,
+            "lineEnd": 252
+          }
+        ],
+        "uncertainty": "Pending members can enter the dashboard because only suspended membership is denied, while contribution reads and writes require active status. Dashboard viewers receive every member's name, email, role, status, and contribution summary."
+      },
+      {
+        "id": "circle.manual-contribution-ledger",
+        "claim": "Transactionally records manually declared, dated contribution entries with exact-cent amounts, calendar-month buckets, and recorder provenance; active administrators may record for any active member, ordinary active members only for themselves, and active members may inspect per-member histories.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "contributions",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/lib/validations/contributions.ts",
+            "lineStart": 5,
+            "lineEnd": 16
+          },
+          {
+            "path": "src/server/services/contribution-service.ts",
+            "lineStart": 29,
+            "lineEnd": 160
+          },
+          {
+            "path": "src/server/services/contribution-analytics.ts",
+            "lineStart": 17,
+            "lineEnd": 92
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 90,
+            "lineEnd": 107
+          }
+        ],
+        "uncertainty": "Entries are user assertions rather than verified movement of funds. The read path does not require the target member to be active or restrict access to self/admin, any valid date including a future date is accepted, and no idempotency, update, deletion, correction, or reversal operation exists."
+      },
+      {
+        "id": "circle.transactional-postgres-domain",
+        "claim": "Persists circles, rules, memberships, and contribution provenance in a relational Postgres model with transactional creation and ledger writes.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "persistence",
+        "kind": "architecture",
+        "anchors": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 6,
+            "lineEnd": 107
+          },
+          {
+            "path": "src/server/services/circle-onboarding-service.ts",
+            "lineStart": 56,
+            "lineEnd": 126
+          },
+          {
+            "path": "src/server/services/contribution-service.ts",
+            "lineStart": 44,
+            "lineEnd": 108
+          }
+        ]
+      },
+      {
+        "id": "circle.loan-review-repayment-lifecycle",
+        "claim": "Provides loan requests, eligibility or standing checks, reviewer or administrator decisions, disbursement, repayment, and default handling.",
+        "state": "planned",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "lending",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "README.md",
+            "lineStart": 14,
+            "lineEnd": 24
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 10,
+            "lineEnd": 31
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 59,
+            "lineEnd": 71
+          },
+          {
+            "path": "src/server/services/circle-dashboard-service.ts",
+            "lineStart": 101,
+            "lineEnd": 117
+          },
+          {
+            "path": "src/app/page.tsx",
+            "lineStart": 90,
+            "lineEnd": 94
+          }
+        ],
+        "uncertainty": "The README explicitly describes loan, review, and repayment models as future work. Approval mode, membership duration, active-loan limit, and repayment-term fields are stored and displayed but no Loan, Review, Repayment, or reviewer-role model, service, route, or UI applies them."
+      },
+      {
+        "id": "circle.payment-settlement",
+        "claim": "Transfers, verifies, or settles member contribution money or reserve funds through a payment provider, bank account, wallet, or balance ledger.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "payments",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "src/server/services/contribution-service.ts",
+            "lineStart": 88,
+            "lineEnd": 95
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 59,
+            "lineEnd": 71
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 90,
+            "lineEnd": 107
+          },
+          {
+            "path": "package.json",
+            "lineStart": 18,
+            "lineEnd": 37
+          }
+        ],
+        "uncertainty": "The active path only creates a manual Contribution database row. Minimum reserve balance is a stored policy number, not a measured account balance, and no payment-provider dependency exists."
+      },
+      {
+        "id": "circle.membership-administration",
+        "claim": "Lets administrators promote, suspend, reactivate, or remove members after they join.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "membership",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 10,
+            "lineEnd": 19
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 73,
+            "lineEnd": 88
+          },
+          {
+            "path": "src/server/services/circle-onboarding-service.ts",
+            "lineStart": 64,
+            "lineEnd": 80
+          },
+          {
+            "path": "src/server/services/circle-onboarding-service.ts",
+            "lineStart": 115,
+            "lineEnd": 120
+          },
+          {
+            "path": "src/server/data/circle-repository.ts",
+            "lineStart": 76,
+            "lineEnd": 93
+          }
+        ],
+        "uncertainty": "Role and status fields are modeled, but normal creator and join paths explicitly create active memberships and the repository exposes membership creation only. Pending and suspended states therefore require an out-of-band database write in the current application."
+      },
+      {
+        "id": "circle.circle-policy-invite-lifecycle",
+        "claim": "Lets authorized administrators edit circle or rule values and rotate or revoke the shared invite code after creation.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "circle-governance",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "src/server/data/circle-repository.ts",
+            "lineStart": 41,
+            "lineEnd": 94
+          },
+          {
+            "path": "src/server/services/circle-onboarding-service.ts",
+            "lineStart": 90,
+            "lineEnd": 126
+          },
+          {
+            "path": "src/app/api/v1/circles/route.ts",
+            "lineStart": 13,
+            "lineEnd": 40
+          },
+          {
+            "path": "README.md",
+            "lineStart": 94,
+            "lineEnd": 103
+          }
+        ],
+        "uncertainty": "The repository and public API expose create, join, and read operations for circle policy; no update, delete, invite rotation, or invite revocation operation exists."
+      },
+      {
+        "id": "circle.configurable-contribution-cadence",
+        "claim": "Applies selectable weekly, biweekly, or monthly contribution periods.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "contributions",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 21,
+            "lineEnd": 25
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 59,
+            "lineEnd": 71
+          },
+          {
+            "path": "prisma/migrations/0002_circle_rule_policy_fields/migration.sql",
+            "lineStart": 9,
+            "lineEnd": 12
+          },
+          {
+            "path": "src/lib/contribution-periods.ts",
+            "lineStart": 39,
+            "lineEnd": 48
+          },
+          {
+            "path": "src/app/page.tsx",
+            "lineStart": 8,
+            "lineEnd": 12
+          }
+        ],
+        "uncertainty": "ContributionFrequency remains an unused enum and the landing page still says weekly to monthly, but the migration removed the rule field and the active policy and period calculation are hard-coded to the first day of each calendar month."
+      },
+      {
+        "id": "circle.contribution-governance-reconciliation",
+        "claim": "Operationally enforces contribution and reserve policy through standing or eligibility effects and supports idempotent ingestion, duplicate prevention, correction, or reversal of ledger entries.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "contributions",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "src/lib/validations/contributions.ts",
+            "lineStart": 5,
+            "lineEnd": 12
+          },
+          {
+            "path": "src/server/services/contribution-service.ts",
+            "lineStart": 44,
+            "lineEnd": 95
+          },
+          {
+            "path": "src/server/services/contribution-analytics.ts",
+            "lineStart": 17,
+            "lineEnd": 32
+          },
+          {
+            "path": "src/server/data/circle-repository.ts",
+            "lineStart": 167,
+            "lineEnd": 215
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 90,
+            "lineEnd": 107
+          }
+        ],
+        "uncertainty": "The write path checks positive amount, valid date, active memberships, and recorder role, while the monthly minimum only computes a non-negative reporting gap. Reserve and borrowing settings never affect contributions, and the append-only schema has no uniqueness or reconciliation mechanism."
+      }
+    ],
+    "userQuestions": [
+      "What proves that a user owns an email, and can someone who knows an existing email sign in or overwrite that account's profile name?",
+      "Which records are created atomically when a circle is created, and which borrowing-policy values are persisted?",
+      "How do invite codes behave for new, active, pending, and suspended memberships, and can a code expire, be recipient-bound, rotated, or revoked?",
+      "What does approvalMode actually govern today, and is it a membership-admission control or configuration for a future borrowing workflow?",
+      "Who can access the circle dashboard, and which invite, policy, roster, identity, and contribution details can pending and active members see?",
+      "Who may record a contribution for whom, which target states are accepted, and what amount, date, transaction, and recorder-provenance checks apply?",
+      "Who may inspect another member's contribution history, including the history of pending or suspended members?",
+      "Does the monthly minimum enforce member behavior or only calculate a reporting target, and are reserve or borrowing policies applied to contributions?",
+      "Can contribution records be duplicated, future-dated, corrected, deleted, or reversed?",
+      "Is contribution cadence actually configurable despite the frequency enum and weekly-to-monthly product copy?",
+      "Does CircleFund transfer, verify, or settle money, or does it only persist manually declared contribution entries?",
+      "Which loan approval, disbursement, repayment, default, membership-administration, and policy-edit operations exist today versus being planned or absent?"
+    ]
+  },
+  "observation": {
+    "fixtureId": "circlefund-fintech",
+    "repository": "arkb75/CircleFund",
+    "commitSha": "22d1968ff13f649ad6ce06a07714b3ecc279121f",
+    "executionIntegrity": {
+      "passed": false,
+      "issues": [
+        "No audited semantic planning generation ran.",
+        "No audited semantic extraction generation ran.",
+        "No audited capability synthesis generation ran.",
+        "3 capability synthesis generation(s) have no valid synthesis-phase attestation.",
+        "capability_synthesis generation 1 ended with status provider_error.",
+        "capability_synthesis generation 1 used model openai/gpt-5.6-luna; expected openai/gpt-5.6-terra.",
+        "capability_synthesis generation 1 has no provider request ID.",
+        "capability_synthesis generation 1 has incomplete model-usage evidence.",
+        "Repository semantic planning used its deterministic fallback.",
+        "Repository semantic planning has no audited generation reference.",
+        "Repository refresh is missing its persisted semantic evidence universe; rerun the repository refresh before evaluation."
+      ],
+      "modelIdentities": [
+        "capability_synthesis:openrouter:openai/gpt-5.6-luna",
+        "capability_synthesis:openrouter:openai/gpt-5.6-terra"
+      ],
+      "policyVersions": [
+        "analyzerVersion=repository-coverage-v16",
+        "coveragePolicyVersion=repository-coverage-v8",
+        "lifecyclePolicyVersion=knowledge-lifecycle-v3",
+        "orchestration.policyVersion=repository-orchestration-v12",
+        "orchestrationPolicyVersion=repository-orchestration-v12",
+        "semanticAnalyzerVersion=repository-coverage-v18",
+        "synthesisPolicyVersion=repository-synthesis-v32"
+      ]
+    },
+    "adjudicationEligible": false,
+    "inventory": {
+      "scannableFiles": 75,
+      "analyzedFiles": 75,
+      "semanticEligibleFiles": null,
+      "semanticAnalyzedFiles": 7,
+      "analyzedPaths": [
+        ".agents/skills/neon-postgres/SKILL.md",
+        ".gitignore",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "components.json",
+        "eslint.config.mjs",
+        "next.config.ts",
+        "package.json",
+        "postcss.config.mjs",
+        "prisma.config.ts",
+        "prisma/migrations/0001_init/migration.sql",
+        "prisma/migrations/0002_circle_rule_policy_fields/migration.sql",
+        "prisma/migrations/0003_remove_good_standing_rule/migration.sql",
+        "prisma/migrations/0004_contributions/migration.sql",
+        "prisma/migrations/migration_lock.toml",
+        "public/file.svg",
+        "public/globe.svg",
+        "public/next.svg",
+        "public/vercel.svg",
+        "public/window.svg",
+        "skills-lock.json",
+        "src/app/api/v1/auth/login/route.ts",
+        "src/app/api/v1/auth/signup/route.test.ts",
+        "src/app/api/v1/auth/signup/route.ts",
+        "src/app/api/v1/circles/[circleId]/contributions/route.test.ts",
+        "src/app/api/v1/circles/[circleId]/contributions/route.ts",
+        "src/app/api/v1/circles/[circleId]/route.ts",
+        "src/app/api/v1/circles/join/route.test.ts",
+        "src/app/api/v1/circles/join/route.ts",
+        "src/app/api/v1/circles/route.test.ts",
+        "src/app/api/v1/circles/route.ts",
+        "src/app/api/v1/session/logout/route.test.ts",
+        "src/app/api/v1/session/logout/route.ts",
+        "src/app/circles/[circleId]/page.tsx",
+        "src/app/globals.css",
+        "src/app/onboarding/page.tsx",
+        "src/app/page.tsx",
+        "src/components/circle/circle-dashboard.tsx",
+        "src/components/circle/contribution-workspace.tsx",
+        "src/components/onboarding/auth-shell.tsx",
+        "src/components/onboarding/circle-setup-shell.tsx",
+        "src/components/ui/badge.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/table.tsx",
+        "src/components/ui/tabs.tsx",
+        "src/lib/api-types.ts",
+        "src/lib/api.ts",
+        "src/lib/contribution-periods.test.ts",
+        "src/lib/contribution-periods.ts",
+        "src/lib/env.ts",
+        "src/lib/internal-api.ts",
+        "src/lib/money.ts",
+        "src/lib/prisma.ts",
+        "src/lib/session.ts",
+        "src/lib/strings.ts",
+        "src/lib/utils.ts",
+        "src/lib/validations/auth.ts",
+        "src/lib/validations/contributions.ts",
+        "src/server/services/auth-service.ts",
+        "src/server/services/circle-dashboard-service.ts",
+        "src/server/services/circle-onboarding-service.ts",
+        "src/server/services/contribution-analytics.test.ts",
+        "src/server/services/contribution-analytics.ts",
+        "src/server/services/contribution-service.ts",
+        "src/server/services/service-error.ts",
+        "tsconfig.json",
+        "vitest.config.ts",
+        "README.md",
+        "prisma/schema.prisma",
+        "src/app/api/v1/auth/login/route.test.ts",
+        "src/app/api/v1/circles/[circleId]/route.test.ts",
+        "src/app/layout.tsx",
+        "src/lib/validations/circles.ts",
+        "src/server/data/circle-repository.ts"
+      ],
+      "semanticAnalyzedPaths": [
+        "README.md",
+        "prisma/schema.prisma",
+        "src/app/api/v1/auth/login/route.test.ts",
+        "src/app/api/v1/circles/[circleId]/route.test.ts",
+        "src/app/layout.tsx",
+        "src/lib/validations/circles.ts",
+        "src/server/data/circle-repository.ts"
+      ]
+    },
+    "coverage": {
+      "static": 1,
+      "semantic": null,
+      "knowledge": 0.3333333333333333
+    },
+    "performance": {
+      "durationMs": 196418,
+      "modelCalls": 3,
+      "totalTokens": 5430,
+      "estimatedCostUsd": 0.0276035
+    },
+    "savedOutputCounts": {
+      "highlights": 2,
+      "facts": 15,
+      "total": 17,
+      "evidenceReferences": 23,
+      "exactRangeAndQuoteReferences": 23,
+      "outputsWithoutEvidence": 0
+    },
+    "savedOutputs": [
+      {
+        "id": "cmth45cuh00s421unwuo6p0rd",
+        "kind": "fact",
+        "text": "Route-level tests isolate login behavior by mocking the authentication service and session writer, then verify successful sign-in returns HTTP 200, a redirect target, and a session cookie associated with the resolved user.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "tests_operations",
+        "evidence": [
+          {
+            "path": "src/app/api/v1/auth/login/route.test.ts",
+            "lineStart": 6,
+            "lineEnd": 23,
+            "quote": "const { signInAccount, setSessionCookie } = vi.hoisted(() => ({\n  signInAccount: vi.fn(),\n  setSessionCookie: vi.fn(),\n}));\n\nvi.mock(\"@/server/services/auth-service\", () => ({\n  signInAccount,\n}));\n\nvi.mock(\"@/lib/session\", () => ({\n  setSessionCookie,\n}));\n\ndescribe(\"POST /api/v1/auth/login\", () => {\n  beforeEach(() => {\n    signInAccount.mockReset();\n    setSessionCookie.mockReset();\n  });",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/app/api/v1/auth/login/route.test.ts",
+            "lineStart": 19,
+            "lineEnd": 48,
+            "quote": "describe(\"POST /api/v1/auth/login\", () => {\n  beforeEach(() => {\n    signInAccount.mockReset();\n    setSessionCookie.mockReset();\n  });\n\n  it(\"signs in an existing user and returns the redirect target\", async () => {\n    signInAccount.mockResolvedValue({\n      userId: \"user_123\",\n      redirectTo: \"/circles/circle_123\",\n    });\n\n    const response = await POST(\n      new Request(\"http://localhost/api/v1/auth/login\", {\n        method: \"POST\",\n        headers: {\n          \"Content-Type\": \"application/json\",\n        },\n        body: JSON.stringify({\n          email: \"amina@example.com\",\n        }),\n      }),\n    );\n\n    expect(response.status).toBe(200);\n    expect(await response.json()).toEqual({\n      redirectTo: \"/circles/circle_123\",\n    });\n    expect(setSessionCookie).toHaveBeenCalledWith(expect.anything(), \"user_123\");\n  });",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth45ghl00s821unjfkaja4p",
+        "kind": "fact",
+        "text": "Route-level tests cover login failures for unknown accounts, expecting HTTP 404 with an ACCOUNT_NOT_FOUND error payload.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "tests_operations",
+        "evidence": [
+          {
+            "path": "src/app/api/v1/auth/login/route.test.ts",
+            "lineStart": 50,
+            "lineEnd": 78,
+            "quote": "  it(\"returns a not found error for unknown accounts\", async () => {\n    signInAccount.mockRejectedValue(\n      new ServiceError(\n        404,\n        \"ACCOUNT_NOT_FOUND\",\n        \"No account exists for that email yet. Create one first.\",\n      ),\n    );\n\n    const response = await POST(\n      new Request(\"http://localhost/api/v1/auth/login\", {\n        method: \"POST\",\n        headers: {\n          \"Content-Type\": \"application/json\",\n        },\n        body: JSON.stringify({\n          email: \"missing@example.com\",\n        }),\n      }),\n    );\n\n    expect(response.status).toBe(404);\n    expect(await response.json()).toEqual({\n      error: {\n        code: \"ACCOUNT_NOT_FOUND\",\n        message: \"No account exists for that email yet. Create one first.\",\n      },\n    });\n  });",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth45ka900sb21un3xb3eb57",
+        "kind": "fact",
+        "text": "Circle-detail route tests mock session lookup and dashboard retrieval, covering unauthenticated rejection with HTTP 403 and authenticated dashboard retrieval using the requested circle ID and session user ID.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "tests_operations",
+        "evidence": [
+          {
+            "path": "src/app/api/v1/circles/[circleId]/route.test.ts",
+            "lineStart": 5,
+            "lineEnd": 22,
+            "quote": "const { getSessionUserId, getCircleDashboardForUser } = vi.hoisted(() => ({\n  getSessionUserId: vi.fn(),\n  getCircleDashboardForUser: vi.fn(),\n}));\n\nvi.mock(\"@/lib/session\", () => ({\n  getSessionUserId,\n}));\n\nvi.mock(\"@/server/services/circle-dashboard-service\", () => ({\n  getCircleDashboardForUser,\n}));\n\ndescribe(\"GET /api/v1/circles/[circleId]\", () => {\n  beforeEach(() => {\n    getSessionUserId.mockReset();\n    getCircleDashboardForUser.mockReset();\n  });",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/app/api/v1/circles/[circleId]/route.test.ts",
+            "lineStart": 18,
+            "lineEnd": 38,
+            "quote": "describe(\"GET /api/v1/circles/[circleId]\", () => {\n  beforeEach(() => {\n    getSessionUserId.mockReset();\n    getCircleDashboardForUser.mockReset();\n  });\n\n  it(\"returns 403 when no session is present\", async () => {\n    getSessionUserId.mockResolvedValue(null);\n\n    const response = await GET(new Request(\"http://localhost\"), {\n      params: Promise.resolve({ circleId: \"circle_123\" }),\n    });\n\n    expect(response.status).toBe(403);\n    expect(await response.json()).toEqual({\n      error: {\n        code: \"AUTH_REQUIRED\",\n        message: \"You need an active session.\",\n      },\n    });\n  });",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/app/api/v1/circles/[circleId]/route.test.ts",
+            "lineStart": 40,
+            "lineEnd": 88,
+            "quote": "  it(\"returns the dashboard payload for an authorized member\", async () => {\n    getSessionUserId.mockResolvedValue(\"user_123\");\n    getCircleDashboardForUser.mockResolvedValue({\n      circle: {\n        id: \"circle_123\",\n        name: \"North Hill Community Circle\",\n        inviteCode: \"AB8K2Q9L\",\n        approvalMode: \"ADMIN_ONLY\",\n        minimumMonthlyContribution: 250,\n        minimumMonthlyContributionFormatted: \"$250.00\",\n        minimumReserveBalance: 1000,\n        minimumReserveBalanceFormatted: \"$1,000.00\",\n        minimumMembershipDurationMonths: 3,\n        maxActiveLoansPerMember: 1,\n        maxRepaymentTermMonths: 6,\n        memberCount: 2,\n      },\n      viewerMembership: {\n        role: \"ADMIN\",\n        status: \"ACTIVE\",\n      },\n      members: [\n        {\n          id: \"user_123\",\n          name: \"Amina Yusuf\",\n          email: \"amina@example.com\",\n          role: \"ADMIN\",\n          status: \"ACTIVE\",\n          joinedAt: \"2026-04-01T00:00:00.000Z\",\n        },\n      ],\n    });\n\n    const response = await GET(new Request(\"http://localhost\"), {\n      params: Promise.resolve({ circleId: \"circle_123\" }),\n    });\n\n    expect(response.status).toBe(200);\n    expect(await response.json()).toMatchObject({\n      circle: {\n        id: \"circle_123\",\n        name: \"North Hill Community Circle\",\n      },\n      viewerMembership: {\n        role: \"ADMIN\",\n      },\n    });\n    expect(getCircleDashboardForUser).toHaveBeenCalledWith(\"circle_123\", \"user_123\");\n  });",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth45no700sg21un78i6ugch",
+        "kind": "fact",
+        "text": "The product flow supports account sign-up or login, routes users without a circle through onboarding, and provides paths to create a circle or join one by invite.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 16,
+            "lineEnd": 24,
+            "quote": "- Create an account with an optional invite code\n- Sign in with an existing email-based MVP account\n- Continue authenticated users into onboarding when they do not belong to a circle yet\n- Create a circle with contribution rules, approval mode, admin membership, and invite code\n- Join a circle by invite code after account creation or during signup\n- Cookie-backed MVP session handling\n- Logout endpoint and signed-in logout actions\n- Protected circle dashboard backed by `/api/v1`\n- Prisma schema designed to extend into future contribution, loan, review, and repayment models",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth45rbe00sj21un4xhmc28v",
+        "kind": "fact",
+        "text": "The MVP documents REST endpoints, cookie-backed sessions, Prisma data models, and database migration commands as part of its application surface and setup workflow.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 94,
+            "lineEnd": 110,
+            "quote": "## API Surface\n\n- `POST /api/v1/auth/signup`\n- `POST /api/v1/auth/login`\n- `POST /api/v1/circles`\n- `POST /api/v1/circles/join`\n- `GET /api/v1/circles/:circleId`\n- `POST /api/v1/session/logout`\n\nAll endpoints return JSON except logout, which redirects after clearing the cookie. The auth endpoints set an httpOnly signed session cookie for the current user.\n\n## Notes\n\n- Money is stored as integer cents in the database and formatted as USD in the UI/API responses.\n- Invite-code joins create `ACTIVE` memberships immediately for this MVP.\n- The landing page is account-first. Circle creation and invite joining now live in the signed-in `/onboarding` flow.\n- Prisma CLI uses `DIRECT_URL` in `prisma.config.ts`, which matches the current Prisma 7 config pattern for Postgres migrations.",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth45uyj00sm21unfdxamm9b",
+        "kind": "fact",
+        "text": "Joining with an invite code creates an ACTIVE membership in the documented MVP flow.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 107,
+            "lineEnd": 109,
+            "quote": "- Money is stored as integer cents in the database and formatted as USD in the UI/API responses.\n- Invite-code joins create `ACTIVE` memberships immediately for this MVP.\n- The landing page is account-first. Circle creation and invite joining now live in the signed-in `/onboarding` flow.",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth45yg200sp21unwgwi6jmu",
+        "kind": "fact",
+        "text": "The Prisma schema defines the lending-circle domain around users, circles, rules, memberships, and contributions, with enums for roles, statuses, contribution frequency, and approvals.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 10,
+            "lineEnd": 89,
+            "quote": "enum MembershipRole {\n  ADMIN\n  MEMBER\n}\n\nenum MembershipStatus {\n  ACTIVE\n  PENDING\n  SUSPENDED\n}\n\nenum ContributionFrequency {\n  WEEKLY\n  BIWEEKLY\n  MONTHLY\n}\n\nenum ApprovalMode {\n  ADMIN_ONLY\n  REVIEWER_VOTE\n  REVIEWER_VOTE_ADMIN_FINALIZE\n}\n\nmodel User {\n  id                    String             @id @default(cuid())\n  email                 String             @unique\n  name                  String\n  createdAt             DateTime           @default(now())\n  updatedAt             DateTime           @updatedAt\n  createdCircles        Circle[]           @relation(\"CircleCreator\")\n  memberships           CircleMembership[]\n  recordedContributions Contribution[]     @relation(\"ContributionRecorder\")\n}\n\nmodel Circle {\n  id            String             @id @default(cuid())\n  name          String\n  inviteCode    String             @unique @db.VarChar(8)\n  createdById   String\n  createdAt     DateTime           @default(now())\n  updatedAt     DateTime           @updatedAt\n  createdBy     User               @relation(\"CircleCreator\", fields: [createdById], references: [id], onDelete: Restrict)\n  memberships   CircleMembership[]\n  rule          CircleRule?\n  contributions Contribution[]\n\n  @@index([createdById])\n}\n\nmodel CircleRule {\n  id                                     String       @id @default(cuid())\n  circleId                               String       @unique\n  approvalMode                           ApprovalMode\n  minimumMonthlyContributionCents        Int\n  minimumReserveBalanceCents             Int\n  minimumMembershipDurationMonths        Int?\n  maxActiveLoansPerMember                Int?\n  maxRepaymentTermMonths                 Int?\n  createdAt                              DateTime     @default(now())\n  updatedAt                              DateTime     @updatedAt\n  circle                                 Circle       @relation(fields: [circleId], references: [id], onDelete: Cascade)\n}\n\nmodel CircleMembership {\n  id            String           @id @default(cuid",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth4623600ss21unc47d8zm0",
+        "kind": "fact",
+        "text": "Circle and contribution records retain provenance links to their creator or recording user, with relation delete behavior defined in the schema.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 33,
+            "lineEnd": 106,
+            "quote": "model User {\n  id                    String             @id @default(cuid())\n  email                 String             @unique\n  name                  String\n  createdAt             DateTime           @default(now())\n  updatedAt             DateTime           @updatedAt\n  createdCircles        Circle[]           @relation(\"CircleCreator\")\n  memberships           CircleMembership[]\n  recordedContributions Contribution[]     @relation(\"ContributionRecorder\")\n}\n\nmodel Circle {\n  id            String             @id @default(cuid())\n  name          String\n  inviteCode    String             @unique @db.VarChar(8)\n  createdById   String\n  createdAt     DateTime           @default(now())\n  updatedAt     DateTime           @updatedAt\n  createdBy     User               @relation(\"CircleCreator\", fields: [createdById], references: [id], onDelete: Restrict)\n  memberships   CircleMembership[]\n  rule          CircleRule?\n  contributions Contribution[]\n\n  @@index([createdById])\n}\n\nmodel CircleRule {\n  id                                     String       @id @default(cuid())\n  circleId                               String       @unique\n  approvalMode                           ApprovalMode\n  minimumMonthlyContributionCents        Int\n  minimumReserveBalanceCents             Int\n  minimumMembershipDurationMonths        Int?\n  maxActiveLoansPerMember                Int?\n  maxRepaymentTermMonths                 Int?\n  createdAt                              DateTime     @default(now())\n  updatedAt                              DateTime     @updatedAt\n  circle                                 Circle       @relation(fields: [circleId], references: [id], onDelete: Cascade)\n}\n\nmodel CircleMembership {\n  id            String           @id @default(cuid())\n  circleId      String\n  userId        String\n  role          MembershipRole   @default(MEMBER)\n  status        MembershipStatus @default(PENDING)\n  createdAt     DateTime         @default(now())\n  updatedAt     DateTime         @updatedAt\n ",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth465q700sv21un0a1r426o",
+        "kind": "fact",
+        "text": "Contributions store date-oriented timing and period fields and are indexed by circle and membership identifiers to support historical record lookups.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 90,
+            "lineEnd": 106,
+            "quote": "model Contribution {\n  id               String           @id @default(cuid())\n  circleId         String\n  membershipId     String\n  recordedByUserId String\n  amountCents      Int\n  contributedOn    DateTime         @db.Date\n  periodStart      DateTime         @db.Date\n  createdAt        DateTime         @default(now())\n  updatedAt        DateTime         @updatedAt\n  circle           Circle           @relation(fields: [circleId], references: [id], onDelete: Cascade)\n  membership       CircleMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)\n  recordedByUser   User             @relation(\"ContributionRecorder\", fields: [recordedByUserId], references: [id], onDelete: Restrict)\n\n  @@index([circleId, periodStart])\n  @@index([membershipId, periodStart])\n  @@index([recordedByUserId])",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth4699u00sy21un99wya0ps",
+        "kind": "fact",
+        "text": "The root layout provides a full-height document shell around rendered page content and applies loaded font variables at the application level.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "src/app/layout.tsx",
+            "lineStart": 23,
+            "lineEnd": 35,
+            "quote": "export default function RootLayout({\n  children,\n}: Readonly<{\n  children: React.ReactNode;\n}>) {\n  return (\n    <html\n      lang=\"en\"\n      className={`${manrope.variable} ${ibmPlexMono.variable} h-full antialiased`}\n    >\n      <body className=\"min-h-full flex flex-col bg-background text-foreground\">\n        {children}\n      </body>",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth46cus00t121unxb8krrjh",
+        "kind": "fact",
+        "text": "Document metadata identifies the product as CircleFund and positions it as a private lending-circle workspace for onboarding, circle creation, and membership intelligence.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "src/app/layout.tsx",
+            "lineStart": 17,
+            "lineEnd": 21,
+            "quote": "export const metadata: Metadata = {\n  title: \"CircleFund\",\n  description:\n    \"Private lending-circle onboarding, circle creation, and membership intelligence workspace.\",\n};",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth46g8t00t421unhztn7ohb",
+        "kind": "fact",
+        "text": "Several helpers persist or retrieve core domain records with narrow projections, including upserting users by email, creating circles, creating circle rules, and creating memberships with selected identifier and status fields.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "project_domain:data",
+        "evidence": [
+          {
+            "path": "src/server/data/circle-repository.ts",
+            "lineStart": 11,
+            "lineEnd": 90,
+            "quote": "export async function upsertUser(\n  db: DatabaseClient,\n  input: {\n    email: string;\n    name: string;\n  },\n) {\n  return db.user.upsert({\n    where: { email: input.email },\n    update: { name: input.name },\n    create: input,\n    select: {\n      id: true,\n      email: true,\n      name: true,\n    },\n  });\n}\n\nexport async function findUserByEmail(db: DatabaseClient, email: string) {\n  return db.user.findUnique({\n    where: { email },\n    select: {\n      id: true,\n      email: true,\n      name: true,\n    },\n  });\n}\n\nexport async function createCircle(\n  db: DatabaseClient,\n  input: {\n    name: string;\n    inviteCode: string;\n    createdById: string;\n  },\n) {\n  return db.circle.create({\n    data: input,\n    select: {\n      id: true,\n      name: true,\n      inviteCode: true,\n    },\n  });\n}\n\nexport async function createCircleRule(\n  db: DatabaseClient,\n  input: {\n    circleId: string;\n    approvalMode: ApprovalMode;\n    minimumMonthlyContributionCents: number;\n    minimumReserveBalanceCents: number;\n    minimumMembershipDurationMonths?: number;\n    maxActiveLoansPerMember?: number;\n    maxRepaymentTermMonths?: number;\n  },\n) {\n  return db.circleRule.create({\n    data: input,\n  });\n}\n\nexport async function createMembership(\n  db: DatabaseClient,\n  input: {\n    circleId: string;\n    userId: string;\n    role: MembershipRole;\n    status: MembershipStatus;\n  },\n) {\n  return db.circleMembership.create({\n    data: input,\n    select: {\n      id: true,\n      circleId: true,\n      role: true,",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth46jni00t721un4744g9ff",
+        "kind": "fact",
+        "text": "The create-circle schema validates a trimmed name length, constrains approval mode to a fixed enum, and bounds contribution and reserve numeric values, with optional limits for membership duration, active loans, and repayment term.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "project_domain:validations",
+        "evidence": [
+          {
+            "path": "src/lib/validations/circles.ts",
+            "lineStart": 11,
+            "lineEnd": 19,
+            "quote": "export const createCircleRequestSchema = z.object({\n  name: z.string().trim().min(2).max(80),\n  approvalMode: z.enum(approvalModes),\n  minimumMonthlyContribution: z.number().finite().positive().max(1_000_000),\n  minimumReserveBalance: z.number().finite().min(0).max(1_000_000),\n  minimumMembershipDurationMonths: z.number().int().positive().max(120).optional(),\n  maxActiveLoansPerMember: z.number().int().positive().max(25).optional(),\n  maxRepaymentTermMonths: z.number().int().positive().max(120).optional(),\n});",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth46n1000ta21un9hpvk2hd",
+        "kind": "fact",
+        "text": "The test validates that posting an email to the login route signs in an existing account, returns HTTP 200, emits a redirect target in the JSON body, and sets the session cookie with the resolved user id.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "project_domain:auth",
+        "evidence": [
+          {
+            "path": "src/app/api/v1/auth/login/route.test.ts",
+            "lineStart": 19,
+            "lineEnd": 48,
+            "quote": "describe(\"POST /api/v1/auth/login\", () => {\n  beforeEach(() => {\n    signInAccount.mockReset();\n    setSessionCookie.mockReset();\n  });\n\n  it(\"signs in an existing user and returns the redirect target\", async () => {\n    signInAccount.mockResolvedValue({\n      userId: \"user_123\",\n      redirectTo: \"/circles/circle_123\",\n    });\n\n    const response = await POST(\n      new Request(\"http://localhost/api/v1/auth/login\", {\n        method: \"POST\",\n        headers: {\n          \"Content-Type\": \"application/json\",\n        },\n        body: JSON.stringify({\n          email: \"amina@example.com\",\n        }),\n      }),\n    );\n\n    expect(response.status).toBe(200);\n    expect(await response.json()).toEqual({\n      redirectTo: \"/circles/circle_123\",\n    });\n    expect(setSessionCookie).toHaveBeenCalledWith(expect.anything(), \"user_123\");\n  });",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth46qez00td21unp704qj0w",
+        "kind": "fact",
+        "text": "The test verifies that the circle detail route rejects requests without an active session with HTTP 403 and an AUTH_REQUIRED error payload.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "project_domain:circles",
+        "evidence": [
+          {
+            "path": "src/app/api/v1/circles/[circleId]/route.test.ts",
+            "lineStart": 18,
+            "lineEnd": 38,
+            "quote": "describe(\"GET /api/v1/circles/[circleId]\", () => {\n  beforeEach(() => {\n    getSessionUserId.mockReset();\n    getCircleDashboardForUser.mockReset();\n  });\n\n  it(\"returns 403 when no session is present\", async () => {\n    getSessionUserId.mockResolvedValue(null);\n\n    const response = await GET(new Request(\"http://localhost\"), {\n      params: Promise.resolve({ circleId: \"circle_123\" }),\n    });\n\n    expect(response.status).toBe(403);\n    expect(await response.json()).toEqual({\n      error: {\n        code: \"AUTH_REQUIRED\",\n        message: \"You need an active session.\",\n      },\n    });\n  });",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth46txe00tg21un6qrc7nrs",
+        "kind": "highlight",
+        "text": "Implemented an account-to-circle onboarding flow supporting authentication, circle creation, and invite-based joining, with invite joins creating active memberships in the MVP.",
+        "summary": "User-facing onboarding and circle-membership workflow.",
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 16,
+            "lineEnd": 24,
+            "quote": "- Create an account with an optional invite code\n- Sign in with an existing email-based MVP account\n- Continue authenticated users into onboarding when they do not belong to a circle yet\n- Create a circle with contribution rules, approval mode, admin membership, and invite code\n- Join a circle by invite code after account creation or during signup\n- Cookie-backed MVP session handling\n- Logout endpoint and signed-in logout actions\n- Protected circle dashboard backed by `/api/v1`\n- Prisma schema designed to extend into future contribution, loan, review, and repayment models",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "README.md",
+            "lineStart": 107,
+            "lineEnd": 109,
+            "quote": "- Money is stored as integer cents in the database and formatted as USD in the UI/API responses.\n- Invite-code joins create `ACTIVE` memberships immediately for this MVP.\n- The landing page is account-first. Circle creation and invite joining now live in the signed-in `/onboarding` flow.",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth46xkd00tw21un4orjlc49",
+        "kind": "highlight",
+        "text": "Relational data foundation for a private lending-circle workspace",
+        "summary": "The project models circles, rules, memberships, contributions, role and approval states, while retaining creator/recorder provenance and indexing historical contribution records by circle and membership.",
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 10,
+            "lineEnd": 89,
+            "quote": "enum MembershipRole {\n  ADMIN\n  MEMBER\n}\n\nenum MembershipStatus {\n  ACTIVE\n  PENDING\n  SUSPENDED\n}\n\nenum ContributionFrequency {\n  WEEKLY\n  BIWEEKLY\n  MONTHLY\n}\n\nenum ApprovalMode {\n  ADMIN_ONLY\n  REVIEWER_VOTE\n  REVIEWER_VOTE_ADMIN_FINALIZE\n}\n\nmodel User {\n  id                    String             @id @default(cuid())\n  email                 String             @unique\n  name                  String\n  createdAt             DateTime           @default(now())\n  updatedAt             DateTime           @updatedAt\n  createdCircles        Circle[]           @relation(\"CircleCreator\")\n  memberships           CircleMembership[]\n  recordedContributions Contribution[]     @relation(\"ContributionRecorder\")\n}\n\nmodel Circle {\n  id            String             @id @default(cuid())\n  name          String\n  inviteCode    String             @unique @db.VarChar(8)\n  createdById   String\n  createdAt     DateTime           @default(now())\n  updatedAt     DateTime           @updatedAt\n  createdBy     User               @relation(\"CircleCreator\", fields: [createdById], references: [id], onDelete: Restrict)\n  memberships   CircleMembership[]\n  rule          CircleRule?\n  contributions Contribution[]\n\n  @@index([createdById])\n}\n\nmodel CircleRule {\n  id                                     String       @id @default(cuid())\n  circleId                               String       @unique\n  approvalMode                           ApprovalMode\n  minimumMonthlyContributionCents        Int\n  minimumReserveBalanceCents             Int\n  minimumMembershipDurationMonths        Int?\n  maxActiveLoansPerMember                Int?\n  maxRepaymentTermMonths                 Int?\n  createdAt                              DateTime     @default(now())\n  updatedAt                              DateTime     @updatedAt\n  circle                                 Circle       @relation(fields: [circleId], references: [id], onDelete: Cascade)\n}\n\nmodel CircleMembership {\n  id            String           @id @default(cuid",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 33,
+            "lineEnd": 106,
+            "quote": "model User {\n  id                    String             @id @default(cuid())\n  email                 String             @unique\n  name                  String\n  createdAt             DateTime           @default(now())\n  updatedAt             DateTime           @updatedAt\n  createdCircles        Circle[]           @relation(\"CircleCreator\")\n  memberships           CircleMembership[]\n  recordedContributions Contribution[]     @relation(\"ContributionRecorder\")\n}\n\nmodel Circle {\n  id            String             @id @default(cuid())\n  name          String\n  inviteCode    String             @unique @db.VarChar(8)\n  createdById   String\n  createdAt     DateTime           @default(now())\n  updatedAt     DateTime           @updatedAt\n  createdBy     User               @relation(\"CircleCreator\", fields: [createdById], references: [id], onDelete: Restrict)\n  memberships   CircleMembership[]\n  rule          CircleRule?\n  contributions Contribution[]\n\n  @@index([createdById])\n}\n\nmodel CircleRule {\n  id                                     String       @id @default(cuid())\n  circleId                               String       @unique\n  approvalMode                           ApprovalMode\n  minimumMonthlyContributionCents        Int\n  minimumReserveBalanceCents             Int\n  minimumMembershipDurationMonths        Int?\n  maxActiveLoansPerMember                Int?\n  maxRepaymentTermMonths                 Int?\n  createdAt                              DateTime     @default(now())\n  updatedAt                              DateTime     @updatedAt\n  circle                                 Circle       @relation(fields: [circleId], references: [id], onDelete: Cascade)\n}\n\nmodel CircleMembership {\n  id            String           @id @default(cuid())\n  circleId      String\n  userId        String\n  role          MembershipRole   @default(MEMBER)\n  status        MembershipStatus @default(PENDING)\n  createdAt     DateTime         @default(now())\n  updatedAt     DateTime         @updatedAt\n ",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "lineStart": 90,
+            "lineEnd": 106,
+            "quote": "model Contribution {\n  id               String           @id @default(cuid())\n  circleId         String\n  membershipId     String\n  recordedByUserId String\n  amountCents      Int\n  contributedOn    DateTime         @db.Date\n  periodStart      DateTime         @db.Date\n  createdAt        DateTime         @default(now())\n  updatedAt        DateTime         @updatedAt\n  circle           Circle           @relation(fields: [circleId], references: [id], onDelete: Cascade)\n  membership       CircleMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)\n  recordedByUser   User             @relation(\"ContributionRecorder\", fields: [recordedByUserId], references: [id], onDelete: Restrict)\n\n  @@index([circleId, periodStart])\n  @@index([membershipId, periodStart])\n  @@index([recordedByUserId])",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      }
+    ]
+  },
+  "adjudicationTemplate": {
+    "unitAdjudications": [
+      {
+        "unitId": "circle.email-only-account-session",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.transactional-circle-setup",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.invite-code-membership",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.policy-roster-dashboard",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.manual-contribution-ledger",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.transactional-postgres-domain",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.loan-review-repayment-lifecycle",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.payment-settlement",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.membership-administration",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.circle-policy-invite-lifecycle",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.configurable-contribution-cadence",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "circle.contribution-governance-reconciliation",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      }
+    ],
+    "highlightAdjudications": [
+      {
+        "highlightId": "cmth46txe00tg21un6qrc7nrs",
+        "matchedUnitIds": [],
+        "salience": null,
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth46xkd00tw21un4orjlc49",
+        "matchedUnitIds": [],
+        "salience": null,
+        "semanticDuplicateOf": null
+      }
+    ],
+    "questionAdjudications": [
+      {
+        "question": "What proves that a user owns an email, and can someone who knows an existing email sign in or overwrite that account's profile name?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Which records are created atomically when a circle is created, and which borrowing-policy values are persisted?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "How do invite codes behave for new, active, pending, and suspended memberships, and can a code expire, be recipient-bound, rotated, or revoked?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "What does approvalMode actually govern today, and is it a membership-admission control or configuration for a future borrowing workflow?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Who can access the circle dashboard, and which invite, policy, roster, identity, and contribution details can pending and active members see?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Who may record a contribution for whom, which target states are accepted, and what amount, date, transaction, and recorder-provenance checks apply?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Who may inspect another member's contribution history, including the history of pending or suspended members?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Does the monthly minimum enforce member behavior or only calculate a reporting target, and are reserve or borrowing policies applied to contributions?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Can contribution records be duplicated, future-dated, corrected, deleted, or reversed?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Is contribution cadence actually configurable despite the frequency enum and weekly-to-monthly product copy?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Does CircleFund transfer, verify, or settle money, or does it only persist manually declared contribution entries?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Which loan approval, disbursement, repayment, default, membership-administration, and policy-edit operations exist today versus being planned or absent?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      }
+    ]
+  }
+}

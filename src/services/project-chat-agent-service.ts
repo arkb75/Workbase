@@ -601,6 +601,7 @@ export function buildMemoryCatalog(input: {
       ownershipAuthority:
         hit.ownershipAuthority ?? hit.accomplishmentRanking?.ownershipAuthority ?? 0,
       subsystemKey: hit.subsystemKey ?? null,
+      repositoryKnowledge: hit.repositoryKnowledge ?? null,
       validatedThroughSha: hit.validatedThroughSha ?? null,
     };
   });
@@ -1866,6 +1867,7 @@ async function executeProjectChatAgent(
         "Answer the user's actual decision or question before supplying background. Do not mirror the retrieval catalog or capability ledger as an inventory.",
         buildProjectAnswerEditorialModelGuidance(editorialProfile),
         "Use untrusted_editorial_plan_json as the prioritized answer plan. Retrieved project memory outside the selected themes remains available for corroboration or a directly requested detail, but is not an output checklist.",
+        "For repository-derived Project Facts, repositoryKnowledge is the implementation-state boundary: implemented may establish implementation; partial is incomplete; planned is not implemented; bounded_absence is absent only within the inspected scope; mixed or missing state is unknown. No repository-only state establishes personal ownership or impact.",
         "Write Markdown for the user, with one independently citable top-level item per planned theme. Include any thesis inside the first supported item rather than adding an uncited preamble.",
         mode === "post_review_finalization"
           ? "This is the continuation of a reviewed repository-research run. Prioritize every currentRun Project Fact, preserve the stated partial and coverage-gap status, and describe freshness using repository commit/inspection timestamps—not source import time."

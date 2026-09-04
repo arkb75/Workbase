@@ -3,6 +3,7 @@ import {
   FatalError,
   getWorkflowMetadata,
   getWritable,
+  RetryableError,
   sleep,
 } from "workflow";
 import type { ChatProgressEvent } from "@/src/domain/project-chat";
@@ -467,7 +468,27 @@ async function finalizeRequiredCoverage(refreshRunId: string) {
 
 async function repairRequiredCoverage(refreshRunId: string) {
   "use step";
-  return knowledgeRefreshService.repairCoverage(refreshRunId);
+  try {
+    return await knowledgeRefreshService.repairCoverage(refreshRunId);
+  } catch (error) {
+    const failure = classifyWorkflowFailure(error);
+    if (failure.retryable) {
+      throw new RetryableError(
+        `${failure.message}${failure.recovery ? ` ${failure.recovery}` : ""}`,
+        {
+          // The transport already honors a provider Retry-After once. A
+          // durable step retry needs a wider window so a short OpenRouter or
+          // routed-provider burst limit can clear without re-running completed
+          // repository investigation work.
+          retryAfter:
+            failure.code === "model_provider_unavailable" ? "30s" : "5s",
+        },
+      );
+    }
+    throw new FatalError(
+      `${failure.message}${failure.recovery ? ` ${failure.recovery}` : ""}`,
+    );
+  }
 }
 
 async function retryRequiredKnowledgeEmbeddingBackfill(refreshRunId: string) {

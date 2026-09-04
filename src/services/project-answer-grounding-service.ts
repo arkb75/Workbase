@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { GroundedAnswerBlock, ProjectResearchDossier } from "@/src/domain/project-chat";
+import type { RepositoryKnowledgeMetadata } from "@/src/domain/repository-knowledge";
 import { createStructuredGenerationBudget } from "@/src/lib/bedrock-structured-llm-client";
 import type { JsonSchemaObject, StructuredOutputTransportMode } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
@@ -85,6 +86,8 @@ export interface ProjectAnswerGroundingEntry {
     commitSha?: string;
   }>;
   subsystemKey?: string | null;
+  /** Exact repository role/state/operation metadata; null for legacy memory. */
+  repositoryKnowledge?: RepositoryKnowledgeMetadata | null;
   accomplishmentRanking?: {
     evidenceStrength: number;
     productImportance: number;
@@ -430,7 +433,7 @@ export async function groundProjectAnswer(input: {
         "Topical similarity is not entailment. Narrow configurable defaults, conditional behavior, and inferred intent instead of turning them into universal guarantees.",
         "For an assessment or comparison, retain an explicitly qualified analytical conclusion only when it follows directly from the cited implementation premises. Keep language such as “this suggests,” “this creates a trade-off,” or “this may limit”; do not rewrite the analysis as an observed project fact.",
         "When requestContext contains a comparison contract, preserve its two user-named subjects, their order, requested dimensions, and earlier/current roles. Conversation anchors resolve referential labels; they control framing but do not authorize new factual project claims or new citations.",
-        "Repository-only Project Facts establish implementation, not who personally built it. Remove or neutralize first-person, second-person, solo-built, sole-owner, and subjectless accomplishment language unless at least one cited verified Highlight or explicit included self-reported evidence item has ownershipAuthority of 3 or greater. A work-item description, explicitly user-authored source-note excerpt, or chat user statement may provide that private-chat ownership authority; included repository evidence may not.",
+        "Repository-only Project Facts establish implementation only when repositoryKnowledge has the single implementationStates value implemented. Preserve partial as incomplete, planned as not yet implemented, bounded_absence as absent within the inspected scope, and mixed or missing state as unknown. Project Facts never establish who personally built the work. Remove or neutralize first-person, second-person, solo-built, sole-owner, and subjectless accomplishment language unless at least one cited verified Highlight or explicit included self-reported evidence item has ownershipAuthority of 3 or greater. A work-item description, explicitly user-authored source-note excerpt, or chat user statement may provide that private-chat ownership authority; included repository evidence may not.",
         "Return supported factual units as structured blocks. Do not include [citation:N], [N], footnotes, or any other citation syntax in heading or bodyMarkdown; use citationIndexes only.",
         "Do not introduce new facts or citation indexes. Remove claims that cannot be supported.",
         "If none of the claims are supported, return an empty blocks array and explain the evidence gap under issues.",

@@ -30,7 +30,10 @@ import {
   isProjectDomainCapabilityKey,
   REPOSITORY_SEMANTIC_MAX_CITATION_BYTES,
   type RepositoryFileAnalysis,
+  type RepositoryKnowledgeRole,
   type RepositorySemanticFindingKind,
+  type RepositoryKnowledgeImplementationState,
+  type RepositoryOperationFacet,
 } from "@/src/services/repository-coverage-service";
 import { redactRepositorySecrets } from "@/src/services/github-repository-exploration-service";
 import {
@@ -310,6 +313,14 @@ export interface SynthesisNotebookEntry {
   semanticStatus?: "succeeded" | "degraded";
   /** Stable, path-scoped implementation facets selected by semantic extraction. */
   semanticSignals?: string[];
+  /** First-class durable role; limitations bypass lossy capability compression. */
+  knowledgeRole?: RepositoryKnowledgeRole;
+  /** Stable relation key joining exact observations for one operation. */
+  operationKey?: string;
+  /** Source-inspected current state retained through synthesis. */
+  implementationState?: RepositoryKnowledgeImplementationState;
+  /** Structural role of this exact observation inside its operation. */
+  operationFacet?: RepositoryOperationFacet;
   /** Semantic role retained from the exact extracted finding. */
   semanticKind?: RepositorySemanticFindingKind;
   /** Exact numbered source fragments supporting the semantic observation. */
@@ -336,6 +347,112 @@ export interface SynthesizedKnowledge {
   approvalEligible: boolean;
   /** Compact explanation of how verified Facts became selected Highlights. */
   capabilityFunnel?: RepositoryCapabilityFunnelTraceV1;
+}
+
+export function repositoryKnowledgeRole(input: {
+  knowledgeRole?: RepositoryKnowledgeRole;
+  implementationState?: RepositoryKnowledgeImplementationState;
+  semanticSignals?: readonly string[];
+}): RepositoryKnowledgeRole {
+  // The source-inspected state is the stronger invariant. A stale or
+  // inconsistent role must never upgrade partial, planned, or explicitly
+  // absent behavior into the implemented synthesis/Highlight lane.
+  if (input.implementationState && input.implementationState !== "implemented") {
+    return "limitation";
+  }
+  if (input.knowledgeRole) return input.knowledgeRole;
+  return input.semanticSignals?.some((signal) =>
+      normalizeWhitespace(signal).toLowerCase() === "limitation"
+    )
+    ? "limitation"
+    : "implementation";
+}
+
+export type RepositoryLimitationScopeInput = {
+  sourceId: string;
+  repository: string;
+  subsystemKey: string;
+  notebook: readonly SynthesisNotebookEntry[];
+};
+
+function boundedRepositoryScore(value: number) {
+  return Math.max(0, Math.min(5, Math.round(value)));
+}
+
+/**
+ * Material limitations are already atomic, exact-source findings. Preserve
+ * them as one fact-only scope each so capability compression cannot rewrite a
+ * boundary into an unrelated positive fact. The independent critic still
+ * decides whether the exact statement is entitled to auto-apply.
+ */
+export function materializeRepositoryLimitationFactScopes(
+  inputs: readonly RepositoryLimitationScopeInput[],
+): SynthesizedKnowledge[] {
+  const seen = new Set<string>();
+  const scopes: SynthesizedKnowledge[] = [];
+  for (const input of inputs) {
+    for (const entry of input.notebook) {
+      if (repositoryKnowledgeRole(entry) !== "limitation") continue;
+      const identity = JSON.stringify([
+        entry.sourceId,
+        entry.commitSha,
+        entry.blobSha,
+        entry.path,
+        entry.lineStart,
+        entry.lineEnd,
+        normalizeWhitespace(entry.statement).toLowerCase(),
+      ]);
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      const limitationDigest = createHash("sha256")
+        .update(identity)
+        .digest("hex")
+        .slice(0, 16);
+      const synthesisKey = `${input.subsystemKey.slice(0, 60)}#limitation-${limitationDigest}`;
+      const exactSourceEligible =
+        entry.evidenceMode === "semantic" &&
+        entry.semanticStatus !== "degraded" &&
+        Boolean(entry.sourceExcerpt?.trim());
+      const statement = normalizeWhitespace(entry.statement);
+      const statementEligible = statement.length >= 10 && statement.length <= 500;
+      const gaps = [
+        ...(!exactSourceEligible
+          ? [`Repository ${input.repository} could not preserve a material limitation because its exact successful semantic source excerpt was unavailable.`]
+          : []),
+        ...(!statementEligible
+          ? [`Repository ${input.repository} could not preserve a material limitation because its atomic statement was outside the durable Fact length contract.`]
+          : []),
+      ];
+      scopes.push({
+        sourceId: input.sourceId,
+        repository: input.repository,
+        subsystemKey: input.subsystemKey,
+        synthesisKey,
+        facts: gaps.length
+          ? []
+          : [{
+              statement,
+              category: entry.category,
+              confidence: entry.confidence,
+              sensitivityFlag: entry.sensitivityFlag,
+              citationIndexes: [1],
+              reviewNotes:
+                "Material implementation limitation preserved from the source-inspected repository notebook.",
+              productImportance: boundedRepositoryScore(entry.productImportance),
+              implementationBreadth: boundedRepositoryScore(entry.implementationBreadth),
+              technicalDifficulty: boundedRepositoryScore(entry.technicalDifficulty),
+              distinctiveness: boundedRepositoryScore(Math.max(2, entry.productImportance)),
+            }],
+        highlights: [],
+        unresolvedQuestions: gaps,
+        coverageGaps: gaps,
+        notebook: [{ ...entry, knowledgeRole: "limitation" }],
+        tokenUsage: null,
+        approvalEligible: true,
+      });
+    }
+  }
+  return scopes;
 }
 
 export type RepositorySynthesisMode = "model" | "deterministic";
@@ -385,15 +502,34 @@ function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
 }
 
 export function semanticFactsForSubsystem(analysis: RepositoryFileAnalysis, subsystemKey: string) {
-  if (
-    isRepositoryAnalysisNoisePath(analysis.path) ||
-    isRepositoryContextOnlyPath(analysis.path)
-  ) return [];
-  return analysis.facts.filter((fact) => !fact.subsystemKeys?.length || fact.subsystemKeys.includes(subsystemKey));
+  if (isRepositoryAnalysisNoisePath(analysis.path)) return [];
+  const agenticInvestigation = analysis.semanticDiagnostics?.some((diagnostic) =>
+    Boolean(
+      diagnostic &&
+      typeof diagnostic === "object" &&
+      !Array.isArray(diagnostic) &&
+      (diagnostic as { status?: unknown }).status === "agentic_investigation",
+    )
+  ) === true;
+  return analysis.facts.filter((fact) => {
+    if (fact.subsystemKeys?.length && !fact.subsystemKeys.includes(subsystemKey)) {
+      return false;
+    }
+    if (!isRepositoryContextOnlyPath(analysis.path)) return true;
+    // Documentation remains inadmissible as proof of implemented behavior.
+    // A source-reading investigator may, however, retain an explicitly planned
+    // operation as limitation knowledge when its exact documentation range is
+    // the primary source for that future intent.
+    return agenticInvestigation &&
+      fact.implementationState === "planned" &&
+      fact.knowledgeRole === "limitation";
+  });
 }
 
 export function modelEligibleSynthesisNotebook(notebook: SynthesisNotebookEntry[]) {
-  return notebook.filter((entry) => entry.evidenceMode === "semantic");
+  return notebook.filter((entry) =>
+    entry.evidenceMode === "semantic" && entry.semanticStatus !== "degraded"
+  );
 }
 
 export function repositoryModelEligibleSynthesisInputCount(
@@ -458,7 +594,19 @@ export function exactSinglePathProjectDomainSynthesis(
 /** Only domains admitted by the bounded semantic plan may reach synthesis. */
 export function selectedCapabilityKeysFromOrchestration(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-  const record = value as { packages?: unknown; repairPackages?: unknown };
+  const record = value as {
+    synthesisCapabilityKeys?: unknown;
+    packages?: unknown;
+    repairPackages?: unknown;
+  };
+  const investigatedCapabilityKeys = Array.isArray(record.synthesisCapabilityKeys)
+    ? record.synthesisCapabilityKeys.filter((key): key is string =>
+        typeof key === "string" && key.length > 1
+      )
+    : [];
+  if (investigatedCapabilityKeys.length) {
+    return Array.from(new Set(investigatedCapabilityKeys)).sort();
+  }
   const packages = [record.packages, record.repairPackages]
     .flatMap((entries) => Array.isArray(entries) ? entries : []);
   return Array.from(new Set(packages.flatMap((workPackage) => {
@@ -737,6 +885,10 @@ export type RepositorySynthesisPromptNotebookEntry = {
   implementationBreadth: number;
   technicalDifficulty: number;
   semanticSignals: string[];
+  knowledgeRole: RepositoryKnowledgeRole;
+  operationKey: string | null;
+  implementationState: RepositoryKnowledgeImplementationState | null;
+  operationFacet: RepositoryOperationFacet | null;
   semanticKind: RepositorySemanticFindingKind | null;
   sourceExcerpt: string | null;
 };
@@ -758,6 +910,10 @@ export function repositorySynthesisPromptNotebook(
     implementationBreadth: entry.implementationBreadth,
     technicalDifficulty: entry.technicalDifficulty,
     semanticSignals: [...(entry.semanticSignals ?? [])],
+    knowledgeRole: repositoryKnowledgeRole(entry),
+    operationKey: entry.operationKey ?? null,
+    implementationState: entry.implementationState ?? null,
+    operationFacet: entry.operationFacet ?? null,
     semanticKind: entry.semanticKind ?? null,
     sourceExcerpt: entry.sourceExcerpt ?? null,
   }));
@@ -1499,6 +1655,147 @@ export function applyRepositorySynthesisCritic(
         ])),
       };
     }),
+  };
+}
+
+export function repositoryLimitationCriticBudgetLimits(batchCount: number) {
+  if (!Number.isInteger(batchCount) || batchCount < 0) {
+    throw new Error("Repository limitation critic batch count must be a non-negative integer.");
+  }
+  return {
+    maxModelCalls: batchCount * 4,
+    maxRepairPasses: batchCount,
+    maxOutputTokens: batchCount * 2_000,
+    maxTotalTokens: batchCount * 20_000,
+  };
+}
+
+async function verifyRepositoryLimitationFactScopes(input: {
+  workItemId: string;
+  refreshRunId: string;
+  scopes: SynthesizedKnowledge[];
+}) {
+  const ready = input.scopes.filter((scope) => scope.facts.length === 1);
+  if (!ready.length) return {
+    scopes: input.scopes,
+    tokenUsage: null,
+  };
+  const batches = Array.from(
+    { length: Math.ceil(ready.length / REPOSITORY_SYNTHESIS_MAX_CRITIC_CLAIMS) },
+    (_entry, index) => ready.slice(
+      index * REPOSITORY_SYNTHESIS_MAX_CRITIC_CLAIMS,
+      (index + 1) * REPOSITORY_SYNTHESIS_MAX_CRITIC_CLAIMS,
+    ),
+  );
+  const budget = createStructuredGenerationBudget(
+    repositoryLimitationCriticBudgetLimits(batches.length),
+  );
+  const verifiedBatches = await runOrderedSynthesisBatches(
+    batches,
+    async (batch) => {
+      const subsystemInputs: SynthesisSubsystemInput[] = batch.map((scope) => ({
+        subsystemKey: scope.subsystemKey,
+        synthesisKey: scope.synthesisKey,
+        notebook: scope.notebook,
+        claimLimits: { maxFacts: 1, maxHighlights: 0 },
+      }));
+      const candidate = {
+        subsystems: batch.map((scope) => ({
+          subsystemKey: scope.synthesisKey!,
+          facts: scope.facts,
+          highlights: [],
+          unresolvedQuestions: [],
+        })),
+      };
+      const claims = repositorySynthesisCriticClaims(candidate);
+      const expectedClaimKeys = new Set(claims.map((claim) => claim.claimKey));
+      const claimContentDigest = repositorySynthesisCriticClaimContentDigest(claims);
+      if (!claimContentDigest) {
+        throw new Error("Repository limitation critic input could not be attested.");
+      }
+      const result = await runAuditedStructuredGeneration({
+        workItemId: input.workItemId,
+        kind: "capability_synthesis",
+        profile: "verification",
+        idempotencyKey: `${input.refreshRunId}:limitation-entailment-critic:${claimContentDigest.slice(0, 20)}`,
+        inputSummary: {
+          phase: "limitation_entailment_critic",
+          refreshRunId: input.refreshRunId,
+          claimCount: claims.length,
+          claimContentDigest,
+          subsystemKeys: batch.map((scope) => scope.synthesisKey),
+        },
+        resultAttestation: () => ({ claimContentDigest }),
+        exactParsedOutput: (generation) => generation.parsedOutput,
+        execute: () => getStructuredLlmClient("verification").generateStructured({
+          systemPrompt: repositorySynthesisCriticSystemPrompt,
+          userPrompt: JSON.stringify(
+            repositorySynthesisCriticPayloadForClaims(claims, subsystemInputs),
+          ),
+          schema: repositorySynthesisCriticSchema,
+          schemaName: "repository_limitation_entailment_critic",
+          schemaDescription:
+            "Independent exact-source entailment verdicts for preserved material repository limitations.",
+          jsonSchema: repositorySynthesisCriticJsonSchema,
+          maxTokens: 2_000,
+          temperature: 0,
+          effort: "low",
+          enablePromptCaching: false,
+          transportPreference: ["json_schema", "text_repair_fallback"],
+          repairStrategy: "repair_last_failure",
+          repairModelPolicy: "same_profile",
+          repairMappings: [
+            "Return exactly one assessment for every supplied claimKey.",
+            "Copy each supplied claimKey verbatim and do not add or omit keys.",
+          ],
+          maxProviderAttempts: 3,
+          budget,
+          extraValidation: (value) =>
+            repositorySynthesisCriticValidationErrors(value, expectedClaimKeys),
+        }),
+      });
+      const applied = applyRepositorySynthesisCritic(candidate, result.data);
+      const appliedByKey = new Map(
+        applied.subsystems.map((subsystem) => [subsystem.subsystemKey, subsystem]),
+      );
+      return {
+        scopes: batch.map((scope) => {
+          const verified = appliedByKey.get(scope.synthesisKey!);
+          const rejectionGaps = verified?.facts.length
+            ? []
+            : (verified?.unresolvedQuestions ?? [
+                "Entailment verification did not return the preserved limitation.",
+              ]).map((gap) =>
+                `Repository ${scope.repository} could not preserve material limitation ${scope.synthesisKey ?? scope.subsystemKey}: ${gap}`
+              );
+          return {
+            ...scope,
+            facts: verified?.facts ?? [],
+            unresolvedQuestions: Array.from(new Set([
+              ...scope.unresolvedQuestions,
+              ...rejectionGaps,
+            ])),
+            coverageGaps: Array.from(new Set([
+              ...scope.coverageGaps,
+              ...rejectionGaps,
+            ])),
+            tokenUsage: result.tokenUsage,
+          };
+        }),
+        tokenUsage: result.tokenUsage,
+      };
+    },
+    3,
+  );
+  const byKey = new Map(verifiedBatches.flatMap((batch) =>
+    batch.scopes.map((scope) => [scope.synthesisKey!, scope] as const)
+  ));
+  return {
+    scopes: input.scopes.map((scope) => byKey.get(scope.synthesisKey!) ?? scope),
+    tokenUsage: {
+      batches: verifiedBatches.map((batch) => batch.tokenUsage),
+      budget: snapshotStructuredGenerationBudget(budget),
+    },
   };
 }
 
@@ -2585,6 +2882,8 @@ async function synthesizeSubsystemBase(
           "Treat README and documentation entries as context: future, planned, roadmap, TODO, or not-yet-built behavior is not implemented and cannot become a Highlight without direct implementation evidence.",
           "Prefer cross-file systems, data flows, safety invariants, durable workflows, integrations, and user-visible capabilities over filenames, stack lists, boilerplate, or routine helpers.",
           "When operationCommunity is supplied, treat it as an organizational scope rather than evidence: synthesize only the implemented operations represented by that community's cited notebook, and do not turn the community label into a claim.",
+          "When notebook entries share an operationKey, they are source-atomic facets of one discovered operation. Use operationFacet to connect its entry point, transition, persistence, side effect, architecture, and bounded conditions into the smallest coherent end-to-end Facts supported by all cited excerpts; do not flatten those facets into unrelated file summaries.",
+          "implementationState is routing metadata rather than evidence. This synthesis lane receives implemented observations; never upgrade a partial, planned, or bounded-absence observation into an implemented claim.",
           "Preserve operation breadth inside each supplied community before emitting another variant of an operation already covered. Treat semanticKind as descriptive extraction metadata only: it may break ties between observations of the same operation, but must never rank one distinct operation above another solely by kind; sourceExcerpt remains the sole authority for factual details.",
           "semanticSignals are repository-derived routing facets, not factual evidence and never claim text. When claimLimits permit, cover distinct supported semanticSignals before producing another Fact for a signal already represented; every emitted detail must still be entailed by cited sourceExcerpt text.",
           "When a notebook supports several distinct user or system operations, preserve breadth by covering different operations before emitting another variation of an already-covered operation.",
@@ -3068,6 +3367,124 @@ function synthesisNotebookIdentity(entry: SynthesisNotebookEntry) {
   ]);
 }
 
+export type RepositoryOperationGroupingScope = {
+  sourceId: string;
+  repository: string;
+  subsystemKey: string;
+  notebook: readonly SynthesisNotebookEntry[];
+};
+
+/**
+ * Reassembles source-atomic investigator observations around the operation
+ * they describe before any bounded synthesis notebook is selected. This keeps
+ * route, transition, persistence, side-effect, and boundary evidence together
+ * without asking a later model to rediscover their relationship from prose.
+ * Legacy semantic observations without an operation key continue through the
+ * existing capability/community path.
+ */
+export function groupRepositoryOperationSynthesisScopes(
+  scopes: readonly RepositoryOperationGroupingScope[],
+) {
+  const grouped = new Map<string, {
+    sourceId: string;
+    repository: string;
+    operationKey: string;
+    subsystemKeys: Set<string>;
+    entries: Map<string, SynthesisNotebookEntry>;
+  }>();
+  for (const scope of scopes) {
+    for (const entry of scope.notebook) {
+      if (
+        repositoryKnowledgeRole(entry) !== "implementation" ||
+        !entry.operationKey?.trim()
+      ) continue;
+      const operationKey = normalizeWhitespace(entry.operationKey).toLowerCase();
+      const identity = JSON.stringify([
+        entry.sourceId,
+        entry.commitSha,
+        operationKey,
+      ]);
+      const current = grouped.get(identity) ?? {
+        sourceId: scope.sourceId,
+        repository: scope.repository,
+        operationKey,
+        subsystemKeys: new Set<string>(),
+        entries: new Map<string, SynthesisNotebookEntry>(),
+      };
+      current.subsystemKeys.add(scope.subsystemKey);
+      current.entries.set(synthesisNotebookIdentity(entry), entry);
+      grouped.set(identity, current);
+    }
+  }
+  const facetRank: Record<RepositoryOperationFacet, number> = {
+    entrypoint: 0,
+    transition: 1,
+    persistence: 2,
+    side_effect: 3,
+    boundary: 4,
+    architecture: 5,
+  };
+  return Array.from(grouped.values()).flatMap((group) => {
+    const subsystemKey = [...group.subsystemKeys].sort((left, right) =>
+      Number(isProjectDomainCapabilityKey(right)) -
+        Number(isProjectDomainCapabilityKey(left)) ||
+      left.localeCompare(right)
+    )[0]!;
+    const rawNotebook = [...group.entries.values()].sort((left, right) =>
+      (left.operationFacet ? facetRank[left.operationFacet] : 6) -
+        (right.operationFacet ? facetRank[right.operationFacet] : 6) ||
+      left.path.localeCompare(right.path) ||
+      left.lineStart - right.lineStart ||
+      synthesisNotebookIdentity(left).localeCompare(synthesisNotebookIdentity(right))
+    );
+    // Preserve the bounded prompt size without turning that bound into a
+    // repository-knowledge cap. A large operation becomes sibling synthesis
+    // scopes that retain the same operation identity; no exact observation is
+    // silently dropped merely because the operation spans many source facets.
+    const prioritizedNotebook = selectSubsystemSynthesisNotebook(
+      subsystemKey,
+      rawNotebook,
+      rawNotebook.length,
+    );
+    const chunkCount = Math.ceil(
+      prioritizedNotebook.length / REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE,
+    );
+    return Array.from({ length: chunkCount }, (_entry, chunkIndex) => {
+      const notebook = prioritizedNotebook.slice(
+        chunkIndex * REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE,
+        (chunkIndex + 1) * REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE,
+      );
+      return {
+        sourceId: group.sourceId,
+        subsystemKey,
+        synthesisKey: `${subsystemKey.slice(0, 64)}#operation-${createHash("sha256")
+          .update([
+            group.sourceId,
+            group.operationKey,
+            ...(chunkCount > 1 ? [String(chunkIndex)] : []),
+          ].join(":"))
+          .digest("hex")
+          .slice(0, 16)}`,
+        operationCommunity: group.operationKey,
+        scopeKey: group.repository,
+        rawNotebook: notebook,
+        notebook,
+        coverageGaps: [],
+        priority: 1_250 + notebook.reduce(
+          (total, entry) => total + importance(entry),
+          0,
+        ),
+        pathCount: new Set(notebook.map((entry) => entry.path)).size,
+      };
+    });
+  }).sort((left, right) =>
+    right.priority - left.priority ||
+    left.operationCommunity.localeCompare(right.operationCommunity) ||
+    left.subsystemKey.localeCompare(right.subsystemKey) ||
+    left.synthesisKey.localeCompare(right.synthesisKey)
+  );
+}
+
 export function synthesisNotebookReferenceKey(entry: SynthesisNotebookEntry) {
   return JSON.stringify([
     entry.sourceId,
@@ -3352,7 +3769,14 @@ export async function synthesizeRepositoryKnowledge(
     where: { id: runId },
     include: {
       workItem: { select: { title: true } },
-      snapshots: { include: { files: { where: { disposition: "analyzed" } } } },
+      // Investigator evidence may include explicit future-facing ranges from
+      // context-only documentation. Those files are intentionally not part of
+      // the production-code coverage denominator, but their current, pinned
+      // semantic analysis is still durable repository knowledge. Select by the
+      // generation fence rather than by static-analysis disposition.
+      snapshots: {
+        include: { files: { where: { semanticRefreshRunId: runId } } },
+      },
     },
   });
   const notebookBySubsystem = new Map<string, {
@@ -3410,9 +3834,20 @@ export async function synthesizeRepositoryKnowledge(
               changeType: file.changeType,
               semanticStatus: file.semanticStatus === "degraded" ? "degraded" : "succeeded",
               semanticSignals: fact.semanticSignals ?? [],
+              knowledgeRole: repositoryKnowledgeRole(fact),
+              operationKey: fact.operationKey,
+              implementationState: fact.implementationState,
+              operationFacet: fact.operationFacet,
               semanticKind: fact.semanticKind,
               sourceExcerpt: fact.evidenceExcerpt,
-              evidenceMode: "semantic",
+              // Preserve the extraction authority. A deterministic recovery
+              // row stored beside successful semantic output must not be
+              // relabelled as model-verified evidence at the synthesis seam.
+              evidenceMode:
+                fact.evidenceMode === "static" ||
+                  fact.evidenceMode === "deterministic_fallback"
+                  ? "deterministic_anchor"
+                  : "semantic",
             });
           }
         }
@@ -3421,8 +3856,33 @@ export async function synthesizeRepositoryKnowledge(
   }
 
   const selectedCapabilityKeys = new Set(selectedCapabilityKeysFromOrchestration(run.orchestration));
-  const synthesisInputs = Array.from(notebookBySubsystem.values())
-    .map(({ sourceId, subsystemKey, scopeKey, notebook: rawNotebook }) => {
+  const selectedNotebookScopes = Array.from(notebookBySubsystem.values())
+    .filter((input) => input.notebook.length && selectedCapabilityKeys.has(input.subsystemKey));
+  const limitationScopes = materializeRepositoryLimitationFactScopes(
+    selectedNotebookScopes.map(({ sourceId, subsystemKey, scopeKey, notebook }) => ({
+      sourceId,
+      repository: scopeKey,
+      subsystemKey,
+      notebook,
+    })),
+  );
+  const operationSynthesisInputs = groupRepositoryOperationSynthesisScopes(
+    selectedNotebookScopes.map(({ sourceId, subsystemKey, scopeKey, notebook }) => ({
+      sourceId,
+      repository: scopeKey,
+      subsystemKey,
+      notebook,
+    })),
+  );
+  const capabilitySynthesisInputs = selectedNotebookScopes
+    .map(({ sourceId, subsystemKey, scopeKey, notebook: completeNotebook }) => {
+      // Exact material boundaries have their own entailment lane below. They
+      // must not enter capability compression, where a negative scope fact can
+      // be rewritten into an unrelated positive implementation claim.
+      const rawNotebook = completeNotebook.filter((entry) =>
+        repositoryKnowledgeRole(entry) === "implementation" &&
+        !entry.operationKey?.trim()
+      );
       const notebook = selectSubsystemSynthesisNotebook(subsystemKey, rawNotebook);
       return {
         sourceId,
@@ -3444,12 +3904,24 @@ export async function synthesizeRepositoryKnowledge(
     // The cartographer, not a product-shaped base taxonomy, defines the
     // runtime synthesis universe. Incidental static classifier labels cannot
     // become facts or Highlights unless they were admitted to the plan.
-    .filter((input) => input.rawNotebook.length && selectedCapabilityKeys.has(input.subsystemKey))
+    .filter((input) => input.rawNotebook.length)
     .sort((left, right) =>
       right.priority - left.priority ||
       left.subsystemKey.localeCompare(right.subsystemKey) ||
       left.scopeKey.localeCompare(right.scopeKey)
     );
+  const unsortedSynthesisInputs: Array<
+    (typeof capabilitySynthesisInputs)[number] & { operationCommunity?: string }
+  > = [
+    ...operationSynthesisInputs,
+    ...capabilitySynthesisInputs,
+  ];
+  const synthesisInputs = unsortedSynthesisInputs.sort((left, right) =>
+    right.priority - left.priority ||
+    left.subsystemKey.localeCompare(right.subsystemKey) ||
+    (left.operationCommunity ?? "").localeCompare(right.operationCommunity ?? "") ||
+    left.scopeKey.localeCompare(right.scopeKey)
+  );
   const synthesizedSubsystems: Array<RepositorySubsystemSynthesis & {
     subsystemKey: string;
     synthesisKey: string;
@@ -3483,6 +3955,10 @@ export async function synthesizeRepositoryKnowledge(
     })));
   } else {
     const allCommunityCandidates = synthesisInputs.flatMap((entry) => {
+      // Investigator-native operation scopes are already the atomic grouping
+      // boundary. Re-running the legacy community mapper could split one
+      // end-to-end operation back into unrelated route/persistence fragments.
+      if (entry.operationCommunity) return [];
       if (!isRepositoryOperationCommunityScope(entry.subsystemKey)) return [];
       const eligibleNotebook = modelEligibleSynthesisNotebook(entry.rawNotebook)
         .filter((candidate, index, all) =>
@@ -3719,7 +4195,25 @@ export async function synthesizeRepositoryKnowledge(
     synthesis: finalized,
   });
   tokenUsage.push(highlightSelection.tokenUsage);
-  return highlightSelection.synthesis;
+  const verifiedLimitations = options.fallbackOnly || synthesisMode === "deterministic"
+    ? {
+        scopes: limitationScopes.map((scope) => ({
+          ...scope,
+          approvalEligible: false,
+          coverageGaps: Array.from(new Set([
+            ...scope.coverageGaps,
+            "Material limitation retained for review because independent entailment verification was not run in deterministic synthesis mode.",
+          ])),
+        })),
+        tokenUsage: null,
+      }
+    : await verifyRepositoryLimitationFactScopes({
+        workItemId: run.workItemId,
+        refreshRunId: runId,
+        scopes: limitationScopes,
+      });
+  if (verifiedLimitations.tokenUsage) tokenUsage.push(verifiedLimitations.tokenUsage);
+  return [...highlightSelection.synthesis, ...verifiedLimitations.scopes];
 }
 
 export const REPOSITORY_SYNTHESIS_MAX_CITATION_BYTES = REPOSITORY_SEMANTIC_MAX_CITATION_BYTES;

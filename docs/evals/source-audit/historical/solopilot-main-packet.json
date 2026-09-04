@@ -1,0 +1,2106 @@
+{
+  "schemaVersion": "repository-source-audit-adjudication-packet-v1",
+  "manifestDigest": "9c860d9c174729928698e03a6ce6b6a87f045bfb71ca127f42ef6bab1954d186",
+  "auditDate": "2026-09-04",
+  "method": "README text and filenames were search hypotheses only. Each implemented unit is backed by a reachable handler, route, UI flow, executable entry point, or durable service seam in the clean pinned checkout. Relative anchors resolve against the repository source_root below.",
+  "workItemId": "cmth3va8j00a021unzd2mcuup",
+  "sourceAudit": {
+    "fixtureId": "solopilot-agent-documents",
+    "repository": "arkb75/SoloPilot",
+    "commitSha": "46477b744db2aa61c53763c4832cad1b239e8ce5",
+    "sourceScope": "tracked_git_tree",
+    "sourceDigest": "154d8b310a6bc97ee54f39b95d14365aea7b62e15478aa59e41a8d30eee7dcf6",
+    "knowledgeUnits": [
+      {
+        "id": "solo.email-intake-threading",
+        "claim": "The intake Lambda processes the first SES/S3 event record, loads and parses the stored email, resolves a conversation through Message-ID, In-Reply-To, and References, appends inbound history with optimistic locking, and stores message-ID mappings.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "client-communication",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 199,
+            "lineEnd": 305
+          },
+          {
+            "path": "src/agents/email_intake/email_parser.py",
+            "lineStart": 116,
+            "lineEnd": 146
+          },
+          {
+            "path": "src/agents/email_intake/utils.py",
+            "lineStart": 88,
+            "lineEnd": 187
+          },
+          {
+            "path": "src/agents/email_intake/conversation_state.py",
+            "lineStart": 399,
+            "lineEnd": 489
+          }
+        ]
+      },
+      {
+        "id": "solo.conversation-retention-delete",
+        "claim": "Conversation records receive a 30-day TTL refreshed on append; normal message mappings use 90 days while approval-created mappings use 30 days; deleting a conversation removes only its DynamoDB conversation item and does not cascade related mappings, S3 artifacts, version indexes, or jobs.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "data-lifecycle",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/conversation_state.py",
+            "lineStart": 85,
+            "lineEnd": 140
+          },
+          {
+            "path": "src/agents/email_intake/conversation_state.py",
+            "lineStart": 445,
+            "lineEnd": 465
+          },
+          {
+            "path": "src/agents/email_intake/conversation_state.py",
+            "lineStart": 909,
+            "lineEnd": 932
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 728,
+            "lineEnd": 775
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 1858,
+            "lineEnd": 1888
+          }
+        ]
+      },
+      {
+        "id": "solo.email-intake-retry-idempotency",
+        "claim": "Inbound processing handles every record in a batched event and prevents a retried delivery of the same message from being appended twice.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "client-communication",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 199,
+            "lineEnd": 265
+          },
+          {
+            "path": "src/agents/email_intake/conversation_state.py",
+            "lineStart": 399,
+            "lineEnd": 489
+          }
+        ],
+        "uncertainty": "The handler reads only Records[0]. Optimistic sequence locking orders concurrent appends but does not test whether the same message_id is already present."
+      },
+      {
+        "id": "solo.conversation-metadata-inference",
+        "claim": "The metadata extractor infers client and project information, proposal and meeting intent, sentiment, topics, next action, and confidence, while copying the caller-supplied current phase rather than inferring phase.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "project-understanding",
+        "kind": "capability",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/metadata_extractor.py",
+            "lineStart": 137,
+            "lineEnd": 188
+          },
+          {
+            "path": "src/agents/email_intake/metadata_extractor.py",
+            "lineStart": 275,
+            "lineEnd": 294
+          }
+        ]
+      },
+      {
+        "id": "solo.requirements-versioning",
+        "claim": "The normal intake path extracts and incrementally updates structured requirements, scope, pricing, timeline, and success criteria, persisting changes with an optimistic requirements-version check.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "project-understanding",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/requirement_extractor.py",
+            "lineStart": 88,
+            "lineEnd": 217
+          },
+          {
+            "path": "src/agents/email_intake/requirement_extractor.py",
+            "lineStart": 228,
+            "lineEnd": 267
+          },
+          {
+            "path": "src/agents/email_intake/conversation_state.py",
+            "lineStart": 530,
+            "lineEnd": 600
+          },
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 306,
+            "lineEnd": 375
+          }
+        ]
+      },
+      {
+        "id": "solo.visual-requirements-optimistic-versioning",
+        "claim": "Visual proposal edits participate in the same optimistic requirements-version check and increment used by normal intake updates.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "project-understanding",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/conversation_state.py",
+            "lineStart": 530,
+            "lineEnd": 585
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 1804,
+            "lineEnd": 1815
+          }
+        ],
+        "uncertainty": "The visual-edit endpoint directly sets requirements without checking or incrementing requirements_version."
+      },
+      {
+        "id": "solo.phase-aware-email-drafting",
+        "claim": "The responder drafts client replies from conversation history, requirements, and current phase and emits proposal, meeting, action, and suggested-phase metadata.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "client-communication",
+        "kind": "capability",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/conversational_responder.py",
+            "lineStart": 72,
+            "lineEnd": 135
+          },
+          {
+            "path": "src/agents/email_intake/conversational_responder.py",
+            "lineStart": 217,
+            "lineEnd": 273
+          },
+          {
+            "path": "src/agents/email_intake/conversational_responder.py",
+            "lineStart": 331,
+            "lineEnd": 372
+          },
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 376,
+            "lineEnd": 390
+          }
+        ]
+      },
+      {
+        "id": "solo.conversation-phase-transitions",
+        "claim": "Conversation phase is persisted state: response action metadata can move a conversation into proposal or another suggested phase, and successful wireframe generation moves a proposal-phase conversation into design.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "project-understanding",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 642,
+            "lineEnd": 654
+          },
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 1047,
+            "lineEnd": 1055
+          }
+        ]
+      },
+      {
+        "id": "solo.reply-review-modes",
+        "claim": "New conversations default to manual reply mode, where generated drafts are queued for amendment, rejection, or approval; switching to auto mode bypasses human review and sends the generated response immediately.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "human-in-the-loop",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/conversation_state.py",
+            "lineStart": 127,
+            "lineEnd": 130
+          },
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 387,
+            "lineEnd": 390
+          },
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 527,
+            "lineEnd": 638
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 493,
+            "lineEnd": 557
+          }
+        ]
+      },
+      {
+        "id": "solo.reply-delivery-atomicity",
+        "claim": "SES delivery, message-ID mapping, outbound-history append, and pending-reply status persistence form one idempotent atomic operation.",
+        "state": "absent",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "human-in-the-loop",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 670,
+            "lineEnd": 825
+          },
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 610,
+            "lineEnd": 640
+          }
+        ],
+        "uncertainty": "SES send occurs before mapping, history, and final reply-state persistence. Mapping and history failures can be swallowed, and no delivery idempotency key is stored before sending."
+      },
+      {
+        "id": "solo.reply-review-revise-loop",
+        "claim": "On explicit request, the API creates or returns one cached structured review, performs one successful revision with retries only for generation failure, reviews the revised response once, and caches that single revision.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "quality-control",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/reviewer.py",
+            "lineStart": 68,
+            "lineEnd": 175
+          },
+          {
+            "path": "src/agents/email_intake/response_reviser.py",
+            "lineStart": 186,
+            "lineEnd": 237
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 984,
+            "lineEnd": 1233
+          }
+        ]
+      },
+      {
+        "id": "solo.proposal-pdf-lifecycle",
+        "claim": "The proposal subsystem renders PDFs through the document Lambda, stores versioned PDF artifacts and metadata in S3 and DynamoDB, lists and retrieves versions, and can attach a selected or pre-generated version when an approved reply is sent.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "proposals",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/pdf_generator.py",
+            "lineStart": 59,
+            "lineEnd": 302
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 131,
+            "lineEnd": 142
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 547,
+            "lineEnd": 681
+          },
+          {
+            "path": "frontend/email-intake/src/components/ProposalViewer.tsx",
+            "lineStart": 52,
+            "lineEnd": 135
+          },
+          {
+            "path": "frontend/email-intake/src/components/ProposalViewer.tsx",
+            "lineStart": 179,
+            "lineEnd": 277
+          }
+        ]
+      },
+      {
+        "id": "solo.visual-proposal-revision",
+        "claim": "The visual proposal endpoint converts annotated PDF pages and instructions into semantic requirement edits, renders a provenance-linked new proposal version, and performs best-effort duplicate suppression only when the latest version has the same request key and generated requirements hash.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "proposals",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "frontend/email-intake/src/components/PDFAnnotator.tsx",
+            "lineStart": 79,
+            "lineEnd": 187
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 1479,
+            "lineEnd": 1606
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 1624,
+            "lineEnd": 1830
+          }
+        ]
+      },
+      {
+        "id": "solo.wireframe-generation",
+        "claim": "Wireframe generation runs asynchronously with DynamoDB job tracking, creates and stores a versioned responsive HTML wireframe containing at most two screens, and exposes presigned retrieval URLs; active-job suppression is a non-atomic check followed by job creation.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "design",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/wireframe_generator.py",
+            "lineStart": 45,
+            "lineEnd": 132
+          },
+          {
+            "path": "src/agents/email_intake/wireframe_generator.py",
+            "lineStart": 174,
+            "lineEnd": 241
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 1945,
+            "lineEnd": 2128
+          },
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 962,
+            "lineEnd": 1073
+          },
+          {
+            "path": "src/storage/wireframe_job_store.py",
+            "lineStart": 183,
+            "lineEnd": 216
+          }
+        ]
+      },
+      {
+        "id": "solo.wireframe-edit-version-semantics",
+        "claim": "Direct HTML editing overwrites a screen object inside the selected wireframe version, while vision-guided editing runs asynchronously and writes a newly allocated wireframe version.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "design",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 2131,
+            "lineEnd": 2297
+          },
+          {
+            "path": "src/storage/s3_wireframe_store.py",
+            "lineStart": 177,
+            "lineEnd": 210
+          },
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 1087,
+            "lineEnd": 1222
+          }
+        ]
+      },
+      {
+        "id": "solo.wireframe-export-share",
+        "claim": "Wireframes can be exported as React components or HTML and the share handler can publish a standalone HTML preview to S3 and return an expiring presigned public URL.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "design",
+        "kind": "capability",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 2299,
+            "lineEnd": 2461
+          },
+          {
+            "path": "frontend/email-intake/src/components/WireframeViewer.tsx",
+            "lineStart": 177,
+            "lineEnd": 237
+          }
+        ]
+      },
+      {
+        "id": "solo.api-access-model",
+        "claim": "The checked-in management client sends one build-time VITE_API_KEY on every request and the API Gateway specification globally requires an API key; these seams contain no per-user identity, authorization, or tenant boundary.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "should",
+        "domain": "security",
+        "kind": "architecture",
+        "anchors": [
+          {
+            "path": "frontend/email-intake/src/api/client.ts",
+            "lineStart": 4,
+            "lineEnd": 12
+          },
+          {
+            "path": "src/agents/email_intake/api/api_gateway_config.yaml",
+            "lineStart": 15,
+            "lineEnd": 23
+          }
+        ]
+      },
+      {
+        "id": "solo.api-route-deployment-contract",
+        "claim": "The Lambda dispatcher and frontend implement conversation deletion, reply review and revision, proposal routes, and wireframe sharing, but the checked-in API Gateway specification omits those operations while exposing only the documented conversation, basic reply, attachment, and non-share wireframe routes.",
+        "state": "partial",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "operations",
+        "kind": "integration",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 106,
+            "lineEnd": 175
+          },
+          {
+            "path": "frontend/email-intake/src/api/client.ts",
+            "lineStart": 46,
+            "lineEnd": 53
+          },
+          {
+            "path": "frontend/email-intake/src/api/client.ts",
+            "lineStart": 108,
+            "lineEnd": 131
+          },
+          {
+            "path": "frontend/email-intake/src/api/client.ts",
+            "lineStart": 173,
+            "lineEnd": 235
+          },
+          {
+            "path": "frontend/email-intake/src/api/client.ts",
+            "lineStart": 330,
+            "lineEnd": 338
+          },
+          {
+            "path": "src/agents/email_intake/api/api_gateway_config.yaml",
+            "lineStart": 25,
+            "lineEnd": 529
+          }
+        ],
+        "uncertainty": "This establishes drift in the tracked deployment specification. Independently modified cloud API Gateway state cannot be established from the repository."
+      },
+      {
+        "id": "solo.document-rendering-service",
+        "claim": "A separate Node.js Lambda validates Markdown or named-template input, renders React-PDF output, stores the PDF in S3, and returns the PDF plus a 24-hour signed download URL; the proposal generator invokes this service.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "documents",
+        "kind": "integration",
+        "anchors": [
+          {
+            "path": "doc-service/lambda/src/index.js",
+            "lineStart": 73,
+            "lineEnd": 131
+          },
+          {
+            "path": "doc-service/lambda/src/index.js",
+            "lineStart": 259,
+            "lineEnd": 385
+          },
+          {
+            "path": "doc-service/lambda/src/index.js",
+            "lineStart": 465,
+            "lineEnd": 480
+          },
+          {
+            "path": "src/agents/email_intake/pdf_generator.py",
+            "lineStart": 59,
+            "lineEnd": 158
+          }
+        ]
+      },
+      {
+        "id": "solo.stripe-invoice-integration",
+        "claim": "Direct document-service requests can optionally create a Stripe customer and draft invoice with line items and a document URL, but the normal proposal/email flow does not request invoicing and the Stripe file-upload helper returns a mock rather than attaching the PDF.",
+        "state": "partial",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "billing",
+        "kind": "integration",
+        "anchors": [
+          {
+            "path": "doc-service/lambda/src/index.js",
+            "lineStart": 387,
+            "lineEnd": 451
+          },
+          {
+            "path": "doc-service/lambda/src/stripe-helpers.js",
+            "lineStart": 116,
+            "lineEnd": 140
+          },
+          {
+            "path": "doc-service/lambda/src/stripe-helpers.js",
+            "lineStart": 198,
+            "lineEnd": 279
+          }
+        ],
+        "uncertainty": "No tracked caller outside the document service sets createInvoice. Runtime-only callers cannot be ruled out from source alone."
+      },
+      {
+        "id": "solo.requirements-change-sqs-producer",
+        "claim": "When the normal intake path changes requirements, it synchronously publishes the conversation, requirements version, participants, and source metadata to an SQS queue and fails the intake invocation if the send fails.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "software-delivery",
+        "kind": "integration",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 373,
+            "lineEnd": 375
+          },
+          {
+            "path": "src/agents/email_intake/lambda_function.py",
+            "lineStart": 682,
+            "lineEnd": 736
+          }
+        ]
+      },
+      {
+        "id": "solo.brief-to-code-skeleton-cli",
+        "claim": "An independent CLI parses a project brief into a structured specification, plans milestones, and generates lint-assisted code, test, and README skeletons containing TODO foundations rather than complete production applications.",
+        "state": "implemented",
+        "importance": "major",
+        "highlightRelevance": "must",
+        "domain": "software-delivery",
+        "kind": "workflow",
+        "anchors": [
+          {
+            "path": "scripts/run_solopilot.py",
+            "lineStart": 51,
+            "lineEnd": 220
+          },
+          {
+            "path": "scripts/run_analyser.py",
+            "lineStart": 37,
+            "lineEnd": 123
+          },
+          {
+            "path": "src/agents/analyser/parser.py",
+            "lineStart": 403,
+            "lineEnd": 590
+          },
+          {
+            "path": "src/agents/planning/planner.py",
+            "lineStart": 135,
+            "lineEnd": 216
+          },
+          {
+            "path": "src/agents/dev/dev_agent.py",
+            "lineStart": 378,
+            "lineEnd": 515
+          }
+        ],
+        "uncertainty": "This CLI is independent of proposal approval and its generated artifacts intentionally remain skeleton/TODO foundations."
+      },
+      {
+        "id": "solo.generation-provider-layer",
+        "claim": "The central provider factory supports Bedrock, fake, and simulated CodeWhisperer implementations; the planner separately implements a Bedrock-to-OpenAI fallback and email agents retain direct-Bedrock branches. Shared logging can estimate token counts but does not calculate USD cost, and the declared quota exception is not mapped by providers.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "ai-runtime",
+        "kind": "architecture",
+        "anchors": [
+          {
+            "path": "src/providers/base.py",
+            "lineStart": 19,
+            "lineEnd": 108
+          },
+          {
+            "path": "src/providers/base.py",
+            "lineStart": 158,
+            "lineEnd": 205
+          },
+          {
+            "path": "src/providers/factory.py",
+            "lineStart": 17,
+            "lineEnd": 60
+          },
+          {
+            "path": "src/providers/bedrock.py",
+            "lineStart": 157,
+            "lineEnd": 238
+          },
+          {
+            "path": "src/agents/planning/planner.py",
+            "lineStart": 26,
+            "lineEnd": 108
+          },
+          {
+            "path": "src/agents/email_intake/metadata_extractor.py",
+            "lineStart": 253,
+            "lineEnd": 269
+          }
+        ]
+      },
+      {
+        "id": "solo.progressive-code-context",
+        "claim": "DevAgent supports selectable legacy, Chroma, and Serena context engines and feeds lint failures into regeneration, but the main brief-to-code loop asks the default context engine to inspect a newly created milestone output directory rather than an existing target repository.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "software-delivery",
+        "kind": "architecture",
+        "anchors": [
+          {
+            "path": "src/agents/dev/dev_agent.py",
+            "lineStart": 185,
+            "lineEnd": 247
+          },
+          {
+            "path": "src/agents/dev/dev_agent.py",
+            "lineStart": 378,
+            "lineEnd": 425
+          },
+          {
+            "path": "src/agents/dev/context_packer.py",
+            "lineStart": 18,
+            "lineEnd": 81
+          },
+          {
+            "path": "src/agents/dev/context_engine/__init__.py",
+            "lineStart": 116,
+            "lineEnd": 162
+          }
+        ]
+      },
+      {
+        "id": "solo.standalone-code-review",
+        "claim": "An independently executable, Python-focused reviewer combines ruff, mypy, pytest, optional SonarCloud findings, and AI review into a structured pass/fail report; its AI file collection is limited to Python files and at most five are reviewed.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "quality-control",
+        "kind": "capability",
+        "anchors": [
+          {
+            "path": "src/agents/review/reviewer_agent.py",
+            "lineStart": 125,
+            "lineEnd": 134
+          },
+          {
+            "path": "src/agents/review/reviewer_agent.py",
+            "lineStart": 230,
+            "lineEnd": 368
+          },
+          {
+            "path": "src/agents/review/reviewer_agent.py",
+            "lineStart": 460,
+            "lineEnd": 475
+          },
+          {
+            "path": "src/agents/review/reviewer_agent.py",
+            "lineStart": 546,
+            "lineEnd": 605
+          }
+        ],
+        "uncertainty": "The reviewer is not invoked by the main brief-to-code runner."
+      },
+      {
+        "id": "solo.client-simulation-harness",
+        "claim": "Simulates phase-aware multi-turn client email scenarios, optionally over SES, and records batch outcomes.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "should",
+        "domain": "testing",
+        "kind": "capability",
+        "anchors": [
+          {
+            "path": "scripts/run_client_simulation.py",
+            "lineStart": 1,
+            "lineEnd": 20
+          },
+          {
+            "path": "scripts/run_client_simulation.py",
+            "lineStart": 51,
+            "lineEnd": 186
+          },
+          {
+            "path": "scripts/run_client_simulation.py",
+            "lineStart": 293,
+            "lineEnd": 320
+          },
+          {
+            "path": "scripts/simulation/conversation_engine.py",
+            "lineStart": 24,
+            "lineEnd": 68
+          },
+          {
+            "path": "scripts/simulation/conversation_engine.py",
+            "lineStart": 97,
+            "lineEnd": 233
+          }
+        ]
+      },
+      {
+        "id": "solo.marketing-announcement-utility",
+        "claim": "Generates and scores tweet-length milestone announcements from milestone artifacts.",
+        "state": "implemented",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "marketing",
+        "kind": "capability",
+        "anchors": [
+          {
+            "path": "src/agents/marketing/poster.py",
+            "lineStart": 15,
+            "lineEnd": 81
+          },
+          {
+            "path": "src/agents/marketing/poster.py",
+            "lineStart": 158,
+            "lineEnd": 219
+          },
+          {
+            "path": "src/agents/marketing/poster.py",
+            "lineStart": 283,
+            "lineEnd": 359
+          }
+        ]
+      },
+      {
+        "id": "solo.client-deployment-prototype",
+        "claim": "A standalone deployment script can create private GitHub and Vercel resources and record a deployment, but it does not push generated client code, does not use requirements or the repository URL when triggering deployment, and passes the placeholder commit value initial.",
+        "state": "partial",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "software-delivery",
+        "kind": "integration",
+        "anchors": [
+          {
+            "path": "scripts/deploy_client_project.py",
+            "lineStart": 67,
+            "lineEnd": 120
+          },
+          {
+            "path": "scripts/deploy_client_project.py",
+            "lineStart": 281,
+            "lineEnd": 309
+          },
+          {
+            "path": "scripts/deploy_client_project.py",
+            "lineStart": 360,
+            "lineEnd": 420
+          },
+          {
+            "path": "scripts/deploy_to_vercel.py",
+            "lineStart": 77,
+            "lineEnd": 108
+          }
+        ],
+        "uncertainty": "The scripts are independently executable but are not called by the primary email, proposal, or brief-to-code workflows."
+      },
+      {
+        "id": "solo.proposal-to-plan-export",
+        "claim": "Approved proposals automatically enter PRD/planning and IDE-specific export through an in-repository SQS consumer or approval-triggered bridge.",
+        "state": "planned",
+        "importance": "major",
+        "highlightRelevance": "not_expected",
+        "domain": "software-delivery",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "README.md",
+            "lineStart": 1,
+            "lineEnd": 23
+          },
+          {
+            "path": "README.md",
+            "lineStart": 39,
+            "lineEnd": 47
+          },
+          {
+            "path": "README.md",
+            "lineStart": 63,
+            "lineEnd": 80
+          },
+          {
+            "path": "README.md",
+            "lineStart": 115,
+            "lineEnd": 127
+          }
+        ],
+        "uncertainty": "The standalone planner exists, but the tracked tree has no export module, no consumer for the requirements queue, and no proposal-approval call into the planner."
+      },
+      {
+        "id": "solo.codewhisperer-real-integration",
+        "claim": "CodeWhisperer is backed by a live model or service integration.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "ai-runtime",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "src/providers/codewhisperer.py",
+            "lineStart": 19,
+            "lineEnd": 56
+          },
+          {
+            "path": "src/providers/codewhisperer.py",
+            "lineStart": 124,
+            "lineEnd": 165
+          }
+        ],
+        "uncertainty": "The implementation explicitly produces local sample snippets as a PoC/simulation."
+      },
+      {
+        "id": "solo.reply-prompt-and-attachment-retrieval",
+        "claim": "Reply-prompt and attachment URL retrieval APIs return persisted production data.",
+        "state": "absent",
+        "importance": "supporting",
+        "highlightRelevance": "not_expected",
+        "domain": "client-communication",
+        "kind": "constraint",
+        "anchors": [
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 963,
+            "lineEnd": 977
+          },
+          {
+            "path": "src/agents/email_intake/api/lambda_api.py",
+            "lineStart": 1246,
+            "lineEnd": 1264
+          }
+        ],
+        "uncertainty": "The handlers return explicit not-implemented or example placeholder content."
+      }
+    ],
+    "userQuestions": [
+      "How does a batched SES or S3 event become a threaded conversation, what related data expires or survives deletion, and what retry-idempotency guarantees exist?",
+      "Which project facts are inferred from conversation content, where does conversation phase come from, and which requirement mutation paths use optimistic versioning?",
+      "How do phase-aware drafting, manual versus auto reply modes, phase transitions, one-pass review and revision, and SES delivery failure timing interact?",
+      "How are proposal PDFs generated, stored, selected, attached, and visually revised, and how strong are their versioning and duplicate-suppression guarantees?",
+      "What exactly can the wireframe subsystem generate, edit, version, export, and share, including its screen limit and the different history semantics of direct and vision edits?",
+      "What authentication and tenant boundary protects the management API, and which frontend and Lambda capabilities are actually represented by the checked-in API Gateway contract?",
+      "What does the document-rendering service implement, how is it used by proposals, and how complete or connected is its Stripe invoice path?",
+      "Do changed requirements or approved proposals actually reach planning, IDE export, or deployment, and what does the independent brief-to-code path generate and use as repository context?",
+      "Which model-provider paths and error, usage, and cost behaviors are truly implemented, and what languages and outputs does the standalone reviewer actually cover?",
+      "Which simulation, deployment, marketing, CodeWhisperer, and reply-inspection utilities are real, simulated, disconnected, partial, or placeholders?"
+    ]
+  },
+  "observation": {
+    "fixtureId": "solopilot-agent-documents",
+    "repository": "arkb75/SoloPilot",
+    "commitSha": "46477b744db2aa61c53763c4832cad1b239e8ce5",
+    "executionIntegrity": {
+      "passed": false,
+      "issues": [
+        "No audited semantic planning generation ran.",
+        "No audited semantic extraction generation ran.",
+        "No audited capability synthesis generation ran.",
+        "5 capability synthesis generation(s) have no valid synthesis-phase attestation.",
+        "capability_synthesis generation 1 ended with status provider_error.",
+        "capability_synthesis generation 1 used model openai/gpt-5.6-luna; expected openai/gpt-5.6-terra.",
+        "capability_synthesis generation 1 has no provider request ID.",
+        "capability_synthesis generation 1 has incomplete model-usage evidence.",
+        "capability_synthesis generation 5 ended with status provider_error.",
+        "capability_synthesis generation 5 has no provider request ID.",
+        "capability_synthesis generation 5 has incomplete model-usage evidence.",
+        "Repository semantic planning used its deterministic fallback.",
+        "Repository semantic planning has no audited generation reference.",
+        "Repository refresh is missing its persisted semantic evidence universe; rerun the repository refresh before evaluation."
+      ],
+      "modelIdentities": [
+        "capability_synthesis:openrouter:openai/gpt-5.6-luna",
+        "capability_synthesis:openrouter:openai/gpt-5.6-terra"
+      ],
+      "policyVersions": [
+        "analyzerVersion=repository-coverage-v16",
+        "coveragePolicyVersion=repository-coverage-v8",
+        "lifecyclePolicyVersion=knowledge-lifecycle-v3",
+        "orchestration.policyVersion=repository-orchestration-v12",
+        "orchestrationPolicyVersion=repository-orchestration-v12",
+        "semanticAnalyzerVersion=repository-coverage-v18",
+        "synthesisPolicyVersion=repository-synthesis-v32"
+      ]
+    },
+    "adjudicationEligible": false,
+    "inventory": {
+      "scannableFiles": 243,
+      "analyzedFiles": 243,
+      "semanticEligibleFiles": null,
+      "semanticAnalyzedFiles": 8,
+      "analyzedPaths": [
+        ".env.example",
+        ".github/SECRETS_TEMPLATE.md",
+        ".github/branch-protection.md",
+        ".github/serena/Dockerfile",
+        ".gitignore",
+        ".serena/project.yml",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "Dockerfile",
+        "Makefile",
+        "config/model_config.yaml",
+        "config/progressive_context_config.yaml",
+        "doc-service/lambda/.gitignore",
+        "doc-service/lambda/README.md",
+        "doc-service/lambda/deploy.sh",
+        "doc-service/lambda/package.json",
+        "doc-service/lambda/poc/.gitignore",
+        "doc-service/lambda/poc/README.md",
+        "doc-service/lambda/poc/index.js",
+        "doc-service/lambda/poc/package.json",
+        "doc-service/lambda/poc/test.js",
+        "doc-service/lambda/src/index.js",
+        "doc-service/lambda/src/logger.js",
+        "doc-service/lambda/src/s3-helpers.js",
+        "doc-service/lambda/src/stripe-helpers.js",
+        "doc-service/lambda/src/template-handler.js",
+        "doc-service/lambda/src/templates/glassmorphic-proposal.js",
+        "doc-service/lambda/test/index.test.js",
+        "doc-service/lambda/test/s3-helpers.test.js",
+        "doc-service/terraform/.gitignore",
+        "doc-service/terraform/README.md",
+        "doc-service/terraform/main.tf",
+        "doc-service/terraform/outputs.tf",
+        "doc-service/terraform/plan.sh",
+        "doc-service/terraform/s3_helpers.js",
+        "doc-service/terraform/terraform.tfvars.example",
+        "doc-service/terraform/variables.tf",
+        "docker-compose.yml",
+        "docs/DEPLOYMENT.md",
+        "docs/DEV_AGENT.md",
+        "docs/PROGRESSIVE_CONTEXT.md",
+        "docs/README.md",
+        "docs/VERCEL_DYNAMIC_DEPLOYMENT.md",
+        "docs/ai-review-integration.md",
+        "docs/llm-model-switch-recommendation.md",
+        "docs/real-serena-integration-report.md",
+        "docs/serena-integration-summary.md",
+        "frontend/README.md",
+        "frontend/email-intake/index.html",
+        "frontend/email-intake/package.json",
+        "frontend/email-intake/postcss.config.js",
+        "frontend/email-intake/src/App.tsx",
+        "frontend/email-intake/src/api/client.ts",
+        "frontend/email-intake/src/components/ConversationDetail.tsx",
+        "frontend/email-intake/src/components/ConversationList.tsx",
+        "frontend/email-intake/src/components/PDFAnnotator.tsx",
+        "frontend/email-intake/src/components/ProposalViewer.tsx",
+        "frontend/email-intake/src/components/ReplyEditor.tsx",
+        "frontend/email-intake/src/components/RevisionComparison.tsx",
+        "frontend/email-intake/src/components/WireframeEditor.tsx",
+        "frontend/email-intake/src/components/WireframeViewer.tsx",
+        "frontend/email-intake/src/index.css",
+        "frontend/email-intake/src/main.tsx",
+        "frontend/email-intake/src/utils/emailBody.ts",
+        "frontend/email-intake/src/vite-env.d.ts",
+        "frontend/email-intake/tailwind.config.js",
+        "frontend/email-intake/tsconfig.json",
+        "frontend/email-intake/tsconfig.node.json",
+        "frontend/email-intake/vite.config.ts",
+        "infrastructure/lambda/.gitkeep",
+        "infrastructure/scripts/.gitkeep",
+        "infrastructure/terraform/.gitkeep",
+        "pyproject.toml",
+        "requirements.txt",
+        "sample_input/additional_requirements.txt",
+        "sample_input/api_service_spec.md",
+        "sample_input/project_brief.md",
+        "sample_input/web_scraper_spec.md",
+        "scripts/README.md",
+        "scripts/add_demo_iam_permissions.py",
+        "scripts/add_demo_iam_permissions_root.py",
+        "scripts/build_index.py",
+        "scripts/check_bedrock.py",
+        "scripts/check_review_status.py",
+        "scripts/ci_token_validation.py",
+        "scripts/create_lambda_function.py",
+        "scripts/demo.sh",
+        "scripts/demo_progressive_context.py",
+        "scripts/demo_sonar_integration.py",
+        "scripts/deploy_client_project.py",
+        "scripts/deploy_to_vercel.py",
+        "scripts/ping_bedrock_cli.sh",
+        "scripts/post_review_to_pr.py",
+        "scripts/push_artifacts.py",
+        "scripts/run_analyser.py",
+        "scripts/run_client_simulation.py",
+        "scripts/run_dev_agent.py",
+        "scripts/run_email_intake_demo.sh",
+        "scripts/run_planner.py",
+        "scripts/run_solopilot.py",
+        "scripts/setup_email_intake_demo.py",
+        "scripts/setup_serena.py",
+        "scripts/simulation/__init__.py",
+        "scripts/simulation/client_simulator.py",
+        "scripts/simulation/conversation_engine.py",
+        "scripts/simulation/intake_adapter.py",
+        "scripts/simulation/personas.py",
+        "scripts/simulation/prompts/client_persona.txt",
+        "scripts/simulation/scenarios.py",
+        "scripts/validate_complex_projects.py",
+        "scripts/validate_imports.py",
+        "scripts/validate_progressive_context.py",
+        "scripts/vercel_project_manager.py",
+        "sonar-project.properties",
+        "src/README.md",
+        "src/__init__.py",
+        "src/agents/README.md",
+        "src/agents/__init__.py",
+        "src/agents/analyser/__init__.py",
+        "src/agents/analyser/parser.py",
+        "src/agents/dev/__init__.py",
+        "src/agents/dev/context7_bridge.py",
+        "src/agents/dev/context_engine/__init__.py",
+        "src/agents/dev/context_engine/experimental.py",
+        "src/agents/dev/context_engine/progressive_context.py",
+        "src/agents/dev/context_packer.py",
+        "src/agents/dev/dev_agent.py",
+        "src/agents/email_intake/CHANGELOG.md",
+        "src/agents/email_intake/README.md",
+        "src/agents/email_intake/__init__.py",
+        "src/agents/email_intake/api/README.md",
+        "src/agents/email_intake/api/__init__.py",
+        "src/agents/email_intake/api/api_gateway_config.yaml",
+        "src/agents/email_intake/api/lambda_api.py",
+        "src/agents/email_intake/conversation_state.py",
+        "src/agents/email_intake/conversational_responder.py",
+        "src/agents/email_intake/deploy.sh",
+        "src/agents/email_intake/deployment_tracker.py",
+        "src/agents/email_intake/email_forwarder.py",
+        "src/agents/email_intake/email_parser.py",
+        "src/agents/email_intake/email_sender.py",
+        "src/agents/email_intake/lambda_function.py",
+        "src/agents/email_intake/metadata_extractor.py",
+        "src/agents/email_intake/migrate_dynamodb.py",
+        "src/agents/email_intake/patch_builder.py",
+        "src/agents/email_intake/pdf_generator.py",
+        "src/agents/email_intake/proposal_mapper.py",
+        "src/agents/email_intake/requirement_extractor.py",
+        "src/agents/email_intake/response_reviser.py",
+        "src/agents/email_intake/reviewer.py",
+        "src/agents/email_intake/scripts/create_message_map_table.py",
+        "src/agents/email_intake/scripts/deploy_api_lambda.sh",
+        "src/agents/email_intake/scripts/deploy_forwarder.sh",
+        "src/agents/email_intake/scripts/deploy_lambda_update.sh",
+        "src/agents/email_intake/template_assets.py",
+        "src/agents/email_intake/utils.py",
+        "src/agents/email_intake/vision_analyzer.py",
+        "src/agents/email_intake/wireframe_generator.py",
+        "src/agents/email_intake/wireframe_patcher.py",
+        "src/agents/marketing/__init__.py",
+        "src/agents/marketing/poster.py",
+        "src/agents/planning/__init__.py",
+        "src/agents/planning/models.py",
+        "src/agents/planning/planner.py",
+        "src/agents/review/__init__.py",
+        "src/agents/review/reviewer_agent.py",
+        "src/common/__init__.py",
+        "src/providers/README.md",
+        "src/providers/__init__.py",
+        "src/providers/base.py",
+        "src/providers/bedrock.py",
+        "src/providers/codewhisperer.py",
+        "src/providers/factory.py",
+        "src/providers/fake.py",
+        "src/storage/__init__.py",
+        "src/storage/budget_utils.py",
+        "src/storage/models.py",
+        "src/storage/proposal_version_index.py",
+        "src/storage/s3_proposal_store.py",
+        "src/storage/s3_wireframe_store.py",
+        "src/storage/wireframe_job_store.py",
+        "src/storage/wireframe_version_index.py",
+        "src/utils/__init__.py",
+        "src/utils/linter_integration.py",
+        "tests/README.md",
+        "tests/agents/email_intake/conversations/sample_test_conversations.yaml",
+        "tests/agents/email_intake/test_conversation_threading.py",
+        "tests/agents/email_intake/test_threading_live.py",
+        "tests/ai_providers_test.py",
+        "tests/analyser_test.py",
+        "tests/conftest.py",
+        "tests/context_engine_test.py",
+        "tests/context_packer_test.py",
+        "tests/dev_agent_test.py",
+        "tests/github_review_test.py",
+        "tests/integration/__init__.py",
+        "tests/integration/test_deployment.py",
+        "tests/integration_review_promote_test.py",
+        "tests/linter_integration_test.py",
+        "tests/marketing_poster_test.py",
+        "tests/performance/benchmark_suite.py",
+        "tests/performance/serena_benchmark.py",
+        "tests/planning_test.py",
+        "tests/push_artifacts_test.py",
+        "tests/regression/complex_projects/enterprise_saas_platform.py",
+        "tests/regression/complex_projects/large_ecommerce_platform.py",
+        "tests/reviewer_agent_test.py",
+        "tests/scripts/smoke_test.py",
+        "tests/scripts/test_bedrock_direct.py",
+        "tests/scripts/test_email_flow.py",
+        "tests/scripts/test_email_intake_script.py",
+        "tests/scripts/test_review_system.py",
+        "tests/scripts/validation/full_pipeline_test.py",
+        "tests/serena_live_test.py",
+        "tests/test_analyser_bedrock_arn.py",
+        "tests/test_bad_code_example.py",
+        "tests/test_bedrock_arn_matches_account.py",
+        "tests/test_email_conversation_flow.py",
+        "tests/test_email_intake.py",
+        "tests/test_integration_pipeline.py",
+        "tests/test_log_call_decorator.py",
+        "tests/test_progressive_context.py",
+        "tests/test_provider_integration.py",
+        "tests/test_real_serena.py",
+        "tests/test_real_serena_performance.py",
+        "tests/test_serena_context_engine.py",
+        "tests/test_sonarcloud_integration.py",
+        "tests/test_token_budget.py",
+        "tests/test_vercel_project_manager.py",
+        "uploads/XXXNEW_max5_Europe_Warsaw_9c367d95-21ad-47ec-9b83-1044c3fe9e1d_20250624_184520.json",
+        "uploads/XXXNEW_max5_US_Pacific_9c367d95-21ad-47ec-9b83-1044c3fe9e1d_20250624_184716.json",
+        "uploads/XXXNEW_pro_Europe_Warsaw_9c367d95-21ad-47ec-9b83-1044c3fe9e1d_20250624_184434.json",
+        "uploads/XXXNEW_pro_US_Pacific_9c367d95-21ad-47ec-9b83-1044c3fe9e1d_20250624_184622.json",
+        "usage_tracking2.json",
+        "vercel.json",
+        "README.md",
+        "doc-service/lambda/test/stripe-helpers.test.js",
+        "frontend/email-intake/src/types.ts",
+        "scripts/demo_linting_workflow.py",
+        "src/agents/dev/context_engine/serena_engine.py",
+        "src/common/bedrock_client.py",
+        "src/utils/github_review.py",
+        "src/utils/sonarcloud_integration.py"
+      ],
+      "semanticAnalyzedPaths": [
+        "README.md",
+        "doc-service/lambda/test/stripe-helpers.test.js",
+        "frontend/email-intake/src/types.ts",
+        "scripts/demo_linting_workflow.py",
+        "src/agents/dev/context_engine/serena_engine.py",
+        "src/common/bedrock_client.py",
+        "src/utils/github_review.py",
+        "src/utils/sonarcloud_integration.py"
+      ]
+    },
+    "coverage": {
+      "static": 1,
+      "semantic": null,
+      "knowledge": 0.06837606837606838
+    },
+    "performance": {
+      "durationMs": 358822,
+      "modelCalls": 5,
+      "totalTokens": 8679,
+      "estimatedCostUsd": 0.047324
+    },
+    "savedOutputCounts": {
+      "highlights": 4,
+      "facts": 19,
+      "total": 23,
+      "evidenceReferences": 35,
+      "exactRangeAndQuoteReferences": 35,
+      "outputsWithoutEvidence": 0
+    },
+    "savedOutputs": [
+      {
+        "id": "cmth4071q00ks21un6ah3dhbq",
+        "kind": "fact",
+        "text": "A linting-workflow demonstration presents a multi-stage path spanning code generation, linting, self-correction, repository push, SonarCloud analysis, AI-review aggregation, and GitHub pull-request posting.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "workflow_orchestration",
+        "evidence": [
+          {
+            "path": "scripts/demo_linting_workflow.py",
+            "lineStart": 141,
+            "lineEnd": 163,
+            "quote": "    # 5. Demo end-to-end workflow simulation\n    print(\"\\n🎯 End-to-End Workflow Summary:\")\n    print(\"  1. 📨 Client requests: 'Build an AI chatbot'\")\n    print(\"  2. 🧠 Analyser → Planner → Dev Agent processes request\")\n    print(\"  3. 🔍 Dev Agent generates code with real-time linting:\")\n    print(\"     • Ruff checks style and errors\")\n    print(\"     • MyPy validates types (if available)\")\n    print(\"     • Bandit scans for security issues (if available)\")\n    print(\"     • AI self-corrects based on linter feedback\")\n    print(\"  4. 📤 Push code to client repository\")\n    print(\"  5. 🔨 Auto-create SonarCloud project: demo-client_ai-chatbot\")\n    print(\"  6. 📊 SonarCloud analyzes pushed code\")\n    print(\"  7. 🤖 AI Reviewer aggregates: Linter + SonarCloud + AI insights\")\n    print(\"  8. 💬 Post comprehensive review to GitHub PR\")\n\n    print(\"\\n✨ Workflow Benefits:\")\n    print(\"  • ⚡ Real-time feedback during code generation\")\n    print(\"  • 🛡️ Security scanning with Bandit\")\n    print(\"  • 🎯 Type safety with MyPy\")\n    print(\"  • 🎨 Code style consistency with Ruff\")\n    print(\"  • 🔄 Automatic error correction (max 3 iterations)\")\n    print(\"  • 🏭 Zero-touch SonarCloud project provisioning\")\n    print(\"  • 📈 Comprehensive quality analysis\")",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth40al900kv21unja63uu6g",
+        "kind": "fact",
+        "text": "The demonstration initializes linting and SonarCloud components and exercises linting before presenting an end-to-end workflow summary, reflecting orchestration across multiple workflow steps.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "workflow_orchestration",
+        "evidence": [
+          {
+            "path": "scripts/demo_linting_workflow.py",
+            "lineStart": 18,
+            "lineEnd": 97,
+            "quote": "def demo_linting_workflow():\n    \"\"\"Demonstrate the real-time linting workflow.\"\"\"\n    print(\"🚀 SoloPilot Linting Workflow Demo\")\n    print(\"=\" * 60)\n\n    # 1. Initialize components\n    print(\"\\n📦 Initializing components...\")\n\n    # Initialize linter manager\n    linter_manager = LinterManager()\n    print(f\"✅ LinterManager: {linter_manager.get_available_languages()}\")\n\n    # Initialize SonarCloud client\n    sonar_client = SonarCloudClient()\n    print(\n        f\"✅ SonarCloud: Available={sonar_client.is_available()}, Org={sonar_client.organization}\"\n    )\n\n    # 2. Demo Git URL parsing and project creation\n    print(\"\\n🔍 Testing SonarCloud Auto-Provisioning...\")\n    test_git_url = \"https://github.com/demo-client/ai-chatbot.git\"\n    parsed = SonarCloudClient.parse_git_url(test_git_url)\n    if parsed:\n        print(f\"  📋 Parsed Git URL: {parsed['owner']}/{parsed['repo']} → {parsed['project_key']}\")\n\n        if sonar_client.is_available():\n            print(f\"  🔨 Would create SonarCloud project: {parsed['project_key']}\")\n            # Note: Not actually creating to avoid API calls in demo\n        else:\n            print(\"  ⚠️ SonarCloud unavailable (set SONAR_TOKEN to test)\")\n\n    # 3. Demo real-time linting on sample code\n    print(\"\\n🔍 Testing Real-Time Linting...\")\n\n    # Sample Python code with intentional issues\n    sample_code = \"\"\"\nimport os\nimport sys\nimport json\n\ndef process_user_data(data):\n    # Security issue: eval usage\n    result = eval(data)\n\n    # Type issue: inconsistent return types\n    if result > 10:\n        return \"high\"\n    else:\n        return 42\n\n    # Unused variable\n    unused_var = \"will trigger warning\"\n\n# Style issue: missing type hints\ndef calculate_total(items):\n    total = 0\n    for item in items:\n        total += item\n    return total\n\n# Unused import will be flagged\npassword = [REDACTED]\n\"\"\"\n\n    if \"python\" in linter_manager.get_available_languages():\n        print(\"  📝 Linting sample Python code...\")\n\n        results = linter_man",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth40e6f00ky21unkiubel3x",
+        "kind": "fact",
+        "text": "The SonarCloud integration path parses a Git URL and conditionally indicates project creation when the service is available.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "workflow_orchestration",
+        "evidence": [
+          {
+            "path": "scripts/demo_linting_workflow.py",
+            "lineStart": 36,
+            "lineEnd": 47,
+            "quote": "    # 2. Demo Git URL parsing and project creation\n    print(\"\\n🔍 Testing SonarCloud Auto-Provisioning...\")\n    test_git_url = \"https://github.com/demo-client/ai-chatbot.git\"\n    parsed = SonarCloudClient.parse_git_url(test_git_url)\n    if parsed:\n        print(f\"  📋 Parsed Git URL: {parsed['owner']}/{parsed['repo']} → {parsed['project_key']}\")\n\n        if sonar_client.is_available():\n            print(f\"  🔨 Would create SonarCloud project: {parsed['project_key']}\")\n            # Note: Not actually creating to avoid API calls in demo\n        else:\n            print(\"  ⚠️ SonarCloud unavailable (set SONAR_TOKEN to test)\")",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth40hny00l121unluahm165",
+        "kind": "fact",
+        "text": "The AI runtime includes a Serena LSP-based context engine for symbol-aware code operations; it checks whether Serena can be invoked through uvx before proceeding and provides helpers that locate Python class or function definitions and return surrounding context or minimal stubs.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "ai_runtime",
+        "evidence": [
+          {
+            "path": "src/agents/dev/context_engine/serena_engine.py",
+            "lineStart": 36,
+            "lineEnd": 45,
+            "quote": "class SerenaContextEngine(BaseContextEngine):\n    \"\"\"\n    Serena LSP-based context engine with symbol-aware operations.\n\n    Features:\n    - Precise symbol lookup instead of file chunks\n    - AST-aware code understanding\n    - Cross-reference analysis\n    - 30-50% token reduction vs vector-based context\n    \"\"\"",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/agents/dev/context_engine/serena_engine.py",
+            "lineStart": 141,
+            "lineEnd": 154,
+            "quote": "        try:\n            # Check if uvx and serena are available\n            check_result = subprocess.run(\n                [\n                    \"uvx\",\n                    \"--from\",\n                    \"git+https://github.com/oraios/serena\",\n                    \"serena-mcp-server\",\n                    \"--help\",\n                ],\n                capture_output=True,\n                text=True,\n                timeout=30,\n            )",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/agents/dev/context_engine/serena_engine.py",
+            "lineStart": 698,
+            "lineEnd": 710,
+            "quote": "                if py_file.name.startswith(\".\"):\n                    continue\n\n                try:\n                    content = py_file.read_text(encoding=\"utf-8\")\n                    if symbol in content:\n                        # Extract relevant lines around the symbol\n                        lines = content.split(\"\\n\")\n                        for i, line in enumerate(lines):\n                            if symbol in line and (\"class \" in line or \"def \" in line):\n                                # Get function/class definition with some context\n                                start = max(0, i - 2)\n                                end = min(len(lines), i + 10)",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth40laz00l621unrxsncz6f",
+        "kind": "fact",
+        "text": "The Bedrock client validates AWS credentials and an inference-profile ARN before creating its boto3 client, and its initialization is blocked when the NO_NETWORK configuration is set.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "ai_runtime",
+        "evidence": [
+          {
+            "path": "src/common/bedrock_client.py",
+            "lineStart": 44,
+            "lineEnd": 56,
+            "quote": "    def __init__(self, inference_profile_arn: str, region: str = \"us-east-2\"):\n        \"\"\"Initialize the standardized Bedrock client.\"\"\"\n        self.inference_profile_arn = inference_profile_arn\n        self.region = region\n        self.client = None\n\n        # Check for offline mode\n        if os.getenv(\"NO_NETWORK\") == \"1\":\n            raise BedrockNetworkError(\n                \"🚫 NO_NETWORK=1 is set. Cannot initialize Bedrock client in offline mode.\"\n            )\n\n        self._initialize_client()",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/common/bedrock_client.py",
+            "lineStart": 58,
+            "lineEnd": 97,
+            "quote": "    def _initialize_client(self):\n        \"\"\"Initialize the boto3 Bedrock client with validation.\"\"\"\n        try:\n            # Validate credentials first\n            self._validate_credentials()\n\n            # Initialize client\n            self.client = boto3.client(\"bedrock-runtime\", region_name=self.region)\n\n            # Validate inference profile access\n            self._validate_inference_profile()\n\n        except (ClientError, BotoCoreError) as e:\n            raise BedrockAccessError(f\"Failed to initialize Bedrock client: {e}\") from e\n\n    def _validate_credentials(self):\n        \"\"\"Validate AWS credentials are available.\"\"\"\n        has_env = all(os.getenv(k) for k in (\"AWS_ACCESS_KEY_ID\", \"AWS_SECRET_ACCESS_KEY\"))\n        has_profile = os.path.exists(os.path.expanduser(\"~/.aws/credentials\"))\n\n        if not (has_env or has_profile):\n            raise BedrockAccessError(\n                \"❌ AWS credentials not found. \"\n                \"Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or configure ~/.aws/credentials\"\n            )\n\n    def _validate_inference_profile(self):\n        \"\"\"Validate inference profile ARN format.\"\"\"\n        if not self.inference_profile_arn:\n            raise BedrockValidationError(\"❌ Inference profile ARN is required\")\n\n        if not self.inference_profile_arn.startswith(\"arn:aws:bedrock:\"):\n            raise BedrockValidationError(\n                f\"❌ Invalid inference profile ARN format: {self.inference_profile_arn}. \"\n                \"Expected format: arn:aws:bedrock:region:account:inference-profile/profile-id\"\n            )\n\n    def _model_id_from_arn(self) -> str:\n        \"\"\"Extract model ID from inference profile ARN.\"\"\"\n        return self.inference_profile_arn.split(\"/\")[-1]",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth40oy100la21unis1csosr",
+        "kind": "fact",
+        "text": "Bedrock request handling includes retry loops and classifies terminal failures as access, validation, or network errors for standardized recovery and reporting.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "ai_runtime",
+        "evidence": [
+          {
+            "path": "src/common/bedrock_client.py",
+            "lineStart": 197,
+            "lineEnd": 214,
+            "quote": "                print(f\"   Retrying in {wait_time:.1f} seconds...\")\n                time.sleep(wait_time)\n            else:\n                print(f\"❌ Final Bedrock attempt failed: {last_exception}\")\n\n        # Classify and re-raise the final exception\n        error_str = str(last_exception)\n        if \"AccessDeniedException\" in error_str:\n            raise BedrockAccessError(\n                f\"❌ Bedrock access denied. ARN: {self.inference_profile_arn}. \"\n                \"Verify you have bedrock:InvokeModel permissions and profile access.\"\n            ) from last_exception\n        elif \"ValidationException\" in error_str:\n            raise BedrockValidationError(\n                f\"❌ Bedrock validation error: {last_exception}\"\n            ) from last_exception\n        elif any(\n            network_err in error_str",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth40sc300ld21una3mt0xcr",
+        "kind": "fact",
+        "text": "The product flow spans email intake, requirement extraction, proposal drafting and review, planning, and export to AI-oriented IDE formats.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 3,
+            "lineEnd": 13,
+            "quote": "SoloPilot automates the client intake workflow — from email threads to approved proposals to structured plans ready for AI powered IDEs like Antigravity, Cursor, and VS Code.\n\n## Vision\n\nBridge the gap between client conversations and code:\n- **Intake**: Manage email threads, extract requirements, draft responses with human review\n- **Proposals**: Generate, annotate, and version PDF proposals with full revision history\n- **Plan**: Transform approved proposals into structured PRDs and project plans\n- **Export**: Output plans in formats optimized for AI coding assistants\n\nSoloPilot handles the messy client → requirements → proposal → plan workflow so you can jump straight into building.",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth40vz700lg21un6sbmqfvp",
+        "kind": "fact",
+        "text": "Proposal handling supports human-reviewed draft responses, versioned PDF proposals with revision history, and a revision loop leading to approval.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 17,
+            "lineEnd": 21,
+            "quote": "- **Email Intake Console**: Conversational manager that groups threads, extracts requirements, and prepares draft responses\n- **AI Response Generation**: Draft email replies with evaluator-revisor loop for quality scoring\n- **Metadata Extraction**: AI-powered extraction of project type, budget, timeline, client name, and key requirements\n- **Proposal PDFs with Versioning**: Render proposals via React-PDF; each revision stored as versioned S3 object for audit and rollback\n- **PDF Annotation**: Annotate proposals directly with vision analysis feedback",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth40zmh00lj21unhg2iqryq",
+        "kind": "fact",
+        "text": "Approval status gates downstream work: approved proposals feed PRD and plan generation, while reviewed plans are exported as IDE-specific artifacts and structured formats.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 62,
+            "lineEnd": 80,
+            "quote": "  subgraph \"Proposals\"\n    G -->|Approve| H[Requirement Extractor]\n    H --> I[PDF Generator]\n    I --> J[S3 versioned : proposals]\n    J --> K[PDF Annotator + Vision Analysis]\n    K --> L[Revision Loop]\n    L -->|Client Approves| M[Approved Proposal]\n  end\n\n  subgraph \"Plan\"\n    M --> N[PRD Generator]\n    N --> O[Plan Builder]\n    O --> P[Human Review]\n  end\n\n  subgraph \"Export\"\n    P -->|Approve| Q[IDE Export Engine]\n    Q --> R[Antigravity / Cursor / VS Code]\n    Q --> S[Markdown / JSON / YAML]",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth4130g00lm21un17qltu14",
+        "kind": "fact",
+        "text": "The GitHub review integration publishes AI review findings to pull requests as inline comments and summary comments.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "src/utils/github_review.py",
+            "lineStart": 3,
+            "lineEnd": 7,
+            "quote": "GitHub Review Integration for SoloPilot\n\nPosts AI review findings as inline comments and summary comments on GitHub PRs.\nUses GitHub CLI (gh) for API interactions with graceful offline fallback.\n\"\"\"",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth416r200lp21unrwfr70t7",
+        "kind": "fact",
+        "text": "Before publishing a review, the posting flow checks offline and authentication readiness, detects an active pull request when needed, then posts inline findings and a summary comment.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "src/utils/github_review.py",
+            "lineStart": 45,
+            "lineEnd": 92,
+            "quote": "    def post_review_to_pr(\n        self, review_result: Dict[str, Any], pr_number: Optional[int] = None\n    ) -> Dict[str, Any]:\n        \"\"\"\n        Post AI review findings to GitHub PR.\n\n        Args:\n            review_result: Review result from ReviewerAgent\n            pr_number: Optional PR number (auto-detected if not provided)\n\n        Returns:\n            Dictionary with posting results and status\n        \"\"\"\n        if not self._can_post_review():\n            return {\n                \"success\": False,\n                \"reason\": \"offline_mode\",\n                \"message\": \"Skipping GitHub review posting (offline mode or no auth)\",\n            }\n\n        try:\n            # Auto-detect PR number if not provided\n            if pr_number is None:\n                pr_number = self._get_current_pr_number()\n\n            if pr_number is None:\n                return {\n                    \"success\": False,\n                    \"reason\": \"no_pr\",\n                    \"message\": \"No open PR found for current branch\",\n                }\n\n            # Post inline comments\n            inline_results = self._post_inline_comments(review_result, pr_number)\n\n            # Post summary comment\n            summary_result = self._post_summary_comment(review_result, pr_number)\n\n            return {\n                \"success\": True,\n                \"pr_number\": pr_number,\n                \"inline_comments\": inline_results,\n                \"summary_comment\": summary_result,\n                \"timestamp\": time.time(),\n            }\n\n        except Exception as e:\n            return {\"success\": False, \"reason\": \"error\", \"message\": f\"Failed to post review: {e}\"}",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth41ae100ls21unkxz9tsi5",
+        "kind": "fact",
+        "text": "Review summaries can include file statistics and severity-based comment counts alongside review text.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "src/utils/github_review.py",
+            "lineStart": 266,
+            "lineEnd": 295,
+            "quote": "        # Add file statistics\n        file_stats = static_analysis.get(\"file_stats\", {})\n        if file_stats:\n            lines.extend(\n                [\n                    \"\",\n                    \"### 📁 File Statistics\",\n                    f\"- Python files: {file_stats.get('python_files', 0)}\",\n                    f\"- Test files: {file_stats.get('test_files', 0)}\",\n                    f\"- Total lines: {file_stats.get('total_lines', 0)}\",\n                    \"\",\n                ]\n            )\n\n        # Add comment summary by severity\n        if comments:\n            severity_counts = {}\n            for comment in comments:\n                severity = comment.get(\"severity\", \"info\")\n                severity_counts[severity] = severity_counts.get(severity, 0) + 1\n\n            lines.extend([\"### 💬 Review Comments Summary\", \"\"])\n\n            for severity in [\"high\", \"medium\", \"low\", \"info\"]:\n                count = severity_counts.get(severity, 0)\n                if count > 0:\n                    emoji = {\"high\": \"🔴\", \"medium\": \"🟡\", \"low\": \"🟢\", \"info\": \"ℹ️\"}[severity]\n                    lines.append(f\"- {emoji} **{severity.upper()}**: {count} issues\")\n\n            lines.append(\"\")",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth41dtz00lv21unsev1uiok",
+        "kind": "fact",
+        "text": "Email-intake conversation data models represent thread identity, client and email context, lifecycle and reply state, participants, message history, pending replies, attachments, timestamps, counters, and extracted metadata.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "frontend/email-intake/src/types.ts",
+            "lineStart": 1,
+            "lineEnd": 21,
+            "quote": "export interface Conversation {\n  conversation_id: string;\n  subject: string;\n  client_email: string;\n  phase: ConversationPhase;\n  reply_mode: 'manual' | 'auto';\n  created_at: string;\n  updated_at: string;\n  pending_replies: number;\n  email_count?: number;\n  participants?: string[];\n  email_history?: Email[];\n  pending_replies_list?: PendingReply[];\n  attachments?: Attachment[];\n  // Extracted metadata fields\n  client_name?: string;\n  project_name?: string;\n  project_type?: string;\n  latest_metadata?: ExtractedMetadata;\n  metadata_updated_at?: string;\n}",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth41hf300ly21unmszfs54u",
+        "kind": "fact",
+        "text": "Extracted intake metadata captures project and client identifiers, phase, attachment and send status, meeting and revision requests, sentiment, needed actions, confidence, notes, and a timestamp.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "frontend/email-intake/src/types.ts",
+            "lineStart": 23,
+            "lineEnd": 40,
+            "quote": "export interface ExtractedMetadata {\n  client_name?: string;\n  client_first_name?: string;\n  project_name?: string;\n  project_type?: string;\n  current_phase?: string;\n  should_attach_pdf?: boolean;\n  should_send_pdf?: boolean;\n  meeting_requested?: boolean;\n  revision_requested?: boolean;\n  proposal_explicitly_requested?: boolean;\n  feedback_sentiment?: string;\n  key_topics?: string[];\n  action_required?: string;\n  confidence_score?: number;\n  extraction_notes?: string;\n  timestamp?: string;\n}",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth41kym00m121unrenjcm4c",
+        "kind": "fact",
+        "text": "Reply-review and revision models retain evaluation scores, red flags, prompts, outcome status, attempt counts, and optional links to review data.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "domain_data",
+        "evidence": [
+          {
+            "path": "frontend/email-intake/src/types.ts",
+            "lineStart": 65,
+            "lineEnd": 102,
+            "quote": "export interface PendingReply {\n  reply_id: string;\n  generated_at: string;\n  llm_prompt: string;\n  llm_response: string;\n  status: 'pending' | 'approved' | 'rejected' | 'amended';\n  amended_content?: string;\n  reviewed_by?: string;\n  reviewed_at?: string;\n  sent_at?: string;\n  message_id?: string;\n  phase: ConversationPhase;\n  metadata?: Record<string, any>;\n  review?: ReviewResult;\n  revision?: RevisionResult;\n}\n\nexport interface ReviewResult {\n  relevance_score: number;\n  completeness_score: number;\n  accuracy_score: number;\n  next_steps_score: number;\n  overall_score: number;\n  red_flags: string[];\n  summary: string;\n  reviewed_at: string;\n}\n\nexport interface RevisionResult {\n  revised_response: string;\n  feedback_prompt: string;\n  revision_prompt: string;\n  revised_at: string;\n  revision_successful: boolean;\n  revised_review?: ReviewResult;\n  revision_error?: string;\n  revision_attempts?: number;\n}",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth41ojn00m421un4sbffxee",
+        "kind": "fact",
+        "text": "The SonarCloud integration requests component measures for the configured project key and converts the returned quality measures into a structured metrics map.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "ingestion_integrations",
+        "evidence": [
+          {
+            "path": "src/utils/sonarcloud_integration.py",
+            "lineStart": 487,
+            "lineEnd": 503,
+            "quote": "        \"\"\"\n        if not self.is_available():\n            return None\n\n        try:\n            url = f\"{self.base_url}/measures/component\"\n            params = {\n                \"component\": self.project_key,\n                \"metricKeys\": \"bugs,vulnerabilities,code_smells,coverage,duplicated_lines_density,reliability_rating,security_rating,sqale_rating\",\n            }\n\n            response = self.session.get(url, params=params, timeout=15)\n\n            if response.status_code == 200:\n                data = response.json()\n                return self._parse_metrics(data)\n            else:",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth41s6t00m721un5oy4ekpf",
+        "kind": "fact",
+        "text": "The integration is configured from environment state and declines operation when network access is disabled or a SonarCloud token is unavailable.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "ingestion_integrations",
+        "evidence": [
+          {
+            "path": "src/utils/sonarcloud_integration.py",
+            "lineStart": 56,
+            "lineEnd": 86,
+            "quote": "    def __init__(self, project_key: str = None, organization: str = None):\n        \"\"\"\n        Initialize SonarCloud client.\n\n        Args:\n            project_key: SonarCloud project key (auto-detected if None)\n            organization: SonarCloud organization key (default: solopilot-clients)\n        \"\"\"\n        self.project_key = project_key\n        self.organization = organization or os.getenv(\"SONAR_ORGANIZATION\", \"solopilot-clients\")\n        self.base_url = \"https://sonarcloud.io/api\"\n        self.token = [REDACTED]\n        self.no_network = os.getenv(\"NO_NETWORK\") == \"1\"\n        self.session = self._create_session()\n\n    def _create_session(self) -> requests.Session:\n        \"\"\"Create a configured requests session with proper headers and timeouts.\"\"\"\n        session = requests.Session()\n        session.auth = [REDACTED]\n        session.headers.update(\n            {\n                \"User-Agent\": \"SoloPilot-SonarCloud-Integration/1.0\",\n                \"Accept\": \"application/json\",\n                \"Content-Type\": \"application/x-www-form-urlencoded\",\n            }\n        )\n        return session\n\n    def is_available(self) -> bool:\n        \"\"\"Check if SonarCloud integration is available.\"\"\"\n        return not self.no_network and bool(self.token)",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth41vu000ma21un7yw6flei",
+        "kind": "fact",
+        "text": "A project-setup test path accepts a GitHub repository URL and reports whether setup succeeded or failed, separately from the metrics-query flow.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "ingestion_integrations",
+        "evidence": [
+          {
+            "path": "src/utils/sonarcloud_integration.py",
+            "lineStart": 759,
+            "lineEnd": 769,
+            "quote": "        test_url = \"https://github.com/demo-client/sample-project.git\"\n        result = client.setup_project_from_git_url(test_url, \"Demo Sample Project\")\n        if result:\n            print(\"  ✅ Project setup completed:\")\n            for key, value in result.items():\n                print(f\"    {key}: {value}\")\n        else:\n            print(\"  ❌ Project setup failed\")\n    else:\n        print(\"\\n⚠️ Skipping project creation test (SonarCloud not available)\")\n        print(\"   Set SONAR_TOKEN environment variable to test project creation\")",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth422au00mg21unc71pnhdh",
+        "kind": "fact",
+        "text": "The class is defined as a Serena LSP-based context engine with symbol-aware operations, establishing an AI runtime support layer that is designed to reason over code structure rather than plain file chunks.",
+        "summary": null,
+        "claimState": "unknown",
+        "domain": "project_domain:agents",
+        "evidence": [
+          {
+            "path": "src/agents/dev/context_engine/serena_engine.py",
+            "lineStart": 36,
+            "lineEnd": 45,
+            "quote": "class SerenaContextEngine(BaseContextEngine):\n    \"\"\"\n    Serena LSP-based context engine with symbol-aware operations.\n\n    Features:\n    - Precise symbol lookup instead of file chunks\n    - AST-aware code understanding\n    - Cross-reference analysis\n    - 30-50% token reduction vs vector-based context\n    \"\"\"",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth425q300mj21unizwbxgmi",
+        "kind": "highlight",
+        "text": "A linting-workflow demonstration presents a multi-stage path spanning code generation, linting, self-correction, repository push, SonarCloud analysis, AI-review aggregation, and GitHub pull-request posting.",
+        "summary": "A linting-workflow demonstration presents a multi-stage path spanning code generation, linting, self-correction, repository push, SonarCloud analysis, AI-review aggregation, and GitHub pull-request posting.",
+        "claimState": "unknown",
+        "domain": "workflow_orchestration",
+        "evidence": [
+          {
+            "path": "scripts/demo_linting_workflow.py",
+            "lineStart": 141,
+            "lineEnd": 163,
+            "quote": "    # 5. Demo end-to-end workflow simulation\n    print(\"\\n🎯 End-to-End Workflow Summary:\")\n    print(\"  1. 📨 Client requests: 'Build an AI chatbot'\")\n    print(\"  2. 🧠 Analyser → Planner → Dev Agent processes request\")\n    print(\"  3. 🔍 Dev Agent generates code with real-time linting:\")\n    print(\"     • Ruff checks style and errors\")\n    print(\"     • MyPy validates types (if available)\")\n    print(\"     • Bandit scans for security issues (if available)\")\n    print(\"     • AI self-corrects based on linter feedback\")\n    print(\"  4. 📤 Push code to client repository\")\n    print(\"  5. 🔨 Auto-create SonarCloud project: demo-client_ai-chatbot\")\n    print(\"  6. 📊 SonarCloud analyzes pushed code\")\n    print(\"  7. 🤖 AI Reviewer aggregates: Linter + SonarCloud + AI insights\")\n    print(\"  8. 💬 Post comprehensive review to GitHub PR\")\n\n    print(\"\\n✨ Workflow Benefits:\")\n    print(\"  • ⚡ Real-time feedback during code generation\")\n    print(\"  • 🛡️ Security scanning with Bandit\")\n    print(\"  • 🎯 Type safety with MyPy\")\n    print(\"  • 🎨 Code style consistency with Ruff\")\n    print(\"  • 🔄 Automatic error correction (max 3 iterations)\")\n    print(\"  • 🏭 Zero-touch SonarCloud project provisioning\")\n    print(\"  • 📈 Comprehensive quality analysis\")",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth429e500mu21unjjzevvwb",
+        "kind": "highlight",
+        "text": "AI runtime combines symbol-aware repository context extraction with guarded Amazon Bedrock client initialization and categorized retry/error handling.",
+        "summary": "Supports code-structure-aware agent context while preflighting model access, honoring a no-network gate, and normalizing invocation failures.",
+        "claimState": "unknown",
+        "domain": "ai_runtime",
+        "evidence": [
+          {
+            "path": "src/agents/dev/context_engine/serena_engine.py",
+            "lineStart": 36,
+            "lineEnd": 45,
+            "quote": "class SerenaContextEngine(BaseContextEngine):\n    \"\"\"\n    Serena LSP-based context engine with symbol-aware operations.\n\n    Features:\n    - Precise symbol lookup instead of file chunks\n    - AST-aware code understanding\n    - Cross-reference analysis\n    - 30-50% token reduction vs vector-based context\n    \"\"\"",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/agents/dev/context_engine/serena_engine.py",
+            "lineStart": 141,
+            "lineEnd": 154,
+            "quote": "        try:\n            # Check if uvx and serena are available\n            check_result = subprocess.run(\n                [\n                    \"uvx\",\n                    \"--from\",\n                    \"git+https://github.com/oraios/serena\",\n                    \"serena-mcp-server\",\n                    \"--help\",\n                ],\n                capture_output=True,\n                text=True,\n                timeout=30,\n            )",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/agents/dev/context_engine/serena_engine.py",
+            "lineStart": 698,
+            "lineEnd": 710,
+            "quote": "                if py_file.name.startswith(\".\"):\n                    continue\n\n                try:\n                    content = py_file.read_text(encoding=\"utf-8\")\n                    if symbol in content:\n                        # Extract relevant lines around the symbol\n                        lines = content.split(\"\\n\")\n                        for i, line in enumerate(lines):\n                            if symbol in line and (\"class \" in line or \"def \" in line):\n                                # Get function/class definition with some context\n                                start = max(0, i - 2)\n                                end = min(len(lines), i + 10)",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/common/bedrock_client.py",
+            "lineStart": 44,
+            "lineEnd": 56,
+            "quote": "    def __init__(self, inference_profile_arn: str, region: str = \"us-east-2\"):\n        \"\"\"Initialize the standardized Bedrock client.\"\"\"\n        self.inference_profile_arn = inference_profile_arn\n        self.region = region\n        self.client = None\n\n        # Check for offline mode\n        if os.getenv(\"NO_NETWORK\") == \"1\":\n            raise BedrockNetworkError(\n                \"🚫 NO_NETWORK=1 is set. Cannot initialize Bedrock client in offline mode.\"\n            )\n\n        self._initialize_client()",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/common/bedrock_client.py",
+            "lineStart": 58,
+            "lineEnd": 97,
+            "quote": "    def _initialize_client(self):\n        \"\"\"Initialize the boto3 Bedrock client with validation.\"\"\"\n        try:\n            # Validate credentials first\n            self._validate_credentials()\n\n            # Initialize client\n            self.client = boto3.client(\"bedrock-runtime\", region_name=self.region)\n\n            # Validate inference profile access\n            self._validate_inference_profile()\n\n        except (ClientError, BotoCoreError) as e:\n            raise BedrockAccessError(f\"Failed to initialize Bedrock client: {e}\") from e\n\n    def _validate_credentials(self):\n        \"\"\"Validate AWS credentials are available.\"\"\"\n        has_env = all(os.getenv(k) for k in (\"AWS_ACCESS_KEY_ID\", \"AWS_SECRET_ACCESS_KEY\"))\n        has_profile = os.path.exists(os.path.expanduser(\"~/.aws/credentials\"))\n\n        if not (has_env or has_profile):\n            raise BedrockAccessError(\n                \"❌ AWS credentials not found. \"\n                \"Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or configure ~/.aws/credentials\"\n            )\n\n    def _validate_inference_profile(self):\n        \"\"\"Validate inference profile ARN format.\"\"\"\n        if not self.inference_profile_arn:\n            raise BedrockValidationError(\"❌ Inference profile ARN is required\")\n\n        if not self.inference_profile_arn.startswith(\"arn:aws:bedrock:\"):\n            raise BedrockValidationError(\n                f\"❌ Invalid inference profile ARN format: {self.inference_profile_arn}. \"\n                \"Expected format: arn:aws:bedrock:region:account:inference-profile/profile-id\"\n            )\n\n    def _model_id_from_arn(self) -> str:\n        \"\"\"Extract model ID from inference profile ARN.\"\"\"\n        return self.inference_profile_arn.split(\"/\")[-1]",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/common/bedrock_client.py",
+            "lineStart": 197,
+            "lineEnd": 214,
+            "quote": "                print(f\"   Retrying in {wait_time:.1f} seconds...\")\n                time.sleep(wait_time)\n            else:\n                print(f\"❌ Final Bedrock attempt failed: {last_exception}\")\n\n        # Classify and re-raise the final exception\n        error_str = str(last_exception)\n        if \"AccessDeniedException\" in error_str:\n            raise BedrockAccessError(\n                f\"❌ Bedrock access denied. ARN: {self.inference_profile_arn}. \"\n                \"Verify you have bedrock:InvokeModel permissions and profile access.\"\n            ) from last_exception\n        elif \"ValidationException\" in error_str:\n            raise BedrockValidationError(\n                f\"❌ Bedrock validation error: {last_exception}\"\n            ) from last_exception\n        elif any(\n            network_err in error_str",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth42cz900nd21unv17fmomx",
+        "kind": "highlight",
+        "text": "Human-reviewed proposal-to-plan workflow with approval-gated PRD generation and IDE-oriented exports",
+        "summary": "Connects email intake and proposal revision history to approved planning artifacts, with review and approval states governing downstream generation and export.",
+        "claimState": "unknown",
+        "domain": "product_surface",
+        "evidence": [
+          {
+            "path": "README.md",
+            "lineStart": 3,
+            "lineEnd": 13,
+            "quote": "SoloPilot automates the client intake workflow — from email threads to approved proposals to structured plans ready for AI powered IDEs like Antigravity, Cursor, and VS Code.\n\n## Vision\n\nBridge the gap between client conversations and code:\n- **Intake**: Manage email threads, extract requirements, draft responses with human review\n- **Proposals**: Generate, annotate, and version PDF proposals with full revision history\n- **Plan**: Transform approved proposals into structured PRDs and project plans\n- **Export**: Output plans in formats optimized for AI coding assistants\n\nSoloPilot handles the messy client → requirements → proposal → plan workflow so you can jump straight into building.",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "README.md",
+            "lineStart": 17,
+            "lineEnd": 21,
+            "quote": "- **Email Intake Console**: Conversational manager that groups threads, extracts requirements, and prepares draft responses\n- **AI Response Generation**: Draft email replies with evaluator-revisor loop for quality scoring\n- **Metadata Extraction**: AI-powered extraction of project type, budget, timeline, client name, and key requirements\n- **Proposal PDFs with Versioning**: Render proposals via React-PDF; each revision stored as versioned S3 object for audit and rollback\n- **PDF Annotation**: Annotate proposals directly with vision analysis feedback",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "README.md",
+            "lineStart": 62,
+            "lineEnd": 80,
+            "quote": "  subgraph \"Proposals\"\n    G -->|Approve| H[Requirement Extractor]\n    H --> I[PDF Generator]\n    I --> J[S3 versioned : proposals]\n    J --> K[PDF Annotator + Vision Analysis]\n    K --> L[Revision Loop]\n    L -->|Client Approves| M[Approved Proposal]\n  end\n\n  subgraph \"Plan\"\n    M --> N[PRD Generator]\n    N --> O[Plan Builder]\n    O --> P[Human Review]\n  end\n\n  subgraph \"Export\"\n    P -->|Approve| Q[IDE Export Engine]\n    Q --> R[Antigravity / Cursor / VS Code]\n    Q --> S[Markdown / JSON / YAML]",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      },
+      {
+        "id": "cmth42gml00np21undgxwh31s",
+        "kind": "highlight",
+        "text": "GitHub pull-request review publishing with inline findings and structured severity summaries",
+        "summary": "Provides a pull-request review channel that validates publishing readiness, locates the active PR when needed, and posts both inline AI findings and a summary enriched with file and severity metadata.",
+        "claimState": "unknown",
+        "domain": "review_ui",
+        "evidence": [
+          {
+            "path": "src/utils/github_review.py",
+            "lineStart": 3,
+            "lineEnd": 7,
+            "quote": "GitHub Review Integration for SoloPilot\n\nPosts AI review findings as inline comments and summary comments on GitHub PRs.\nUses GitHub CLI (gh) for API interactions with graceful offline fallback.\n\"\"\"",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/utils/github_review.py",
+            "lineStart": 45,
+            "lineEnd": 92,
+            "quote": "    def post_review_to_pr(\n        self, review_result: Dict[str, Any], pr_number: Optional[int] = None\n    ) -> Dict[str, Any]:\n        \"\"\"\n        Post AI review findings to GitHub PR.\n\n        Args:\n            review_result: Review result from ReviewerAgent\n            pr_number: Optional PR number (auto-detected if not provided)\n\n        Returns:\n            Dictionary with posting results and status\n        \"\"\"\n        if not self._can_post_review():\n            return {\n                \"success\": False,\n                \"reason\": \"offline_mode\",\n                \"message\": \"Skipping GitHub review posting (offline mode or no auth)\",\n            }\n\n        try:\n            # Auto-detect PR number if not provided\n            if pr_number is None:\n                pr_number = self._get_current_pr_number()\n\n            if pr_number is None:\n                return {\n                    \"success\": False,\n                    \"reason\": \"no_pr\",\n                    \"message\": \"No open PR found for current branch\",\n                }\n\n            # Post inline comments\n            inline_results = self._post_inline_comments(review_result, pr_number)\n\n            # Post summary comment\n            summary_result = self._post_summary_comment(review_result, pr_number)\n\n            return {\n                \"success\": True,\n                \"pr_number\": pr_number,\n                \"inline_comments\": inline_results,\n                \"summary_comment\": summary_result,\n                \"timestamp\": time.time(),\n            }\n\n        except Exception as e:\n            return {\"success\": False, \"reason\": \"error\", \"message\": f\"Failed to post review: {e}\"}",
+            "hasExactRangeAndQuote": true
+          },
+          {
+            "path": "src/utils/github_review.py",
+            "lineStart": 266,
+            "lineEnd": 295,
+            "quote": "        # Add file statistics\n        file_stats = static_analysis.get(\"file_stats\", {})\n        if file_stats:\n            lines.extend(\n                [\n                    \"\",\n                    \"### 📁 File Statistics\",\n                    f\"- Python files: {file_stats.get('python_files', 0)}\",\n                    f\"- Test files: {file_stats.get('test_files', 0)}\",\n                    f\"- Total lines: {file_stats.get('total_lines', 0)}\",\n                    \"\",\n                ]\n            )\n\n        # Add comment summary by severity\n        if comments:\n            severity_counts = {}\n            for comment in comments:\n                severity = comment.get(\"severity\", \"info\")\n                severity_counts[severity] = severity_counts.get(severity, 0) + 1\n\n            lines.extend([\"### 💬 Review Comments Summary\", \"\"])\n\n            for severity in [\"high\", \"medium\", \"low\", \"info\"]:\n                count = severity_counts.get(severity, 0)\n                if count > 0:\n                    emoji = {\"high\": \"🔴\", \"medium\": \"🟡\", \"low\": \"🟢\", \"info\": \"ℹ️\"}[severity]\n                    lines.append(f\"- {emoji} **{severity.upper()}**: {count} issues\")\n\n            lines.append(\"\")",
+            "hasExactRangeAndQuote": true
+          }
+        ]
+      }
+    ]
+  },
+  "adjudicationTemplate": {
+    "unitAdjudications": [
+      {
+        "unitId": "solo.email-intake-threading",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.conversation-retention-delete",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.email-intake-retry-idempotency",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.conversation-metadata-inference",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.requirements-versioning",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.visual-requirements-optimistic-versioning",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.phase-aware-email-drafting",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.conversation-phase-transitions",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.reply-review-modes",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.reply-delivery-atomicity",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.reply-review-revise-loop",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.proposal-pdf-lifecycle",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.visual-proposal-revision",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.wireframe-generation",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.wireframe-edit-version-semantics",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.wireframe-export-share",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.api-access-model",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.api-route-deployment-contract",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.document-rendering-service",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.stripe-invoice-integration",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.requirements-change-sqs-producer",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.brief-to-code-skeleton-cli",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.generation-provider-layer",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.progressive-code-context",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.standalone-code-review",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.client-simulation-harness",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.marketing-announcement-utility",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.client-deployment-prototype",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.proposal-to-plan-export",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.codewhisperer-real-integration",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      },
+      {
+        "unitId": "solo.reply-prompt-and-attachment-retrieval",
+        "knowledgeCoverage": null,
+        "highlightCoverage": null,
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "qualifierCoverage": null,
+        "contradictsAudit": null
+      }
+    ],
+    "highlightAdjudications": [
+      {
+        "highlightId": "cmth425q300mj21unizwbxgmi",
+        "matchedUnitIds": [],
+        "salience": null,
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth429e500mu21unjjzevvwb",
+        "matchedUnitIds": [],
+        "salience": null,
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth42cz900nd21unv17fmomx",
+        "matchedUnitIds": [],
+        "salience": null,
+        "semanticDuplicateOf": null
+      },
+      {
+        "highlightId": "cmth42gml00np21undgxwh31s",
+        "matchedUnitIds": [],
+        "salience": null,
+        "semanticDuplicateOf": null
+      }
+    ],
+    "questionAdjudications": [
+      {
+        "question": "How does a batched SES or S3 event become a threaded conversation, what related data expires or survives deletion, and what retry-idempotency guarantees exist?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Which project facts are inferred from conversation content, where does conversation phase come from, and which requirement mutation paths use optimistic versioning?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "How do phase-aware drafting, manual versus auto reply modes, phase transitions, one-pass review and revision, and SES delivery failure timing interact?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "How are proposal PDFs generated, stored, selected, attached, and visually revised, and how strong are their versioning and duplicate-suppression guarantees?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "What exactly can the wireframe subsystem generate, edit, version, export, and share, including its screen limit and the different history semantics of direct and vision edits?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "What authentication and tenant boundary protects the management API, and which frontend and Lambda capabilities are actually represented by the checked-in API Gateway contract?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "What does the document-rendering service implement, how is it used by proposals, and how complete or connected is its Stripe invoice path?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Do changed requirements or approved proposals actually reach planning, IDE export, or deployment, and what does the independent brief-to-code path generate and use as repository context?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Which model-provider paths and error, usage, and cost behaviors are truly implemented, and what languages and outputs does the standalone reviewer actually cover?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      },
+      {
+        "question": "Which simulation, deployment, marketing, CodeWhisperer, and reply-inspection utilities are real, simulated, disconnected, partial, or placeholders?",
+        "answerability": null,
+        "supportingUnitIds": [],
+        "evidenceSupported": null,
+        "stateCorrect": null,
+        "contradictsAudit": null
+      }
+    ]
+  }
+}

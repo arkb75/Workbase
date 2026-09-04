@@ -21,6 +21,7 @@ import {
   OpenRouterConverseTransport,
   RetryableFallbackConverseTransport,
   RetryableFallbackTextRuntime,
+  RetryableSameModelConverseTransport,
   RetryableSameModelTextRuntime,
 } from "@/src/lib/openrouter-client";
 
@@ -45,7 +46,11 @@ function openRouterTextRuntime(config: OpenRouterTextConfig): ConverseTextRuntim
 function openRouterConverseTransport(
   config: OpenRouterTextConfig,
 ): BedrockConverseTransport {
-  const primary = new OpenRouterConverseTransport(config);
+  const primary = new RetryableSameModelConverseTransport(
+    new OpenRouterConverseTransport(config),
+    config,
+    config.modelId,
+  );
   return config.fallbackModelId
     ? new RetryableFallbackConverseTransport(
         primary,

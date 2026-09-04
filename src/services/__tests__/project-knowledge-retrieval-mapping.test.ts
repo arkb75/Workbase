@@ -59,7 +59,16 @@ function approvedHighlight() {
     rejectionReason: null,
     verificationNotes: "Reviewed against repository evidence.",
     metadata: {
+      schemaVersion: "repository-knowledge-metadata-v1",
+      managedBy: "repository_knowledge_sync",
+      refreshRunId: "refresh-1",
+      sourceIds: ["source-1"],
       subsystemKey: "project_chat_grounding",
+      synthesisKey: "project_chat_grounding#operation-answer",
+      knowledgeRoles: ["implementation"],
+      implementationStates: ["implemented"],
+      operationKeys: ["project_chat.answer"],
+      operationFacets: ["entrypoint", "boundary"],
       scores: {
         productImportance: 5,
         implementationBreadth: 4,
@@ -115,6 +124,18 @@ function approvedProjectFact(input: {
     confidence: "high",
     status: "approved",
     reviewNotes: null,
+    metadata: {
+      schemaVersion: "repository-knowledge-metadata-v1",
+      managedBy: "repository_knowledge_sync",
+      refreshRunId: "refresh-1",
+      sourceIds: ["source-1"],
+      subsystemKey: input.id,
+      synthesisKey: `${input.id}#operation-main`,
+      knowledgeRoles: ["limitation"],
+      implementationStates: ["partial"],
+      operationKeys: [`${input.id}.main`],
+      operationFacets: ["boundary"],
+    },
     sensitivityFlag: false,
     subsystemKey: input.id,
     productImportance: 4,
@@ -282,6 +303,11 @@ describe("project knowledge retrieval mappings", () => {
     expect(hit).toMatchObject({
       kind: "highlight",
       subsystemKey: "project_chat_grounding",
+      repositoryKnowledge: expect.objectContaining({
+        implementationStates: ["implemented"],
+        operationKeys: ["project_chat.answer"],
+        operationFacets: ["entrypoint", "boundary"],
+      }),
       validatedThroughSha: commitSha,
       accomplishmentRanking: {
         productImportance: 5,
@@ -306,6 +332,12 @@ describe("project knowledge retrieval mappings", () => {
       }],
     });
     expect(rankAccomplishmentHits(result.hits, 5).map((entry) => entry.id)).toContain(highlight.id);
+
+    const highlightEntry = buildMemoryCatalog({
+      hits: [hit!],
+      query: "Summarize the grounded chat system",
+    }).entries[0];
+    expect(highlightEntry?.repositoryKnowledge).toEqual(hit?.repositoryKnowledge);
 
     expect(result.selectedArtifactIds).toEqual(["artifact-grounded"]);
     const artifactHit = result.hits.find((entry) => entry.id === "artifact-grounded");
@@ -410,6 +442,17 @@ describe("project knowledge retrieval mappings", () => {
       freshnessRequired.hits.find((hit) => hit.id === "fact-h2")
         ?.accomplishmentRanking?.freshness,
     ).toBe(5);
+    expect(
+      freshnessRequired.hits.find((hit) => hit.id === "fact-h2")
+        ?.repositoryKnowledge,
+    ).toEqual(expect.objectContaining({
+      implementationStates: ["partial"],
+      operationKeys: ["fact-h2.main"],
+    }));
+    expect(
+      freshnessRequired.hits.find((hit) => hit.id === "fact-h2")
+        ?.accomplishmentRanking?.uncertainty,
+    ).toContain("partial implementation");
 
     const ordinaryRetrieval = await projectKnowledgeRetrievalService.retrieve({
       userId: "user-1",

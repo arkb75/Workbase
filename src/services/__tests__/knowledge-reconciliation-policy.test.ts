@@ -11,6 +11,8 @@ import {
   knowledgeRefreshStateForEmbeddingTelemetry,
   projectFactReconciliationCasWhere,
   repositoryHighlightOwnershipDecision,
+  repositoryKnowledgeIdentityRelation,
+  repositoryKnowledgeStateMatches,
   repositoryMayReconcileHighlight,
   repositoryHighlightPublicDisposition,
   runBoundedKnowledgeEmbeddingTasks,
@@ -23,6 +25,23 @@ import {
 } from "@/src/services/knowledge-reconciliation-service";
 
 describe("repository knowledge auto-apply policy", () => {
+  const repositoryMetadata = (input: {
+    sourceId?: string;
+    operationKey: string;
+    state: "implemented" | "partial" | "planned" | "bounded_absence";
+  }) => ({
+    schemaVersion: "repository-knowledge-metadata-v1" as const,
+    managedBy: "repository_knowledge_sync" as const,
+    refreshRunId: "refresh-current",
+    sourceIds: input.sourceId ? [input.sourceId] : [],
+    subsystemKey: "orders",
+    synthesisKey: `orders#${input.operationKey}`,
+    knowledgeRoles: [input.state === "implemented" ? "implementation" as const : "limitation" as const],
+    implementationStates: [input.state],
+    operationKeys: [input.operationKey],
+    operationFacets: ["boundary" as const],
+  });
+
   it("never revalidates knowledge when citation promotion produced no evidence", () => {
     expect(hasPromotedReconciliationEvidence([])).toBe(false);
     expect(hasPromotedReconciliationEvidence(["evidence-1"])).toBe(true);
@@ -33,6 +52,60 @@ describe("repository knowledge auto-apply policy", () => {
     expect(allowsCanonicalKnowledgeReplacement("degraded")).toBe(false);
     expect(allowsCanonicalKnowledgeReplacement("failed")).toBe(false);
     expect(allowsCanonicalKnowledgeReplacement(null)).toBe(false);
+  });
+
+  it("uses source and operation identity before lexical similarity", () => {
+    const candidate = repositoryMetadata({
+      sourceId: "source-orders",
+      operationKey: "orders.persist",
+      state: "implemented",
+    });
+    expect(repositoryKnowledgeIdentityRelation({
+      priorMetadata: { ...candidate, refreshRunId: "refresh-old" },
+      candidateMetadata: candidate,
+    })).toBe("same_operation");
+    expect(repositoryKnowledgeIdentityRelation({
+      priorMetadata: {
+        ...candidate,
+        refreshRunId: "refresh-old",
+        sourceIds: ["source-billing"],
+      },
+      candidateMetadata: candidate,
+    })).toBe("different");
+    expect(repositoryKnowledgeIdentityRelation({
+      priorMetadata: {
+        ...candidate,
+        refreshRunId: "refresh-old",
+        operationKeys: ["orders.cancel"],
+      },
+      candidateMetadata: candidate,
+    })).toBe("different");
+    expect(repositoryKnowledgeIdentityRelation({
+      priorMetadata: null,
+      priorEvidenceSourceIds: ["source-billing"],
+      candidateMetadata: candidate,
+    })).toBe("different");
+  });
+
+  it("requires an explicit repository state revision to create a successor", () => {
+    const implemented = repositoryMetadata({
+      sourceId: "source-orders",
+      operationKey: "orders.persist",
+      state: "implemented",
+    });
+    expect(repositoryKnowledgeStateMatches({
+      priorMetadata: {
+        ...implemented,
+        refreshRunId: "refresh-old",
+        knowledgeRoles: ["limitation"],
+        implementationStates: ["planned"],
+      },
+      candidateMetadata: implemented,
+    })).toBe(false);
+    expect(repositoryKnowledgeStateMatches({
+      priorMetadata: null,
+      candidateMetadata: implemented,
+    })).toBe(true);
   });
 
   it("retries Prisma and driver-adapter forms of a serializable write conflict", () => {
@@ -276,6 +349,10 @@ describe("repository knowledge auto-apply policy", () => {
   it("expires a reconciliation selection after a concurrent user edit", () => {
     const selectedAt = new Date("2026-07-21T10:00:00.000Z");
     const editedAt = new Date("2026-07-21T10:00:01.000Z");
+    const factMetadata = {
+      schemaVersion: "repository-knowledge-metadata-v1",
+      implementationStates: ["partial"],
+    };
     expect(projectFactReconciliationCasWhere({
       id: "fact-1",
       workItemId: "work-1",
@@ -284,12 +361,14 @@ describe("repository knowledge auto-apply policy", () => {
       lifecycleStatus: "needs_validation",
       reviewState: "pending_review",
       approvalSource: "automation",
+      metadata: factMetadata,
       supersedesProjectFactId: null,
       updatedAt: selectedAt,
     })).toMatchObject({
       updatedAt: selectedAt,
       reviewState: "pending_review",
       approvalSource: "automation",
+      metadata: { equals: factMetadata },
     });
     const highlightMetadata = { managedBy: "repository_knowledge_sync" };
     expect(highlightReconciliationCasWhere({
@@ -328,6 +407,7 @@ describe("repository knowledge auto-apply policy", () => {
       lifecycleStatus: "needs_validation",
       reviewState: "pending_review",
       approvalSource: "automation",
+      metadata: factMetadata,
       updatedAt: selectedAt,
     });
     expect(current.updatedAt).not.toEqual(staleWhere.updatedAt);

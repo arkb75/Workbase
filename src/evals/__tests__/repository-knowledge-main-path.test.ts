@@ -6,6 +6,7 @@ import {
 } from "@/src/domain/repository-synthesis-attestation";
 import {
   evaluateRepositoryKnowledgeMainPath,
+  repositoryVerifierTwoPhaseIntegrityIssues,
   type RepositoryKnowledgeGenerationAuditRecord,
 } from "@/src/evals/repository-knowledge-main-path";
 import { repositoryOperationCommunityMappingDigest } from "@/src/lib/repository-operation-community";
@@ -16,6 +17,10 @@ const expectedIdentities = {
   semantic_repair: { provider: "bedrock", modelId: "semantic-model" },
   capability_synthesis: { provider: "bedrock", modelId: "synthesis-model" },
   coverage_audit: { provider: "bedrock", modelId: "verification-model" },
+};
+const expectedAgenticInvestigatorIdentity = {
+  provider: "bedrock",
+  modelId: "primary-answer-model",
 };
 
 function generation(
@@ -55,6 +60,200 @@ function generation(
       unknownUsageAttempts: 0,
     },
     ...overrides,
+  };
+}
+
+function digest(value: unknown) {
+  return createHash("sha256")
+    .update(typeof value === "string" ? value : JSON.stringify(value))
+    .digest("hex");
+}
+
+function twoPhaseVerifierFixture(input: {
+  sourceId: string;
+  repository: string;
+  commitSha: string;
+  snapshotScopeDigest: string;
+  notebookDigest: string;
+}) {
+  const discovery = {
+    evidenceId: "evidence-discovery",
+    command: "grep",
+    args: ["workflow"],
+    operationKind: "discovery",
+    outputHash: "5".repeat(64),
+  };
+  const exactRead = {
+    evidenceId: "evidence-verifier",
+    command: "show",
+    args: ["HEAD:src/session.ts"],
+    operationKind: "exact_blob_read",
+    outputHash: "4".repeat(64),
+  };
+  const readSet = [{
+    evidenceId: "evidence-verifier",
+    sourceId: input.sourceId,
+    repository: input.repository,
+    commitSha: input.commitSha,
+    path: "src/session.ts",
+    blobSha: "2".repeat(40),
+    lineStart: 1,
+    lineEnd: 4,
+    excerptHash: "3".repeat(64),
+    outputHash: "4".repeat(64),
+    evidenceVersion: "repository-evidence-v1",
+    redactionPolicyVersion: "repository-redaction-v1",
+  }];
+  const sourceInspection = {
+    sourceSearchTrace: [discovery, exactRead],
+    readSet,
+  };
+  const candidateSourceInspection = {
+    sourceSearchTrace: [exactRead],
+    readSet,
+  };
+  const independentObservations = [{
+    kind: "operation",
+    statement: "The session workflow persists its durable state transition.",
+    evidence: {
+      evidenceId: "evidence-verifier",
+      lineStart: 1,
+      lineEnd: 4,
+    },
+  }];
+  const checkpointPayload = {
+    schemaVersion: "repository-verifier-independent-review-v1",
+    sourceId: input.sourceId,
+    repository: input.repository,
+    commitSha: input.commitSha,
+    snapshotScopeDigest: input.snapshotScopeDigest,
+    sourceInspection,
+    sourceInspectionDigest: digest(sourceInspection),
+    independentObservations,
+    independentObservationDigest: digest(independentObservations),
+    inspectionToolCalls: 2,
+  };
+  const checkpoint = {
+    ...checkpointPayload,
+    checkpointDigest: digest(checkpointPayload),
+  };
+  const independentReview = generation("coverage_audit", "verification-model", {
+    id: "generation-independent-review",
+    inputSummary: {
+      phase: "repository_independent_review",
+      sourceId: input.sourceId,
+      repository: input.repository,
+      commitSha: input.commitSha,
+      snapshotScopeDigest: input.snapshotScopeDigest,
+      candidateAvailable: false,
+    },
+    parsedOutput: checkpoint,
+    resultRefs: {
+      configuredModelId: "verification-model",
+      requestIds: ["request-independent-review"],
+      usageComplete: true,
+      failedProviderAttempts: [],
+      providerAttemptCount: 1,
+      transportMode: "agentic_tool_loop",
+      resultAttestation: {
+        executionMode: "agentic_investigator_verifier_independent_review",
+        fallbackUsed: false,
+        snapshotScopeDigest: input.snapshotScopeDigest,
+        checkpointDigest: checkpoint.checkpointDigest,
+        sourceInspectionDigest: checkpoint.sourceInspectionDigest,
+      },
+    },
+  });
+  const observationDigest = digest(independentObservations[0]);
+  const audit = {
+    status: "satisfied",
+    capabilityChecks: [{
+      capabilityKey: "project_domain:payments",
+      findingId: "F1",
+      verdict: "supported",
+      reason: "The exact implementation range supports the representative claim.",
+      evidence: {
+        evidenceId: "evidence-verifier",
+        lineStart: 1,
+        lineEnd: 4,
+      },
+    }],
+    independentObservationChecks: [{
+      observationDigest,
+      verdict: "covered_by_candidate",
+      reason: "The candidate captures the independently observed transition.",
+      matchedFindingIds: ["F1"],
+      missingOperationId: "",
+      evidence: {
+        evidenceId: "evidence-verifier",
+        lineStart: 1,
+        lineEnd: 4,
+      },
+    }],
+    missingOperations: [],
+    rationale: "Central workflows are covered.",
+  };
+  const preDisclosureInspection = {
+    sourceSearchTrace: [discovery],
+    readSet,
+  };
+  const candidateDisclosure = {
+    inspectionToolCallsAtReveal: checkpoint.inspectionToolCalls,
+    preDisclosureDiscoveryEvidenceIds: [discovery.evidenceId],
+    preDisclosureExactReadEvidenceIds: [readSet[0]!.evidenceId],
+    preDisclosureAttestationDigest: digest(preDisclosureInspection),
+    independentObservations,
+    independentObservationDigest: checkpoint.independentObservationDigest,
+  };
+  const verifierDigest = digest(audit);
+  const verifier = generation("coverage_audit", "verification-model", {
+    id: "generation-investigator-verifier",
+    inputSummary: {
+      phase: "repository_candidate_coverage_audit",
+      sourceId: input.sourceId,
+      repository: input.repository,
+      commitSha: input.commitSha,
+      snapshotScopeDigest: input.snapshotScopeDigest,
+      independentReviewGenerationRunId: independentReview.id,
+      independentReviewCheckpointDigest: checkpoint.checkpointDigest,
+      notebookDigest: input.notebookDigest,
+      capabilityCount: 1,
+      verifierToolPolicy: {
+        durableBlindReview: true,
+        representativeCheck: true,
+      },
+    },
+    parsedOutput: audit,
+    resultRefs: {
+      configuredModelId: "verification-model",
+      requestIds: ["request-investigator-verifier"],
+      usageComplete: true,
+      failedProviderAttempts: [],
+      providerAttemptCount: 1,
+      transportMode: "agentic_tool_loop",
+      resultAttestation: {
+        executionMode: "agentic_investigator_verifier",
+        fallbackUsed: false,
+        terminationReason: "verifier_complete",
+        snapshotScopeDigest: input.snapshotScopeDigest,
+        notebookDigest: input.notebookDigest,
+        auditDigest: verifierDigest,
+        independentReviewGenerationRunId: independentReview.id,
+        independentReviewCheckpointDigest: checkpoint.checkpointDigest,
+        preDisclosureSourceInspectionDigest: checkpoint.sourceInspectionDigest,
+        preDisclosureSourceInspection: sourceInspection,
+        candidateDisclosure,
+        postDisclosureSourceInspectionDigest: digest(candidateSourceInspection),
+        toolTrace: candidateSourceInspection.sourceSearchTrace,
+        readSet,
+      },
+    },
+  });
+  return {
+    independentReview,
+    verifier,
+    verifierDigest,
+    checkpoint,
   };
 }
 
@@ -496,6 +695,272 @@ describe("repository knowledge main-path integrity", () => {
         budgetExhausted: false,
       },
     });
+  });
+
+  it("accepts an exact source-attested agentic investigation without a planner generation", () => {
+    const sourceId = "source-1";
+    const repository = "owner/project";
+    const commitSha = "1".repeat(40);
+    const snapshotScopeDigest = "a".repeat(64);
+    const investigatorNotebookDigest = "b".repeat(64);
+    const checkpointNotebookDigest = "d".repeat(64);
+    const verifierInputNotebookDigest = investigatorNotebookDigest;
+    const checkpointInvestigator = generation(
+      "semantic_extraction",
+      "primary-answer-model",
+      {
+        id: "generation-investigator-checkpoint",
+        parsedOutput: {
+          notebookDigest: checkpointNotebookDigest,
+          capabilityCount: 2,
+          findingCount: 4,
+          unresolvedAreaCount: 2,
+          done: false,
+        },
+        resultRefs: {
+          configuredModelId: "primary-answer-model",
+          requestIds: ["request-investigator-checkpoint"],
+          usageComplete: true,
+          failedProviderAttempts: [],
+          providerAttemptCount: 1,
+          transportMode: "agentic_tool_loop",
+          resultAttestation: {
+            executionMode: "agentic_investigator",
+            fallbackUsed: false,
+            terminationReason: "investigator_checkpoint_yield",
+            snapshotScopeDigest,
+            notebookDigest: checkpointNotebookDigest,
+            toolTrace: [{ toolName: "inspect_repository_snapshot" }],
+            readSet: [{ path: "src/session.ts", lineStart: 1, lineEnd: 4 }],
+          },
+        },
+      },
+    );
+    const investigator = generation("semantic_extraction", "primary-answer-model", {
+      id: "generation-investigator",
+      parsedOutput: {
+        notebookDigest: investigatorNotebookDigest,
+        capabilityCount: 3,
+        findingCount: 8,
+        unresolvedAreaCount: 0,
+        done: true,
+      },
+      resultRefs: {
+        configuredModelId: "primary-answer-model",
+        requestIds: ["request-investigator"],
+        usageComplete: true,
+        failedProviderAttempts: [],
+        providerAttemptCount: 1,
+        transportMode: "agentic_tool_loop",
+        resultAttestation: {
+          executionMode: "agentic_investigator",
+          fallbackUsed: false,
+          terminationReason: "investigator_done",
+          snapshotScopeDigest,
+          notebookDigest: investigatorNotebookDigest,
+          toolTrace: [{ toolName: "inspect_repository_snapshot" }],
+          readSet: [{ path: "src/session.ts", lineStart: 1, lineEnd: 4 }],
+        },
+      },
+    });
+    const twoPhaseVerifier = twoPhaseVerifierFixture({
+      sourceId,
+      repository,
+      commitSha,
+      snapshotScopeDigest,
+      notebookDigest: verifierInputNotebookDigest,
+    });
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        checkpointInvestigator,
+        investigator,
+        twoPhaseVerifier.independentReview,
+        twoPhaseVerifier.verifier,
+        synthesisGeneration(synthesis),
+        entailmentCritic(synthesis),
+      ],
+      expectedIdentities,
+      expectedAgenticInvestigatorIdentity,
+      coverage: [{ targets: [{ deterministicFallbackPathCount: 0 }] }],
+      orchestration: {
+        executionMode: "agentic_investigator",
+        fallbackUsed: false,
+        repositories: [{
+          sourceId,
+          repository,
+          commitSha,
+          snapshotScopeDigest,
+          notebookDigest: investigatorNotebookDigest,
+          investigatorGenerationRunIds: [checkpointInvestigator.id, investigator.id],
+          verifierIndependentReviewGenerationRunId:
+            twoPhaseVerifier.independentReview.id,
+          verifierGenerationRunId: twoPhaseVerifier.verifier.id,
+          verifierInputNotebookDigest,
+          verifierDigest: twoPhaseVerifier.verifierDigest,
+        }],
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(result.metrics).toMatchObject({
+      agenticInvestigation: true,
+      semanticPlanning: 0,
+      semanticExtraction: 2,
+    });
+  });
+
+  it("fails two-phase verifier integrity when blind execution or checkpoint linkage is tampered", () => {
+    const sourceId = "source-1";
+    const repository = "owner/project";
+    const commitSha = "1".repeat(40);
+    const snapshotScopeDigest = "a".repeat(64);
+    const fixture = twoPhaseVerifierFixture({
+      sourceId,
+      repository,
+      commitSha,
+      snapshotScopeDigest,
+      notebookDigest: "b".repeat(64),
+    });
+    const repositoryAttestation = {
+      sourceId,
+      repository,
+      commitSha,
+      snapshotScopeDigest,
+      verifierIndependentReviewGenerationRunId: fixture.independentReview.id,
+      verifierGenerationRunId: fixture.verifier.id,
+    };
+
+    expect(repositoryVerifierTwoPhaseIntegrityIssues({
+      repositoryAttestation,
+      generationRuns: [fixture.independentReview, fixture.verifier],
+    })).toEqual([]);
+
+    const verifierResultRefs = fixture.verifier.resultRefs as Record<string, unknown>;
+    const verifierAttestation = verifierResultRefs.resultAttestation as Record<
+      string,
+      unknown
+    >;
+    const exactTrace = verifierAttestation.toolTrace as Array<
+      Record<string, unknown>
+    >;
+    const exactReadSet = verifierAttestation.readSet as unknown[];
+    const candidateWithInspection = (toolTrace: unknown[], readSet: unknown[]) => ({
+      ...fixture.verifier,
+      resultRefs: {
+        ...verifierResultRefs,
+        resultAttestation: {
+          ...verifierAttestation,
+          postDisclosureSourceInspectionDigest: digest({
+            sourceSearchTrace: toolTrace,
+            readSet,
+          }),
+          toolTrace,
+          readSet,
+        },
+      },
+    });
+    const malformedCandidateTrace = candidateWithInspection([{
+      ...exactTrace[0],
+      command: "grep",
+    }], exactReadSet);
+    expect(repositoryVerifierTwoPhaseIntegrityIssues({
+      repositoryAttestation,
+      generationRuns: [fixture.independentReview, malformedCandidateTrace],
+    })).toContainEqual(expect.stringMatching(/fresh representative exact-source reads/iu));
+
+    const missingCandidateRereads = candidateWithInspection([], []);
+    expect(repositoryVerifierTwoPhaseIntegrityIssues({
+      repositoryAttestation,
+      generationRuns: [fixture.independentReview, missingCandidateRereads],
+    })).toContainEqual(expect.stringMatching(/fresh representative exact-source reads/iu));
+
+    const candidateExposedBlindRun = {
+      ...fixture.independentReview,
+      inputSummary: {
+        ...(fixture.independentReview.inputSummary as Record<string, unknown>),
+        candidateAvailable: true,
+      },
+    };
+    expect(repositoryVerifierTwoPhaseIntegrityIssues({
+      repositoryAttestation,
+      generationRuns: [candidateExposedBlindRun, fixture.verifier],
+    })).toContainEqual(expect.stringMatching(/candidate-hidden/iu));
+
+    const tamperedCheckpoint = {
+      ...fixture.independentReview,
+      parsedOutput: {
+        ...(fixture.independentReview.parsedOutput as Record<string, unknown>),
+        sourceInspectionDigest: "f".repeat(64),
+      },
+    };
+    expect(repositoryVerifierTwoPhaseIntegrityIssues({
+      repositoryAttestation,
+      generationRuns: [tamperedCheckpoint, fixture.verifier],
+    })).toContainEqual(expect.stringMatching(/digest or cited-read integrity/iu));
+
+    const unlinkedCandidate = {
+      ...fixture.verifier,
+      inputSummary: {
+        ...(fixture.verifier.inputSummary as Record<string, unknown>),
+        independentReviewCheckpointDigest: "e".repeat(64),
+      },
+    };
+    expect(repositoryVerifierTwoPhaseIntegrityIssues({
+      repositoryAttestation,
+      generationRuns: [fixture.independentReview, unlinkedCandidate],
+    })).toContainEqual(expect.stringMatching(/exact blind checkpoint/iu));
+  });
+
+  it("reports pre-split agentic verifier history as non-current integrity without throwing", () => {
+    const historicalRepository = {
+      sourceId: "source-1",
+      repository: "owner/project",
+      commitSha: "1".repeat(40),
+      snapshotScopeDigest: "a".repeat(64),
+      verifierGenerationRunId: "legacy-verifier",
+    };
+    expect(() => repositoryVerifierTwoPhaseIntegrityIssues({
+      repositoryAttestation: historicalRepository,
+      generationRuns: [],
+    })).not.toThrow();
+    expect(repositoryVerifierTwoPhaseIntegrityIssues({
+      repositoryAttestation: historicalRepository,
+      generationRuns: [],
+    })).toEqual([
+      expect.stringMatching(/no uniquely referenced blind independent-review generation/iu),
+    ]);
+  });
+
+  it("rejects an agentic investigator that does not use the configured primary-answer identity", () => {
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [generation("semantic_extraction", "semantic-model")],
+      expectedIdentities,
+      expectedAgenticInvestigatorIdentity,
+      coverage: null,
+      orchestration: {
+        executionMode: "agentic_investigator",
+        fallbackUsed: false,
+        repositories: [],
+      },
+      warnings: null,
+    });
+
+    expect(result.issues).toContain(
+      "semantic_extraction generation 1 used model semantic-model; expected primary-answer-model.",
+    );
   });
 
   it("accepts an exact adaptive Highlight partition and independently assessed titles", () => {

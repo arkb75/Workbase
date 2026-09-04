@@ -35,6 +35,22 @@ describe("project repository evidence boundary", () => {
     });
   });
 
+  it("captures an optional Git exit code without invalidating legacy evidence handles", () => {
+    const legacy = evidence("matching output", ["grep", "needle", "HEAD"]);
+    const withStatus = createProjectRepositoryRawEvidence({
+      sourceId: legacy.sourceId,
+      repository: legacy.repository,
+      commitSha: legacy.commitSha,
+      args: legacy.args,
+      output: legacy.output,
+      exitCode: 0,
+    });
+
+    expect(withStatus.exitCode).toBe(0);
+    expect(withStatus.evidenceId).toBe(legacy.evidenceId);
+    expect(evidence("", ["grep", "missing", "HEAD"]).exitCode).toBeUndefined();
+  });
+
   it("selects bounded exact slices for varied objectives without summarizing source text", () => {
     const lines = Array.from({ length: 600 }, (_, index) =>
       index === 377
