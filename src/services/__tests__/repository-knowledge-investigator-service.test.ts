@@ -56,6 +56,7 @@ import {
   repositoryVerifierIndependentDiscoveryGate,
   repositoryVerifierIndependentNextAction,
   repositoryVerifierIndependentObservationDigest,
+  repositoryVerifierIndependentSubmissionDiagnostics,
   repositoryVerifierNextAction,
   repositoryVerifierForcedSubmissionTool,
   restoreRepositoryInvestigationCheckpoint,
@@ -233,25 +234,122 @@ describe("repository knowledge investigator", () => {
   });
 
   it("budgets the delayed-disclosure verifier for its required source walk", () => {
-    expect(repositoryCoverageVerifierLimits(77)).toEqual({
+    expect(repositoryCoverageVerifierLimits(80)).toEqual({
       maxIterations: 12,
       maxToolCalls: 10,
-      maxTotalTokens: 170_000,
+      maxTotalTokens: 280_000,
     });
-    expect(repositoryCoverageVerifierLimits(251).maxTotalTokens).toBe(360_000);
+    expect(repositoryCoverageVerifierLimits(81).maxTotalTokens).toBe(460_000);
+    expect(repositoryCoverageVerifierLimits(250).maxTotalTokens).toBe(460_000);
+    expect(repositoryCoverageVerifierLimits(251).maxTotalTokens).toBe(760_000);
+    for (const fileCount of [80, 81, 250, 251]) {
+      expect(repositoryCoverageVerifierLimits(fileCount).maxTotalTokens).toBe(
+        repositoryInvestigationSharedBudgetLimits({
+          repositoryCount: 1,
+          analyzedFileCount: fileCount,
+        }).maxModelTokens,
+      );
+    }
   });
 
   it("gives each fresh verifier context its own raw transcript ceiling", () => {
-    expect(repositoryCoverageReviewPhaseLimits(77)).toEqual({
+    expect(repositoryCoverageReviewPhaseLimits(80)).toEqual({
       maxIterations: 12,
       maxToolCalls: 10,
-      maxTotalTokens: 170_000,
+      maxTotalTokens: 280_000,
     });
-    expect(repositoryCoverageAuditPhaseLimits(77)).toEqual({
+    expect(repositoryCoverageAuditPhaseLimits(80)).toEqual({
       maxIterations: 12,
       maxToolCalls: 10,
-      maxTotalTokens: 170_000,
+      maxTotalTokens: 280_000,
     });
+    for (const limits of [
+      repositoryCoverageReviewPhaseLimits(81),
+      repositoryCoverageAuditPhaseLimits(81),
+      repositoryCoverageReviewPhaseLimits(250),
+      repositoryCoverageAuditPhaseLimits(250),
+    ]) expect(limits.maxTotalTokens).toBe(460_000);
+    expect(repositoryCoverageReviewPhaseLimits(251).maxTotalTokens).toBe(760_000);
+    expect(repositoryCoverageAuditPhaseLimits(251).maxTotalTokens).toBe(760_000);
+  });
+
+  it("returns indexed correction diagnostics for invalid blind-review observations", () => {
+    const { state, evidence } = investigationState();
+    const duplicateObservation = {
+      kind: "operation" as const,
+      statement: "The implementation creates and persists an authenticated session record.",
+      evidence: {
+        evidenceId: evidence.evidenceId,
+        lineStart: 1,
+        lineEnd: 4,
+      },
+    };
+    const diagnostics = repositoryVerifierIndependentSubmissionDiagnostics({
+      independentObservations: [{
+        ...duplicateObservation,
+        statement: "The implementation has a session operation outside the visible range.",
+        evidence: {
+          evidenceId: evidence.evidenceId,
+          lineStart: 5,
+          lineEnd: 6,
+        },
+      }, {
+        ...duplicateObservation,
+        statement: "The implementation has an operation cited to unknown evidence.",
+        evidence: {
+          evidenceId: "missing-evidence-0001",
+          lineStart: 1,
+          lineEnd: 2,
+        },
+      }, duplicateObservation, duplicateObservation],
+      evidenceById: state.evidenceById,
+      visibleEvidenceRanges: state.visibleEvidenceRanges,
+      filesByPath: state.filesByPath,
+      target: state.notebook,
+    });
+
+    expect(diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        submissionIndex: 0,
+        code: "evidence_range_not_visible",
+        evidenceId: evidence.evidenceId,
+        requestedRange: { lineStart: 5, lineEnd: 6 },
+        allowedVisibleRanges: [{ lineStart: 1, lineEnd: 4 }],
+      }),
+      expect.objectContaining({
+        submissionIndex: 1,
+        code: "evidence_not_inspected",
+        evidenceId: "missing-evidence-0001",
+        requestedRange: { lineStart: 1, lineEnd: 2 },
+        allowedVisibleRanges: [],
+        validExactReadRanges: [{
+          evidenceId: evidence.evidenceId,
+          path: "src/session.ts",
+          lineStart: 1,
+          lineEnd: 4,
+        }],
+      }),
+    ]));
+    expect(diagnostics.filter(
+      (diagnostic) => diagnostic.code === "duplicate_observation",
+    )).toEqual([
+      expect.objectContaining({
+        submissionIndex: 2,
+        duplicateIndices: [2, 3],
+      }),
+      expect.objectContaining({
+        submissionIndex: 3,
+        duplicateIndices: [2, 3],
+      }),
+    ]);
+    expect(diagnostics.every((diagnostic) =>
+      Number.isInteger(diagnostic.submissionIndex) &&
+      typeof diagnostic.instruction === "string" &&
+      typeof diagnostic.evidenceId === "string" &&
+      diagnostic.requestedRange.lineStart > 0 &&
+      Array.isArray(diagnostic.allowedVisibleRanges)
+    )).toBe(true);
+    expect(JSON.stringify(diagnostics)).not.toContain("database.session.create");
   });
 
   it("leaves bounded verifier headroom after repository inspection", () => {
@@ -338,6 +436,11 @@ describe("repository knowledge investigator", () => {
   });
 
   it("lets the blind reviewer correct a rejected submission after its inspection allowance", async () => {
+    const replayedUsage = {
+      inputTokens: 40_000,
+      outputTokens: 2_000,
+      totalTokens: 42_000,
+    };
     const inspectionResponses: BedrockConverseTransportResponse[] = Array.from(
       { length: REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS },
       (_, index) => ({
@@ -352,7 +455,7 @@ describe("repository knowledge investigator", () => {
           }],
         },
         stopReason: "tool_use",
-        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        usage: replayedUsage,
         requestId: `request-${index + 1}`,
       }),
     );
@@ -370,7 +473,7 @@ describe("repository knowledge investigator", () => {
           }],
         },
         stopReason: "tool_use",
-        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        usage: replayedUsage,
         requestId: "request-submit-rejected",
       },
       {
@@ -385,13 +488,13 @@ describe("repository knowledge investigator", () => {
           }],
         },
         stopReason: "tool_use",
-        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        usage: replayedUsage,
         requestId: "request-submit-corrected",
       },
       {
         message: { role: "assistant", content: [{ text: "Review submitted." }] },
         stopReason: "end_turn",
-        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        usage: replayedUsage,
         requestId: "request-complete",
       },
     ];
@@ -453,6 +556,7 @@ describe("repository knowledge investigator", () => {
     expect(result.toolCalls).toBe(
       REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 2,
     );
+    expect(result.usage.totalTokens).toBe(252_000);
     expect(result.text).toBe("Review submitted.");
     expect(transport.converse.mock.calls[3]?.[0].toolConfig?.toolChoice).toEqual({
       tool: { name: "submit_repository_independent_review" },
@@ -600,7 +704,7 @@ describe("repository knowledge investigator", () => {
     );
 
     expect(review).toMatchObject({
-      maxTotalTokens: 170_000,
+      maxTotalTokens: 280_000,
       maxSemanticTokens: 32_000,
     });
     budget.consumeModelUsage({
@@ -619,7 +723,7 @@ describe("repository knowledge investigator", () => {
       { modelTokens: 0, modelCalls: 0 },
       { preserveRawTokenLimit: true },
     )).toMatchObject({
-      maxTotalTokens: 170_000,
+      maxTotalTokens: 280_000,
       maxSemanticTokens: 24_000,
     });
   });

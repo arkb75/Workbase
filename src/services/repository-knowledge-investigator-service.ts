@@ -54,7 +54,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v25-forced-verifier-submit";
+  "repository-knowledge-investigator-v26-verifier-correction-diagnostics";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -281,11 +281,12 @@ export function repositoryInvestigationSharedBudgetLimits(input: {
 }): RepositoryInvestigationSharedBudgetLimits {
   const repositoryCount = Math.max(1, input.repositoryCount);
   const fileCount = Math.max(0, input.analyzedFileCount);
+  const maxModelTokens = repositorySemanticTokenTier(fileCount);
   const base = fileCount <= 80
-    ? { maxModelTokens: 280_000, maxModelCalls: 68, maxInspectionOperations: 110 }
+    ? { maxModelTokens, maxModelCalls: 68, maxInspectionOperations: 110 }
     : fileCount <= 250
-      ? { maxModelTokens: 460_000, maxModelCalls: 100, maxInspectionOperations: 194 }
-      : { maxModelTokens: 760_000, maxModelCalls: 152, maxInspectionOperations: 314 };
+      ? { maxModelTokens, maxModelCalls: 100, maxInspectionOperations: 194 }
+      : { maxModelTokens, maxModelCalls: 152, maxInspectionOperations: 314 };
   const additionalRepositories = Math.max(0, repositoryCount - 1);
   return {
     maxModelTokens: Math.min(
@@ -301,6 +302,10 @@ export function repositoryInvestigationSharedBudgetLimits(input: {
       base.maxInspectionOperations + additionalRepositories * 28,
     ),
   };
+}
+
+function repositorySemanticTokenTier(fileCount: number) {
+  return fileCount <= 80 ? 280_000 : fileCount <= 250 ? 460_000 : 760_000;
 }
 
 export class RepositoryInvestigationSharedBudget {
@@ -1092,6 +1097,26 @@ type VisibleEvidenceRange = {
   endLine: number;
 };
 
+export type RepositoryVerifierSubmissionRejectionCode =
+  | "discovery_gate_incomplete"
+  | "duplicate_observation"
+  | "evidence_excerpt_empty"
+  | "evidence_excerpt_too_large"
+  | "evidence_not_eligible_pinned_file"
+  | "evidence_not_eligible_semantic_source"
+  | "evidence_not_exact_pinned_source"
+  | "evidence_not_inspected"
+  | "evidence_range_invalid"
+  | "evidence_range_not_visible"
+  | "evidence_resolution_schema_invalid"
+  | "planned_evidence_requires_planned_state"
+  | "planned_finding_lacks_intent";
+
+type RepositoryEvidenceResolutionRejectionCode = Exclude<
+  RepositoryVerifierSubmissionRejectionCode,
+  "discovery_gate_incomplete" | "duplicate_observation"
+>;
+
 export type RepositorySourceInspectionAttestation = {
   sourceSearchTrace: Array<{
     evidenceId: string;
@@ -1663,10 +1688,15 @@ function resolvedEvidenceForPinnedTarget(input: {
   target: Pick<RepositoryTargetHead, "sourceId" | "repository" | "commitSha">;
   citation: z.infer<typeof submittedEvidenceSchema>;
   implementationState?: z.infer<typeof investigationImplementationStateSchema>;
-}) {
+}):
+  | { code: RepositoryEvidenceResolutionRejectionCode; error: string }
+  | { value: z.infer<typeof resolvedEvidenceSchema> } {
   const evidence = input.evidenceById.get(input.citation.evidenceId);
   if (!evidence) {
-    return { error: `Evidence ${input.citation.evidenceId} was not returned by repository inspection.` } as const;
+    return {
+      code: "evidence_not_inspected" as const,
+      error: `Evidence ${input.citation.evidenceId} was not returned by repository inspection.`,
+    };
   }
   const evidenceTarget = evidence.target;
   if (
@@ -1684,8 +1714,9 @@ function resolvedEvidenceForPinnedTarget(input: {
     ].includes(evidence.args[1] ?? "")
   ) {
     return {
+      code: "evidence_not_exact_pinned_source" as const,
       error: `Evidence ${evidence.evidenceId} is discovery or transformed output, not exact source from the pinned commit. Follow it with exactly git show HEAD:path.`,
-    } as const;
+    };
   }
   const visible = input.visibleEvidenceRanges.some((range) =>
     range.evidenceId === evidence.evidenceId &&
@@ -1694,36 +1725,52 @@ function resolvedEvidenceForPinnedTarget(input: {
   );
   if (!visible) {
     return {
+      code: "evidence_range_not_visible" as const,
       error: `Evidence range ${input.citation.lineStart}-${input.citation.lineEnd} was not visible to the investigator. Expand that exact range first.`,
-    } as const;
+    };
   }
   if (
     input.citation.lineEnd < input.citation.lineStart ||
     input.citation.lineEnd > evidence.totalLines
   ) {
-    return { error: "Evidence line range is invalid." } as const;
+    return {
+      code: "evidence_range_invalid" as const,
+      error: "Evidence line range is invalid.",
+    };
   }
   const file = input.filesByPath.get(evidenceTarget.path);
   if (file && isRepositoryTestPath(file.path)) {
     return {
+      code: "evidence_not_eligible_semantic_source" as const,
       error: `${evidenceTarget.path} is test-only evidence; tests alone cannot prove implemented repository behavior.`,
-    } as const;
+    };
   }
   if (
     !file ||
     !file.blobSha ||
     evidenceTarget.blobSha !== file.blobSha
   ) {
-    return { error: `${evidenceTarget.path} is not an eligible pinned repository file.` } as const;
+    return {
+      code: "evidence_not_eligible_pinned_file" as const,
+      error: `${evidenceTarget.path} is not an eligible pinned repository file.`,
+    };
   }
   const excerpt = rawEvidenceExcerpt(
     evidence,
     input.citation.lineStart,
     input.citation.lineEnd,
   );
-  if (!excerpt.trim()) return { error: "Evidence excerpt is empty." } as const;
+  if (!excerpt.trim()) {
+    return {
+      code: "evidence_excerpt_empty" as const,
+      error: "Evidence excerpt is empty.",
+    };
+  }
   if (Buffer.byteLength(excerpt, "utf8") > REPOSITORY_SEMANTIC_MAX_CITATION_BYTES) {
-    return { error: "Evidence excerpt exceeds the exact citation byte limit." } as const;
+    return {
+      code: "evidence_excerpt_too_large" as const,
+      error: "Evidence excerpt exceeds the exact citation byte limit.",
+    };
   }
   const numbered = numberedSource(evidence.output);
   const plannedDocumentation = isPlannedDocumentationRange({
@@ -1735,9 +1782,10 @@ function resolvedEvidenceForPinnedTarget(input: {
   const implementationState = input.implementationState ?? "implemented";
   if (plannedDocumentation && implementationState !== "planned") {
     return {
+      code: "planned_evidence_requires_planned_state" as const,
       error:
         "Future-facing documentation is valid only for a finding whose implementationState is planned.",
-    } as const;
+    };
   }
   if (
     implementationState === "planned" &&
@@ -1745,9 +1793,10 @@ function resolvedEvidenceForPinnedTarget(input: {
     !explicitPlannedImplementationPattern.test(excerpt)
   ) {
     return {
+      code: "planned_finding_lacks_intent" as const,
       error:
         `${evidenceTarget.path} does not explicitly establish future intent for a planned finding.`,
-    } as const;
+    };
   }
   const productionImplementationEvidence =
     file.disposition === "analyzed" &&
@@ -1758,12 +1807,13 @@ function resolvedEvidenceForPinnedTarget(input: {
     isRepositoryDocumentationPath(file.path);
   if (!productionImplementationEvidence && !plannedDocumentationEvidence) {
     return {
+      code: "evidence_not_eligible_semantic_source" as const,
       error: implementationState === "implemented"
         ? `${evidenceTarget.path} is not analyzed production implementation evidence.`
         : implementationState === "planned"
           ? `${evidenceTarget.path} is neither analyzed source nor explicit future-facing documentation for a planned finding.`
           : `${evidenceTarget.path} is not analyzed source for a source-bounded ${implementationState} finding.`,
-    } as const;
+    };
   }
   const exactExcerpt = semanticEvidenceExcerpt(
     numbered,
@@ -1787,8 +1837,9 @@ function resolvedEvidenceForPinnedTarget(input: {
   const parsed = resolvedEvidenceSchema.safeParse(value);
   if (!parsed.success) {
     return {
+      code: "evidence_resolution_schema_invalid" as const,
       error: parsed.error.issues.map((issue) => issue.message).join(" "),
-    } as const;
+    };
   }
   return {
     value: parsed.data,
@@ -2035,7 +2086,7 @@ export function repositoryCoverageVerifierLimits(fileCount: number) {
     // on every turn, so this is a per-context runaway guard rather than a
     // refresh-wide token allocation. Refresh-wide semantic work, calls, and
     // inspections remain independently capped by the shared budget.
-    maxTotalTokens: Math.ceil(preferred.maxTotalTokens * 1.5 / 10_000) * 10_000,
+    maxTotalTokens: repositorySemanticTokenTier(fileCount),
   };
 }
 
@@ -2893,6 +2944,126 @@ export function repositoryVerifierIndependentObservationDigest(
     statement: observation.statement,
     evidence: observation.evidence,
   });
+}
+
+const REPOSITORY_VERIFIER_MAX_REJECTION_DIAGNOSTICS =
+  REPOSITORY_VERIFIER_MAX_OBSERVATIONS * 2;
+const REPOSITORY_VERIFIER_MAX_DIAGNOSTIC_VISIBLE_RANGES = 6;
+const REPOSITORY_VERIFIER_MAX_DIAGNOSTIC_EXACT_READ_RANGES = 12;
+
+export type RepositoryVerifierIndependentSubmissionDiagnostic = {
+  submissionIndex: number;
+  code: RepositoryVerifierSubmissionRejectionCode;
+  instruction: string;
+  evidenceId: string;
+  requestedRange: { lineStart: number; lineEnd: number };
+  allowedVisibleRanges: Array<{ lineStart: number; lineEnd: number }>;
+  validExactReadRanges?: Array<{
+    evidenceId: string;
+    path: string;
+    lineStart: number;
+    lineEnd: number;
+  }>;
+  duplicateIndices?: number[];
+};
+
+export function repositoryVerifierIndependentSubmissionDiagnostics(input: {
+  independentObservations: Array<
+    z.infer<typeof repositoryVerifierIndependentObservationSchema>
+  >;
+  evidenceById: Map<string, ProjectRepositoryRawEvidence>;
+  visibleEvidenceRanges: VisibleEvidenceRange[];
+  filesByPath: Map<string, RepositorySnapshotFile>;
+  target: Pick<RepositoryTargetHead, "sourceId" | "repository" | "commitSha">;
+}) {
+  const eligibleExactReadRanges = buildRepositorySourceInspectionAttestation({
+    evidence: input.evidenceById.values(),
+    visibleRanges: input.visibleEvidenceRanges,
+  }).readSet.flatMap((read) => {
+    const file = input.filesByPath.get(read.path);
+    if (
+      read.sourceId !== input.target.sourceId ||
+      read.repository !== input.target.repository ||
+      read.commitSha !== input.target.commitSha ||
+      file?.disposition !== "analyzed" ||
+      !file.blobSha ||
+      file.blobSha !== read.blobSha ||
+      !isRepositorySemanticEvidencePath(read.path) ||
+      isRepositoryTestPath(read.path)
+    ) return [];
+    return [{
+      evidenceId: read.evidenceId,
+      path: read.path,
+      lineStart: read.lineStart,
+      lineEnd: read.lineEnd,
+    }];
+  });
+  const allowedVisibleRangesFor = (evidenceId: string) => Array.from(new Map(
+    eligibleExactReadRanges
+      .filter((range) => range.evidenceId === evidenceId)
+      .sort((left, right) =>
+        left.lineStart - right.lineStart || left.lineEnd - right.lineEnd
+      )
+      .map((range) => [
+        `${range.lineStart}:${range.lineEnd}`,
+        { lineStart: range.lineStart, lineEnd: range.lineEnd },
+      ]),
+  ).values()).slice(0, REPOSITORY_VERIFIER_MAX_DIAGNOSTIC_VISIBLE_RANGES);
+  const validExactReadRanges = eligibleExactReadRanges.slice(
+    0,
+    REPOSITORY_VERIFIER_MAX_DIAGNOSTIC_EXACT_READ_RANGES,
+  );
+  const diagnosticBase = (submissionIndex: number) => {
+    const observation = input.independentObservations[submissionIndex]!;
+    return {
+      submissionIndex,
+      evidenceId: observation.evidence.evidenceId,
+      requestedRange: {
+        lineStart: observation.evidence.lineStart,
+        lineEnd: observation.evidence.lineEnd,
+      },
+      allowedVisibleRanges: allowedVisibleRangesFor(observation.evidence.evidenceId),
+    };
+  };
+  const diagnostics: RepositoryVerifierIndependentSubmissionDiagnostic[] = [];
+  input.independentObservations.forEach((observation, submissionIndex) => {
+    const resolved = resolvedEvidenceForPinnedTarget({
+      evidenceById: input.evidenceById,
+      visibleEvidenceRanges: input.visibleEvidenceRanges,
+      filesByPath: input.filesByPath,
+      target: input.target,
+      citation: observation.evidence,
+    });
+    if (!("error" in resolved)) return;
+    diagnostics.push({
+      ...diagnosticBase(submissionIndex),
+      code: resolved.code,
+      instruction: resolved.error.slice(0, 700),
+      ...(resolved.code === "evidence_not_inspected"
+        ? { validExactReadRanges }
+        : {}),
+    });
+  });
+  const indicesByDigest = new Map<string, number[]>();
+  input.independentObservations.forEach((observation, submissionIndex) => {
+    const digest = repositoryVerifierIndependentObservationDigest(observation);
+    const indices = indicesByDigest.get(digest) ?? [];
+    indices.push(submissionIndex);
+    indicesByDigest.set(digest, indices);
+  });
+  for (const indices of indicesByDigest.values()) {
+    if (indices.length < 2) continue;
+    for (const submissionIndex of indices) {
+      diagnostics.push({
+        ...diagnosticBase(submissionIndex),
+        code: "duplicate_observation" as const,
+        instruction:
+          `Observation is duplicated at submission indices ${indices.join(", ")}; keep one distinct observation.`,
+        duplicateIndices: indices,
+      });
+    }
+  }
+  return diagnostics.slice(0, REPOSITORY_VERIFIER_MAX_REJECTION_DIAGNOSTICS);
 }
 
 const repositoryVerifierCandidateReviewSchema = z.object({
@@ -4401,6 +4572,8 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
   let inspectionToolCalls = 0;
   let sharedInspectionBudgetExhausted = false;
   let submittedCheckpoint: RepositoryVerifierIndependentReviewCheckpoint | null = null;
+  let schemaValidSubmissionAttemptCount = 0;
+  let lastSubmissionRejectionCodes: RepositoryVerifierSubmissionRejectionCode[] = [];
   const inspector = new ProjectChatRepositoryInspector({
     userId: input.userId,
     workItemId: input.workItemId,
@@ -4455,6 +4628,7 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
       independentObservations,
       observationCapacityReached,
     }) => {
+      schemaValidSubmissionAttemptCount += 1;
       const sourceInspection = buildRepositorySourceInspectionAttestation({
         evidence: rawEvidence.values(),
         visibleRanges: visibleEvidenceRanges,
@@ -4465,30 +4639,39 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
         target: input.target,
       });
       if (!gate.accepted) {
+        lastSubmissionRejectionCodes = ["discovery_gate_incomplete"];
         return {
           status: "rejected" as const,
+          rejection: {
+            schemaValidSubmissionAttemptCount,
+            codes: lastSubmissionRejectionCodes,
+            diagnostics: [],
+          },
           instruction:
             "First complete a successful grep/ls-tree discovery and an exact git show HEAD:path read of analyzed non-test production source.",
         };
       }
-      const errors = independentObservations.flatMap((observation) => {
-        const resolved = resolvedEvidenceForPinnedTarget({
-          evidenceById: rawEvidence,
-          visibleEvidenceRanges,
-          filesByPath,
-          target: input.target,
-          citation: observation.evidence,
-        });
-        return "error" in resolved ? [resolved.error] : [];
+      const diagnostics = repositoryVerifierIndependentSubmissionDiagnostics({
+        independentObservations,
+        evidenceById: rawEvidence,
+        visibleEvidenceRanges,
+        filesByPath,
+        target: input.target,
       });
-      const identities = independentObservations.map(
-        repositoryVerifierIndependentObservationDigest,
-      );
-      if (new Set(identities).size !== identities.length) {
-        errors.push("Independent observations must be distinct.");
-      }
-      if (errors.length) {
-        return { status: "rejected" as const, instruction: errors.join(" ") };
+      if (diagnostics.length) {
+        lastSubmissionRejectionCodes = Array.from(new Set(
+          diagnostics.map((diagnostic) => diagnostic.code),
+        ));
+        return {
+          status: "rejected" as const,
+          rejection: {
+            schemaValidSubmissionAttemptCount,
+            codes: lastSubmissionRejectionCodes,
+            diagnostics,
+          },
+          instruction:
+            "Correct every zero-based indexed diagnostic and resubmit the complete observation set. The checkpoint is accepted only when every observation is valid and distinct.",
+        };
       }
       submittedCheckpoint = buildRepositoryVerifierIndependentReviewCheckpoint({
         target: input.target,
@@ -4543,6 +4726,8 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
         executionMode: "agentic_investigator_verifier_independent_review",
         fallbackUsed: false,
         snapshotScopeDigest: scopeDigest,
+        schemaValidSubmissionAttemptCount,
+        lastSubmissionRejectionCodes,
         inspectionUsage: {
           operations: input.sharedBudget.snapshot().used.inspectionOperations -
             inspectionOperationsAtStart,
