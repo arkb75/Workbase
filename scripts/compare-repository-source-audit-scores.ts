@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
@@ -880,6 +880,7 @@ type Options = {
   help: boolean;
   historicalScorePaths: string[];
   manifestPath: string | null;
+  outputPath: string | null;
   requiredHistoricalFixtureIds: string[];
 };
 
@@ -892,13 +893,14 @@ Usage:
     --current-score <current-score.json> [--current-score ...] \\
     --historical-score <historical-score.json> [--historical-score ...] \\
     --require-historical <fixture-id> [--require-historical ...] \\
-    [--compact]
+    [--output <new-comparison.json>] [--compact]
 
 Every repository in the frozen manifest must have exactly one verified current
 score. Historical controls are matched by fixture id; unmatched current runs are
 reported separately as holdouts. Repeat --require-historical for every fixture
 that must have a baseline. Semantic metrics and exact unit/question regressions
-determine acceptance. Highlight, Fact, token, call, and file counts never do.`;
+determine acceptance. --output refuses to overwrite a file. Highlight, Fact,
+token, call, and file counts never do.`;
 }
 
 function optionValue(args: readonly string[], index: number, name: string) {
@@ -920,6 +922,7 @@ export function parseRepositorySourceAuditComparisonOptions(args: readonly strin
     help: false,
     historicalScorePaths: [],
     manifestPath: null,
+    outputPath: null,
     requiredHistoricalFixtureIds: [],
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -937,6 +940,7 @@ export function parseRepositorySourceAuditComparisonOptions(args: readonly strin
       ["--current-score", "currentScorePaths", true],
       ["--historical-score", "historicalScorePaths", true],
       ["--require-historical", "requiredHistoricalFixtureIds", true],
+      ["--output", "outputPath", false],
     ] as const;
     const definition = definitions.find(([name]) =>
       argument === name || argument.startsWith(`${name}=`)
@@ -990,9 +994,18 @@ async function main() {
     historicalScores,
     requiredHistoricalFixtureIds: options.requiredHistoricalFixtureIds,
   });
-  process.stdout.write(
-    `${JSON.stringify(comparison, null, options.compact ? 0 : 2)}\n`,
-  );
+  const serialized = `${JSON.stringify(
+    comparison,
+    null,
+    options.compact ? 0 : 2,
+  )}\n`;
+  if (options.outputPath) {
+    await writeFile(options.outputPath, serialized, {
+      encoding: "utf8",
+      flag: "wx",
+    });
+  }
+  process.stdout.write(serialized);
 }
 
 const executablePath = process.argv[1]

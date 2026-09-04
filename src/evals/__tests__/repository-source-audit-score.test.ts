@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -377,11 +384,13 @@ describe("repository source-audit scoring", () => {
       "--historical-control",
       "--repository-root",
       "repository",
+      "--output=score.json",
       "--compact",
     ])).toMatchObject({
       packetPath: resolve("packet.json"),
       adjudicationPath: resolve("adjudication.json"),
       historicalControl: true,
+      outputPath: resolve("score.json"),
       repositoryRoot: resolve("repository"),
       compact: true,
     });
@@ -447,6 +456,7 @@ describe("repository source-audit scoring", () => {
       cliPacket.sourceAudit.sourceDigest = computed.sourceDigest;
       const packetPath = join(root, "packet.json");
       const adjudicationPath = join(root, "adjudication.json");
+      const outputPath = join(root, "score.json");
       await Promise.all([
         writeFile(packetPath, JSON.stringify(cliPacket)),
         writeFile(adjudicationPath, JSON.stringify(adjudication())),
@@ -461,6 +471,8 @@ describe("repository source-audit scoring", () => {
           adjudicationPath,
           "--repository-root",
           repositoryRoot,
+          "--output",
+          outputPath,
           "--compact",
         ],
         { cwd: process.cwd(), encoding: "utf8" },
@@ -476,6 +488,25 @@ describe("repository source-audit scoring", () => {
           },
         },
         outcome: { weightedKnowledgeRecall: 1 },
+      });
+      expect(await readFile(outputPath, "utf8")).toBe(result.stdout);
+      await expect(exec(
+        join(process.cwd(), "node_modules/.bin/tsx"),
+        [
+          "scripts/score-repository-source-audit.ts",
+          "--packet",
+          packetPath,
+          "--adjudication",
+          adjudicationPath,
+          "--repository-root",
+          repositoryRoot,
+          "--output",
+          outputPath,
+          "--compact",
+        ],
+        { cwd: process.cwd(), encoding: "utf8" },
+      )).rejects.toMatchObject({
+        stderr: expect.stringMatching(/EEXIST|file already exists/u),
       });
     } finally {
       await rm(root, { force: true, recursive: true });

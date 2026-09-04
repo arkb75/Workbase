@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
@@ -418,6 +418,7 @@ type Options = {
   compact: boolean;
   help: boolean;
   historicalControl: boolean;
+  outputPath: string | null;
   packetPath: string | null;
   repositoryRoot: string | null;
 };
@@ -430,14 +431,15 @@ Usage:
     --packet <packet.json> \\
     --adjudication <filled-adjudication.json> \\
     --repository-root <clean-pinned-checkout> \\
-    [--historical-control] [--compact]
+    [--historical-control] [--output <new-score.json>] [--compact]
 
 The adjudication JSON must contain exactly unitAdjudications,
 highlightAdjudications, and questionAdjudications. Ineligible current runs are
 rejected. --historical-control permits scoring an older run while preserving an
 explicit non-certified label in the report. The repository root must be a clean
 checkout at the audited commit; its anchored source digest is verified before a
-score is emitted. Counts are diagnostic only.`;
+score is emitted. --output refuses to overwrite a file. Counts are diagnostic
+only.`;
 }
 
 function optionValue(args: readonly string[], index: number, name: string) {
@@ -460,6 +462,7 @@ export function parseRepositorySourceAuditScoreOptions(
     compact: false,
     help: false,
     historicalControl: false,
+    outputPath: null,
     packetPath: null,
     repositoryRoot: null,
   };
@@ -475,6 +478,15 @@ export function parseRepositorySourceAuditScoreOptions(
     }
     if (argument === "--historical-control") {
       options.historicalControl = true;
+      continue;
+    }
+    if (argument === "--output" || argument.startsWith("--output=")) {
+      const resolved = optionValue(args, index, "--output");
+      if (options.outputPath) {
+        throw new Error(`--output may only be supplied once.\n\n${usage()}`);
+      }
+      options.outputPath = resolve(resolved.value);
+      index += resolved.consumed;
       continue;
     }
     if (argument === "--packet" || argument.startsWith("--packet=")) {
@@ -529,9 +541,14 @@ async function main() {
     historicalControl: options.historicalControl,
     repositoryRoot: options.repositoryRoot,
   });
-  process.stdout.write(
-    `${JSON.stringify(report, null, options.compact ? 0 : 2)}\n`,
-  );
+  const serialized = `${JSON.stringify(report, null, options.compact ? 0 : 2)}\n`;
+  if (options.outputPath) {
+    await writeFile(options.outputPath, serialized, {
+      encoding: "utf8",
+      flag: "wx",
+    });
+  }
+  process.stdout.write(serialized);
 }
 
 const executablePath = process.argv[1]

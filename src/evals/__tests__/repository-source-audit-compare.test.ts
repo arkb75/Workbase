@@ -1,4 +1,8 @@
-import { resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   compareRepositorySourceAuditScores,
@@ -18,6 +22,7 @@ import {
 } from "@/src/evals/repository-knowledge-quality";
 
 const fixtureIds = ["alpha", "beta", "gamma", "holdout"] as const;
+const exec = promisify(execFile);
 
 function liveRun(input: {
   fixtureId: string;
@@ -410,6 +415,7 @@ describe("repository source-audit score comparison", () => {
       "--historical-score=historical-a.json",
       "--require-historical",
       "alpha",
+      "--output=comparison.json",
       "--compact",
     ])).toEqual({
       compact: true,
@@ -420,7 +426,60 @@ describe("repository source-audit score comparison", () => {
       help: false,
       historicalScorePaths: [resolve("historical-a.json")],
       manifestPath: resolve("manifest.json"),
+      outputPath: resolve("comparison.json"),
       requiredHistoricalFixtureIds: ["alpha"],
     });
+  });
+
+  it("writes a comparison artifact once while retaining stdout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workbase-source-compare-"));
+    try {
+      const audit = manifest();
+      const currentScores = fixtureIds.map((fixtureId) => score({
+        manifest: audit,
+        fixtureId,
+        grade: "full",
+      }));
+      const manifestPath = join(root, "manifest.json");
+      const currentScorePaths = currentScores.map((_, index) =>
+        join(root, `current-${index + 1}.json`)
+      );
+      const outputPath = join(root, "comparison.json");
+      await Promise.all([
+        writeFile(manifestPath, JSON.stringify(audit)),
+        ...currentScores.map((currentScore, index) =>
+          writeFile(currentScorePaths[index]!, JSON.stringify(currentScore))
+        ),
+      ]);
+      const args = [
+        "scripts/compare-repository-source-audit-scores.ts",
+        "--manifest",
+        manifestPath,
+        ...currentScorePaths.flatMap((path) => ["--current-score", path]),
+        "--output",
+        outputPath,
+        "--compact",
+      ];
+
+      const result = await exec(
+        join(process.cwd(), "node_modules/.bin/tsx"),
+        args,
+        { cwd: process.cwd(), encoding: "utf8" },
+      );
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        schemaVersion: "repository-source-audit-comparison-v1",
+        acceptance: { passed: true },
+      });
+      expect(await readFile(outputPath, "utf8")).toBe(result.stdout);
+      await expect(exec(
+        join(process.cwd(), "node_modules/.bin/tsx"),
+        args,
+        { cwd: process.cwd(), encoding: "utf8" },
+      )).rejects.toMatchObject({
+        stderr: expect.stringMatching(/EEXIST|file already exists/u),
+      });
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   });
 });
