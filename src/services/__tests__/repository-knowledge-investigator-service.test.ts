@@ -2587,7 +2587,7 @@ describe("repository knowledge investigator", () => {
     });
     expect(incorrectExactRange).toMatchObject({
       accepted: false,
-      errors: [expect.stringContaining("exact candidate-phase citation")],
+      errors: [expect.stringContaining("set evidence exactly to")],
     });
     if (incorrectExactRange.accepted) {
       throw new Error("Expected the altered exact range to fail closed.");
@@ -2595,6 +2595,9 @@ describe("repository knowledge investigator", () => {
     expect(incorrectExactRange.errors[0]).toContain(fixture.evidence.evidenceId);
     expect(incorrectExactRange.errors[0]).toContain('"lineStart":1');
     expect(incorrectExactRange.errors[0]).toContain('"lineEnd":4');
+    expect(incorrectExactRange.errors[0]).not.toContain(
+      `set evidence exactly to {"evidenceId":"${fixture.evidence.evidenceId}","path"`,
+    );
   });
 
   it("keeps the blind checkpoint reusable while later notebook waves change", () => {

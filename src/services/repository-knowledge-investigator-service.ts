@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v31-actionable-exact-range-repair";
+  "repository-knowledge-investigator-v32-schema-shaped-range-repair";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -2618,9 +2618,8 @@ export function validateRepositoryCoverageAuditContract(input: {
       read.lineEnd >= expected.lineEnd
     );
     return enclosingRead
-      ? ` Use this exact candidate-phase citation: ${JSON.stringify({
+      ? ` At path ${JSON.stringify(expected.path)}, set evidence exactly to ${JSON.stringify({
           evidenceId: enclosingRead.evidenceId,
-          path: expected.path,
           lineStart: expected.lineStart,
           lineEnd: expected.lineEnd,
         })}.`
