@@ -5,7 +5,11 @@ import {
   StructuredGenerationBudgetError,
   StructuredOutputError,
 } from "@/src/lib/bedrock-structured-llm-client";
-import { sanitizeBedrockConverseEventValue } from "@/src/lib/bedrock-converse-agent";
+import {
+  BedrockConverseAgentError,
+  BedrockConverseLimitError,
+  sanitizeBedrockConverseEventValue,
+} from "@/src/lib/bedrock-converse-agent";
 import {
   generationRunFailureTokenUsage,
   isStructuredGenerationAdmissionFailure,
@@ -605,6 +609,50 @@ function structuredAttemptCount(value: unknown) {
   return Array.isArray(value) ? value.length : null;
 }
 
+const hostAgentFailureCodes = new Set([
+  "protocol_error",
+  "iteration_limit_exceeded",
+  "tool_call_limit_exceeded",
+  "token_limit_exceeded",
+  "output_token_limit_reached",
+]);
+
+function hostGenerationFailure(error: unknown) {
+  if (error instanceof StructuredGenerationBudgetError) {
+    return {
+      code: error.code,
+      validationErrors: {
+        origin: "host_budget",
+        code: error.code,
+      } satisfies JsonValue,
+    };
+  }
+  if (
+    error instanceof BedrockConverseAgentError &&
+    hostAgentFailureCodes.has(error.code)
+  ) {
+    return {
+      code: error.code,
+      validationErrors: {
+        origin: "host_agent",
+        code: error.code,
+        ...(error instanceof BedrockConverseLimitError
+          ? { limit: error.limit, actual: error.actual }
+          : {}),
+      } satisfies JsonValue,
+    };
+  }
+  return null;
+}
+
+function structuredGenerationFailureStatus(input: {
+  structured: StructuredOutputError | null;
+  error: unknown;
+}) {
+  return input.structured?.status ??
+    (hostGenerationFailure(input.error) ? "validation_error" : "provider_error");
+}
+
 function structuredGenerationFailureMessage(input: {
   structured: StructuredOutputError | null;
   error: unknown;
@@ -616,6 +664,10 @@ function structuredGenerationFailureMessage(input: {
   }
   if (input.structured) {
     return `Structured generation failed closed: ${input.structured.status}.`;
+  }
+  const hostFailure = hostGenerationFailure(input.error);
+  if (hostFailure) {
+    return `Structured generation failed closed at a host boundary: ${hostFailure.code}.`;
   }
   return "Structured generation provider request failed closed.";
 }
@@ -807,6 +859,7 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
       });
       const providerAttempts = collectProviderAttemptMetadata(tokenUsage);
       const failureResultAttestation = input.failureResultAttestation?.(error);
+      const hostFailure = hostGenerationFailure(error);
       const failureResultRefs = {
         ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
         transportMode: structured?.transportMode ?? null,
@@ -831,6 +884,8 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
         usageComplete: auditUsage.usageComplete,
         knownEstimatedCostUsd: auditUsage.knownEstimatedCostUsd,
         admissionFailure,
+        failureOrigin: hostFailure ? "host" : null,
+        failureCode: hostFailure?.code ?? null,
         budgetCode:
           error instanceof StructuredGenerationBudgetError
             ? error.code
@@ -842,9 +897,14 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
       await prisma.generationRun.update({
         where: { id: run.id },
         data: {
-          status: structured?.status ?? "provider_error",
+          status: structuredGenerationFailureStatus({ structured, error }),
           rawOutput: rawPreview(structured?.rawOutput ?? null),
-          validationErrors: structured?.validationErrors == null ? Prisma.JsonNull : json(structured.validationErrors),
+          validationErrors:
+            structured?.validationErrors != null
+              ? json(structured.validationErrors)
+              : hostFailure
+                ? json(hostFailure.validationErrors)
+                : Prisma.JsonNull,
           tokenUsage: tokenUsage == null ? Prisma.JsonNull : tokenUsage as Prisma.InputJsonValue,
           estimatedCostUsd: auditUsage.estimatedCostUsd,
           resultRefs: input.preserveResultAttestationExactly

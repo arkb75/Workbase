@@ -54,7 +54,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v21-independent-verifier-contexts";
+  "repository-knowledge-investigator-v22-verifier-correction-headroom";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -1915,8 +1915,12 @@ export function repositoryCoverageVerifierLimits(fileCount: number) {
 export function repositoryCoverageReviewPhaseLimits(fileCount: number) {
   const context = repositoryCoverageVerifierLimits(fileCount);
   return {
-    maxIterations: 5,
-    maxToolCalls: 4,
+    // Successful repository inspection has its own tighter phase cap below.
+    // Keep the surrounding agent cap repository-sized so one rejected or
+    // corrective tool turn cannot consume the only slot reserved for the
+    // terminal submission. This remains a hard runaway ceiling.
+    maxIterations: context.maxIterations,
+    maxToolCalls: context.maxToolCalls,
     maxTotalTokens: context.maxTotalTokens,
   };
 }
@@ -1924,8 +1928,8 @@ export function repositoryCoverageReviewPhaseLimits(fileCount: number) {
 export function repositoryCoverageAuditPhaseLimits(fileCount: number) {
   const context = repositoryCoverageVerifierLimits(fileCount);
   return {
-    maxIterations: 7,
-    maxToolCalls: 5,
+    maxIterations: context.maxIterations,
+    maxToolCalls: context.maxToolCalls,
     maxTotalTokens: context.maxTotalTokens,
   };
 }

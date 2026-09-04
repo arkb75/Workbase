@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JsonValue } from "@/src/domain/types";
 import { Prisma } from "@/src/generated/prisma/client";
+import {
+  BedrockConverseAgentError,
+  BedrockConverseLimitError,
+} from "@/src/lib/bedrock-converse-agent";
 import { StructuredGenerationBudgetError } from "@/src/lib/bedrock-structured-llm-client";
 
 const prismaMock = vi.hoisted(() => ({
@@ -251,6 +255,7 @@ describe("structured generation audit usage", () => {
     })).rejects.toThrow("provider connection closed after dispatch");
 
     const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.status).toBe("provider_error");
     expect(data.tokenUsage).toEqual({
       auditUsageEvidenceVersion: 1,
       attempts: [{
@@ -963,6 +968,93 @@ describe("structured generation audit usage", () => {
     }));
   });
 
+  it("records host agent limits as validation failures rather than provider failures", async () => {
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-agent-limit",
+      modelId,
+      tokenUsage: null,
+      resultRefs: null,
+    });
+    const failure = new BedrockConverseLimitError(
+      "The agent requested one tool beyond its declared limit.",
+      "tool_call_limit_exceeded",
+      12,
+      13,
+      {
+        iterations: 5,
+        toolCalls: 11,
+        usage: {
+          inputTokens: 400,
+          outputTokens: 80,
+          totalTokens: 480,
+          cacheReadInputTokens: 0,
+          cacheWriteInputTokens: 0,
+          providerAttemptCount: 5,
+        },
+        requestIds: ["request-agent-limit"],
+      },
+    );
+
+    await expect(runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "coverage_audit",
+      idempotencyKey: "coverage:agent-limit",
+      inputSummary: { phase: "verification" },
+      execute: async () => {
+        throw failure;
+      },
+    })).rejects.toBe(failure);
+
+    const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.status).toBe("validation_error");
+    expect(data.validationErrors).toEqual({
+      origin: "host_agent",
+      code: "tool_call_limit_exceeded",
+      limit: 12,
+      actual: 13,
+    });
+    expect(data.resultRefs).toEqual(expect.objectContaining({
+      failureOrigin: "host",
+      failureCode: "tool_call_limit_exceeded",
+      message:
+        "Structured generation failed closed at a host boundary: tool_call_limit_exceeded.",
+    }));
+  });
+
+  it("records host protocol failures as validation failures", async () => {
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-agent-protocol",
+      modelId,
+      tokenUsage: null,
+      resultRefs: null,
+    });
+    const failure = new BedrockConverseAgentError(
+      "The agent returned an unsupported stop reason.",
+      "protocol_error",
+    );
+
+    await expect(runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "coverage_audit",
+      idempotencyKey: "coverage:agent-protocol",
+      inputSummary: { phase: "verification" },
+      execute: async () => {
+        throw failure;
+      },
+    })).rejects.toBe(failure);
+
+    const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.status).toBe("validation_error");
+    expect(data.validationErrors).toEqual({
+      origin: "host_agent",
+      code: "protocol_error",
+    });
+    expect(data.resultRefs).toEqual(expect.objectContaining({
+      failureOrigin: "host",
+      failureCode: "protocol_error",
+    }));
+  });
+
   it("does not count a pre-dispatch budget admission failure as a provider attempt", async () => {
     prismaMock.generationRun.upsert.mockResolvedValue({
       id: "generation-budget",
@@ -998,6 +1090,11 @@ describe("structured generation audit usage", () => {
     })).rejects.toThrow("did not fit before dispatch");
 
     const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.status).toBe("validation_error");
+    expect(data.validationErrors).toEqual({
+      origin: "host_budget",
+      code: "token_budget_exhausted",
+    });
     expect(data.estimatedCostUsd).toBe(0);
     expect(data.tokenUsage).toBe(Prisma.JsonNull);
     expect(data.resultRefs).toEqual(expect.objectContaining({
@@ -1055,6 +1152,11 @@ describe("structured generation audit usage", () => {
     })).rejects.toThrow("crossed the cumulative token ceiling");
 
     const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.status).toBe("validation_error");
+    expect(data.validationErrors).toEqual({
+      origin: "host_budget",
+      code: "token_budget_exhausted",
+    });
     expect(data.tokenUsage).toEqual({
       auditUsageEvidenceVersion: 1,
       attempts: [{

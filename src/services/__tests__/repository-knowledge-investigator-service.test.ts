@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import {
+  BedrockConverseAgent,
+  defineBedrockConverseTool,
+  type BedrockConverseTransportResponse,
+} from "@/src/lib/bedrock-converse-agent";
 import {
   createProjectRepositoryRawEvidence,
 } from "@/src/services/project-chat-repository-evidence-service";
@@ -229,15 +235,142 @@ describe("repository knowledge investigator", () => {
 
   it("gives each fresh verifier context its own raw transcript ceiling", () => {
     expect(repositoryCoverageReviewPhaseLimits(77)).toEqual({
-      maxIterations: 5,
-      maxToolCalls: 4,
+      maxIterations: 12,
+      maxToolCalls: 10,
       maxTotalTokens: 170_000,
     });
     expect(repositoryCoverageAuditPhaseLimits(77)).toEqual({
-      maxIterations: 7,
-      maxToolCalls: 5,
+      maxIterations: 12,
+      maxToolCalls: 10,
       maxTotalTokens: 170_000,
     });
+  });
+
+  it("leaves bounded verifier headroom after repository inspection", () => {
+    const smallReview = repositoryCoverageReviewPhaseLimits(77);
+    const smallAudit = repositoryCoverageAuditPhaseLimits(77);
+    const largeReview = repositoryCoverageReviewPhaseLimits(251);
+
+    expect(smallReview.maxToolCalls).toBeGreaterThan(
+      REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 1,
+    );
+    expect(smallAudit.maxToolCalls).toBeGreaterThan(
+      REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS + 1,
+    );
+    expect(largeReview).toMatchObject({
+      maxIterations: 13,
+      maxToolCalls: 12,
+    });
+    expect(largeReview.maxToolCalls).toBeLessThan(largeReview.maxIterations);
+  });
+
+  it("lets the blind reviewer correct a rejected submission after its inspection allowance", async () => {
+    const inspectionResponses: BedrockConverseTransportResponse[] = Array.from(
+      { length: REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS },
+      (_, index) => ({
+        message: {
+          role: "assistant",
+          content: [{
+            toolUse: {
+              toolUseId: `inspect-${index + 1}`,
+              name: "inspect_repository_snapshot",
+              input: {},
+            },
+          }],
+        },
+        stopReason: "tool_use",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        requestId: `request-${index + 1}`,
+      }),
+    );
+    const responses: BedrockConverseTransportResponse[] = [
+      ...inspectionResponses,
+      {
+        message: {
+          role: "assistant",
+          content: [{
+            toolUse: {
+              toolUseId: "submit-rejected",
+              name: "submit_repository_independent_review",
+              input: { corrected: false },
+            },
+          }],
+        },
+        stopReason: "tool_use",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        requestId: "request-submit-rejected",
+      },
+      {
+        message: {
+          role: "assistant",
+          content: [{
+            toolUse: {
+              toolUseId: "submit-corrected",
+              name: "submit_repository_independent_review",
+              input: { corrected: true },
+            },
+          }],
+        },
+        stopReason: "tool_use",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        requestId: "request-submit-corrected",
+      },
+      {
+        message: { role: "assistant", content: [{ text: "Review submitted." }] },
+        stopReason: "end_turn",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        requestId: "request-complete",
+      },
+    ];
+    let responseIndex = 0;
+    const transport = {
+      converse: vi.fn(async () => {
+        const response = responses[responseIndex++];
+        if (!response) throw new Error("Unexpected verifier model turn.");
+        return response;
+      }),
+    };
+    const executeInspection = vi.fn(async () => ({ status: "completed" }));
+    const inspect = defineBedrockConverseTool({
+      name: "inspect_repository_snapshot",
+      description: "Inspect the pinned repository snapshot.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute: executeInspection,
+    });
+    const executeSubmission = vi.fn(async ({ corrected }: { corrected: boolean }) =>
+      corrected
+        ? { status: "accepted" }
+        : { status: "rejected", instruction: "Correct the source contract." }
+    );
+    const submit = defineBedrockConverseTool({
+      name: "submit_repository_independent_review",
+      description: "Submit the blind repository review.",
+      inputSchema: z.object({ corrected: z.boolean() }),
+      jsonSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["corrected"],
+        properties: { corrected: { type: "boolean" } },
+      },
+      execute: executeSubmission,
+    });
+    const agent = new BedrockConverseAgent(transport, { modelId: "test-verifier" });
+
+    const result = await agent.run({
+      messages: [{ role: "user", content: [{ text: "Review this repository." }] }],
+      tools: [inspect, submit],
+      limits: repositoryCoverageReviewPhaseLimits(77),
+    });
+
+    expect(executeInspection).toHaveBeenCalledTimes(
+      REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+    );
+    expect(executeSubmission).toHaveBeenCalledTimes(2);
+    expect(result.toolCalls).toBe(
+      REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 2,
+    );
+    expect(result.text).toBe("Review submitted.");
   });
 
   it("still shares semantic work across independent verifier contexts", () => {
