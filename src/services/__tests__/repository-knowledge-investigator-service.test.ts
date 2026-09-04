@@ -1794,6 +1794,61 @@ describe("repository knowledge investigator", () => {
     })).toBe(2_000);
   });
 
+  it("keeps empty 429 transport attempts out of semantic model-call capacity", () => {
+    const budget = new RepositoryInvestigationSharedBudget({
+      maxModelTokens: 20_000,
+      maxModelCalls: 4,
+      maxInspectionOperations: 8,
+    });
+    const failedAttempts = Array.from({ length: 4 }, (_, index) => ({
+      requestId: `req_rate_limited_${index + 1}`,
+      httpStatus: 429,
+      attemptDisposition: "empty_unbilled",
+      retryable: true,
+    }));
+    budget.consumeModelUsage({
+      usage: {
+        attempts: [{
+          inputTokens: 1_000,
+          outputTokens: 100,
+          totalTokens: 1_100,
+          cost: 0.001,
+        }],
+        failedAttempts,
+        providerAttemptCount: 5,
+        unknownUsageAttempts: 4,
+      },
+    });
+
+    expect(budget.snapshot()).toMatchObject({
+      used: { modelCalls: 1 },
+      remaining: { modelCalls: 3 },
+    });
+    expect(budget.canStart({
+      minimumTokens: 1_000,
+      minimumModelCalls: 3,
+      minimumInspectionOperations: 1,
+    })).toBe(true);
+    expect(failedAttempts).toHaveLength(4);
+  });
+
+  it("uses logical iterations when provider-attempt usage is unavailable", () => {
+    const budget = new RepositoryInvestigationSharedBudget({
+      maxModelTokens: 20_000,
+      maxModelCalls: 4,
+      maxInspectionOperations: 8,
+    });
+    budget.consumeModelUsage({
+      usage: null,
+      fallbackModelCalls: 3,
+    });
+
+    expect(budget.snapshot()).toMatchObject({
+      used: { modelCalls: 3 },
+      remaining: { modelCalls: 1 },
+    });
+  });
+
   it("charges uncached and cache-unaware provider usage as semantic work", () => {
     const uncached = new RepositoryInvestigationSharedBudget({
       maxModelTokens: 30_000,

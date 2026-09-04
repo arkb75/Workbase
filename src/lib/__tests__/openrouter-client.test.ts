@@ -1332,10 +1332,22 @@ describe("RetryableSameModelConverseTransport", () => {
           providerAttemptCount: 5,
           unknownUsageAttempts: 4,
           failedAttempts: [
-            expect.objectContaining({ requestId: "req_agent_limited_1" }),
-            expect.objectContaining({ requestId: "req_agent_limited_2" }),
-            expect.objectContaining({ requestId: "req_agent_limited_3" }),
-            expect.objectContaining({ requestId: "req_agent_limited_4" }),
+            expect.objectContaining({
+              requestId: "req_agent_limited_1",
+              attemptDisposition: "empty_unbilled",
+            }),
+            expect.objectContaining({
+              requestId: "req_agent_limited_2",
+              attemptDisposition: "empty_unbilled",
+            }),
+            expect.objectContaining({
+              requestId: "req_agent_limited_3",
+              attemptDisposition: "empty_unbilled",
+            }),
+            expect.objectContaining({
+              requestId: "req_agent_limited_4",
+              attemptDisposition: "empty_unbilled",
+            }),
           ],
         },
       });
@@ -1370,7 +1382,10 @@ describe("RetryableSameModelConverseTransport", () => {
         providerAttemptCount: 5,
         unknownUsageAttempts: 5,
         failedAttempts: Array.from({ length: 5 }, () =>
-          expect.objectContaining({ httpStatus: 429 })
+          expect.objectContaining({
+            httpStatus: 429,
+            attemptDisposition: "empty_unbilled",
+          })
         ),
         tokenUsage: {
           providerAttemptCount: 5,
@@ -1380,6 +1395,67 @@ describe("RetryableSameModelConverseTransport", () => {
       await vi.advanceTimersByTimeAsync(75_000);
       await assertion;
 
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("carries learned headerless pacing across tool turns until the idle TTL expires", async () => {
+    vi.useFakeTimers();
+    try {
+      const limited = () => new Response(
+        JSON.stringify({ error: { message: "rate limited", code: 429 } }),
+        { status: 429 },
+      );
+      const success = () => response({
+        model: "openai/gpt-5.6-terra",
+        provider: "openai",
+        choices: [{ finish_reason: "stop", message: { content: "Done." } }],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 2,
+          total_tokens: 14,
+          cost: 0.0003,
+        },
+      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(limited())
+        .mockResolvedValueOnce(limited())
+        .mockResolvedValueOnce(success())
+        .mockResolvedValueOnce(success())
+        .mockResolvedValueOnce(success());
+      const runtimeConfig = config({
+        baseUrl: "https://learned-agent-pacing.example/api/v1",
+      });
+      const transport = new RetryableSameModelConverseTransport(
+        new OpenRouterConverseTransport(
+          runtimeConfig,
+          undefined,
+          fetchMock,
+        ),
+        runtimeConfig,
+      );
+
+      const recoveringTurn = transport.converse(input);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await recoveringTurn;
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+
+      const nextTurn = transport.converse(input);
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(1);
+      await nextTurn;
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+
+      await vi.advanceTimersByTimeAsync(60_001);
+      const afterIdle = transport.converse(input);
+      await vi.advanceTimersByTimeAsync(0);
+      await afterIdle;
       expect(fetchMock).toHaveBeenCalledTimes(5);
     } finally {
       vi.useRealTimers();

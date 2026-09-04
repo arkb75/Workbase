@@ -139,10 +139,11 @@ function installOpenRouterCooldown(input: {
   noHeaderBackoffMs?: number;
 }) {
   const key = openRouterRequestKey(input.config, input.modelId);
-  const cooldownUntil = Date.now() + Math.max(
+  const retryDelayMs = Math.max(
     input.config.minRequestIntervalMs,
     retryAfterDelayMs(input.retryAfter, input.noHeaderBackoffMs),
   );
+  const cooldownUntil = Date.now() + retryDelayMs;
   openRouterCooldownUntil.set(
     key,
     Math.max(openRouterCooldownUntil.get(key) ?? 0, cooldownUntil),
@@ -151,7 +152,31 @@ function installOpenRouterCooldown(input: {
     intervalMs: Math.max(
       input.config.minRequestIntervalMs,
       OPENROUTER_RATE_LIMIT_INTERVAL_MS,
+      retryDelayMs,
     ),
+    expiresAt: Date.now() + OPENROUTER_RATE_LIMIT_INTERVAL_TTL_MS,
+  });
+}
+
+function recordSuccessfulOpenRouterRequest(input: {
+  config: OpenRouterTextConfig;
+  modelId: string;
+}) {
+  const key = openRouterRequestKey(input.config, input.modelId);
+  const adaptive = openRouterAdaptiveIntervals.get(key);
+  if (!adaptive) return;
+  if (adaptive.expiresAt <= Date.now()) {
+    openRouterAdaptiveIntervals.delete(key);
+    return;
+  }
+  const floor = Math.max(
+    input.config.minRequestIntervalMs,
+    OPENROUTER_RATE_LIMIT_INTERVAL_MS,
+  );
+  openRouterAdaptiveIntervals.set(key, {
+    // Preserve the learned interval for active follow-up turns. It expires
+    // after a fixed idle window, so a later unrelated run starts healthy.
+    intervalMs: Math.max(floor, adaptive.intervalMs),
     expiresAt: Date.now() + OPENROUTER_RATE_LIMIT_INTERVAL_TTL_MS,
   });
 }
@@ -876,6 +901,11 @@ async function sendOpenRouterRequest(input: {
     );
   }
 
+  recordSuccessfulOpenRouterRequest({
+    config: input.config,
+    modelId: input.modelId,
+  });
+
   return {
     response: parsed,
     requestId,
@@ -999,23 +1029,25 @@ export class OpenRouterChatCompletionsRuntime
   }
 }
 
-function sameModelRetryEligible(
-  error: unknown,
-): error is OpenRouterRequestError {
+function isEmptyUnbilledOpenRouterFailure(
+  error: OpenRouterRequestError,
+) {
   const usage = error instanceof OpenRouterRequestError &&
       error.tokenUsage &&
       typeof error.tokenUsage === "object" &&
       !Array.isArray(error.tokenUsage)
     ? error.tokenUsage as Record<string, JsonValue>
     : null;
-  const hasNoBillableUsage = error instanceof OpenRouterRequestError &&
-    (error.tokenUsage == null || usage?.cost === 0);
-  const hasNoPartialAnswer = error instanceof OpenRouterRequestError &&
+  return (error.tokenUsage == null || usage?.cost === 0) &&
     !error.partialContent?.trim();
+}
+
+function sameModelRetryEligible(
+  error: unknown,
+): error is OpenRouterRequestError {
   return error instanceof OpenRouterRequestError &&
     error.retryable &&
-    hasNoBillableUsage &&
-    hasNoPartialAnswer &&
+    isEmptyUnbilledOpenRouterFailure(error) &&
     (
       // A completion-choice provider error may not carry an HTTP-style code.
       // Retry it only when OpenRouter classified it as transient and reported
@@ -1043,6 +1075,9 @@ function openRouterFailureAttempt(
     errorType: error.errorType,
     retryAfter: error.retryAfter,
     retryable: error.retryable,
+    attemptDisposition: isEmptyUnbilledOpenRouterFailure(error)
+      ? "empty_unbilled"
+      : "usage_or_output_possible",
   } satisfies JsonValue;
 }
 

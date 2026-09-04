@@ -33,6 +33,7 @@ import {
   collectModelTokenUsage,
   collectReportedModelCostUsd,
   countModelProviderAttempts,
+  countProductiveModelProviderAttempts,
 } from "@/src/services/model-usage-service";
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import {
@@ -53,7 +54,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v19-source-audited-operation-state";
+  "repository-knowledge-investigator-v20-rate-limit-resilient";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -319,9 +320,16 @@ export class RepositoryInvestigationSharedBudget {
     this.#semanticModelTokens += repositoryInvestigationSemanticModelTokenCount(
       input.usage,
     );
+    const providerAttempts = countModelProviderAttempts(input.usage);
+    const productiveAttempts = countProductiveModelProviderAttempts(input.usage);
+    const conclusivelyEmptyRateLimits = Math.max(
+      0,
+      providerAttempts - productiveAttempts,
+    );
     this.#modelCalls += Math.max(
-      input.fallbackModelCalls ?? 0,
-      countModelProviderAttempts(input.usage),
+      0,
+      Math.max(input.fallbackModelCalls ?? 0, providerAttempts) -
+        conclusivelyEmptyRateLimits,
     );
     const reported = input.reportedCostUsd ?? collectReportedModelCostUsd(input.usage);
     if (typeof reported === "number") {
@@ -2032,7 +2040,7 @@ function modelTokenUsage(result: BedrockConverseAgentRunResult): JsonValue {
         }]
       : []
   );
-  const failedAttempts = result.events.flatMap((event) =>
+  const eventFailures = result.events.flatMap((event) =>
     event.type === "model_call_failed"
       ? event.requestIds.map((requestId) => ({
           requestId,
@@ -2044,10 +2052,18 @@ function modelTokenUsage(result: BedrockConverseAgentRunResult): JsonValue {
         }))
       : []
   );
+  const failedAttempts = result.usage.failedAttempts?.length
+    ? result.usage.failedAttempts
+    : eventFailures;
+  const providerAttemptCount = result.usage.providerAttemptCount ??
+    attempts.length + failedAttempts.length;
   return {
     attempts,
     failedAttempts,
-    providerAttemptCount: result.usage.providerAttemptCount ?? attempts.length + failedAttempts.length,
+    productiveModelCallCount: countProductiveModelProviderAttempts(
+      result.usage,
+    ),
+    providerAttemptCount,
     unknownUsageAttempts: result.usage.unknownUsageAttempts ?? 0,
   };
 }
@@ -5168,7 +5184,7 @@ async function restoredRepositoryInvestigationBudget(input: {
   let inspectionOperations = 0;
   for (const run of runs) {
     modelTokens += repositoryInvestigationSemanticModelTokenCount(run.tokenUsage);
-    modelCalls += countModelProviderAttempts(run.tokenUsage);
+    modelCalls += countProductiveModelProviderAttempts(run.tokenUsage);
     const cost = typeof run.estimatedCostUsd === "number"
       ? run.estimatedCostUsd
       : collectReportedModelCostUsd(run.tokenUsage);

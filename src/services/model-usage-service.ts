@@ -73,6 +73,49 @@ export function countModelProviderAttempts(value: unknown) {
   return total;
 }
 
+/**
+ * Counts provider attempts that can represent semantic work. A transport can
+ * conclusively mark an empty, unbilled 429; those attempts remain in raw
+ * diagnostics but do not spend a semantic-work allowance. Every other attempt
+ * stays conservatively charged.
+ */
+export function countProductiveModelProviderAttempts(value: unknown) {
+  const providerAttempts = countModelProviderAttempts(value);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const explicit = (value as Record<string, unknown>).productiveModelCallCount;
+    if (
+      typeof explicit === "number" &&
+      Number.isFinite(explicit) &&
+      explicit >= 0
+    ) {
+      return Math.min(providerAttempts, Math.floor(explicit));
+    }
+  }
+  let emptyUnbilledRateLimits = 0;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (!current || typeof current !== "object" || depth > 6 || seen.has(current)) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    if (
+      (record.httpStatus === 429 || record.providerStatus === 429) &&
+      record.attemptDisposition === "empty_unbilled"
+    ) {
+      emptyUnbilledRateLimits += 1;
+      return;
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return Math.max(0, providerAttempts - emptyUnbilledRateLimits);
+}
+
 function finiteTokenCount(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? Math.floor(value)

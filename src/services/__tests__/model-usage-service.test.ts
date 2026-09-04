@@ -7,6 +7,7 @@ import {
   countCostedModelProviderAttempts,
   countModelUsageEntries,
   countModelProviderAttempts,
+  countProductiveModelProviderAttempts,
   countReportedModelCostEntries,
   estimateBedrockCostUsd,
   modelTokenUsageJson,
@@ -49,6 +50,47 @@ describe("model usage accounting", () => {
     };
     expect(countModelProviderAttempts(usage)).toBe(2);
     expect(collectUnknownModelUsageAttempts(usage)).toBe(1);
+  });
+
+  it("separates transport attempts from output-bearing semantic calls", () => {
+    const failedAttempts = Array.from({ length: 4 }, (_, index) => ({
+      requestId: `req_rate_limited_${index + 1}`,
+      httpStatus: 429,
+      retryable: true,
+      attemptDisposition: "empty_unbilled",
+    }));
+    const usage = {
+      attempts: [{
+        inputTokens: 120,
+        outputTokens: 8,
+        totalTokens: 128,
+        cost: 0.001,
+      }],
+      failedAttempts,
+      providerAttemptCount: 5,
+      unknownUsageAttempts: 4,
+    };
+
+    expect(countModelProviderAttempts(usage)).toBe(5);
+    expect(countProductiveModelProviderAttempts(usage)).toBe(1);
+    expect(usage.failedAttempts).toEqual(failedAttempts);
+  });
+
+  it("charges non-rate-limit failures conservatively", () => {
+    expect(countProductiveModelProviderAttempts({
+      attempts: [
+        { inputTokens: 50, outputTokens: 5, totalTokens: 55, cost: 0.0004 },
+        { inputTokens: 80, outputTokens: 9, totalTokens: 89, cost: 0.0007 },
+      ],
+      failedAttempts: [
+        {
+          httpStatus: 503,
+          attemptDisposition: "empty_unbilled",
+        },
+      ],
+      providerAttemptCount: 3,
+      unknownUsageAttempts: 1,
+    })).toBe(3);
   });
 
   it("aggregates nested attempts without double-counting wrapper objects", () => {
