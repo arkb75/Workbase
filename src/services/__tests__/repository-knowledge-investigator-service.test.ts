@@ -21,13 +21,16 @@ import {
   independentCoverageReviewRequest,
   mergeRepositorySourceInspectionAttestations,
   prioritizedRepositoryInvestigationGaps,
+  MAX_REPOSITORY_VERIFIER_REPAIR_CYCLES,
   REPOSITORY_INVESTIGATION_CHECKPOINT_VERSION,
   REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
   REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
   REPOSITORY_VERIFIER_MAX_OBSERVATIONS,
   REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+  recoverRepositoryInvestigatorAgentBudgetError,
   RepositoryInvestigationSharedBudget,
   repositoryCoverageAuditPhaseLimits,
+  repositoryCandidateAuditIdempotencyKey,
   repositoryCoverageCandidatePacket,
   repositoryCoverageReviewPhaseLimits,
   repositoryCoverageVerifierLimits,
@@ -39,13 +42,16 @@ import {
   repositoryInvestigationFindingSemanticSignals,
   repositoryInvestigationBoundaryReviewGuidance,
   repositoryInvestigationHasMaterialProgress,
+  repositoryIndependentReviewIdempotencyKey,
   repositoryInvestigationMaterialityGuidance,
   repositoryInvestigationNotebookWithoutTransientCapacityAreas,
   repositoryInvestigationPhaseInspectionAction,
+  repositoryInvestigationPhaseBudget,
   repositoryInvestigationSemanticModelTokenCount,
   repositoryInvestigationSharedBudgetLimits,
   repositorySourceInspectionAttestationFromNotebook,
   repositoryUnsupportedFindingRepairGaps,
+  repositoryVerifierRepairDecision,
   repositoryVerifierIndependentDiscoveryGate,
   repositoryVerifierIndependentNextAction,
   repositoryVerifierIndependentObservationDigest,
@@ -264,6 +270,71 @@ describe("repository knowledge investigator", () => {
     expect(largeReview.maxToolCalls).toBeLessThan(largeReview.maxIterations);
   });
 
+  it("reserves one correction-capable verifier repair and re-audit", () => {
+    const policies = {
+      initial_investigator: {
+        minimum: { modelTokens: 16_000, modelCalls: 5, inspectionOperations: 4 },
+        reserve: { modelTokens: 64_000, modelCalls: 22, inspectionOperations: 28 },
+      },
+      independent_review: {
+        minimum: { modelTokens: 12_000, modelCalls: 5, inspectionOperations: 4 },
+        reserve: { modelTokens: 52_000, modelCalls: 17, inspectionOperations: 24 },
+      },
+      candidate_audit: {
+        minimum: { modelTokens: 18_000, modelCalls: 6, inspectionOperations: 10 },
+        reserve: { modelTokens: 34_000, modelCalls: 11, inspectionOperations: 14 },
+      },
+      verifier_repair: {
+        minimum: { modelTokens: 16_000, modelCalls: 5, inspectionOperations: 4 },
+        reserve: { modelTokens: 18_000, modelCalls: 6, inspectionOperations: 10 },
+      },
+      candidate_reaudit: {
+        minimum: { modelTokens: 18_000, modelCalls: 6, inspectionOperations: 10 },
+        reserve: { modelTokens: 0, modelCalls: 0, inspectionOperations: 0 },
+      },
+    } as const;
+
+    for (const [phase, expected] of Object.entries(policies)) {
+      const policy = repositoryInvestigationPhaseBudget(
+        phase as keyof typeof policies,
+      );
+      expect(policy).toEqual(expected);
+      const budget = new RepositoryInvestigationSharedBudget({
+        maxModelTokens:
+          policy.minimum.modelTokens + policy.reserve.modelTokens,
+        maxModelCalls:
+          policy.minimum.modelCalls + policy.reserve.modelCalls,
+        maxInspectionOperations:
+          policy.minimum.inspectionOperations +
+          policy.reserve.inspectionOperations,
+      });
+      expect(budget.phaseLimits({
+        maxIterations: 20,
+        maxToolCalls: 20,
+        maxTotalTokens: 200_000,
+      }, policy.minimum.modelTokens, policy.reserve, {
+        acceptTerminalToolAtIterationLimit: true,
+      })).toMatchObject({
+        maxIterations: policy.minimum.modelCalls,
+        maxToolCalls: policy.minimum.modelCalls,
+      });
+    }
+
+    expect(policies.independent_review.minimum.modelCalls).toBe(
+      REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 2,
+    );
+    expect(policies.candidate_audit.minimum.modelCalls).toBe(
+      REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS + 2,
+    );
+    expect(repositoryVerifierRepairDecision(0)).toEqual({ action: "repair" });
+    expect(repositoryVerifierRepairDecision(
+      MAX_REPOSITORY_VERIFIER_REPAIR_CYCLES,
+    )).toEqual({
+      action: "stop",
+      terminationReason: "verifier_gaps_after_bounded_repair",
+    });
+  });
+
   it("lets the blind reviewer correct a rejected submission after its inspection allowance", async () => {
     const inspectionResponses: BedrockConverseTransportResponse[] = Array.from(
       { length: REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS },
@@ -371,6 +442,129 @@ describe("repository knowledge investigator", () => {
       REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 2,
     );
     expect(result.text).toBe("Review submitted.");
+  });
+
+  it("preserves a validated terminal notebook when the redundant model turn hits token preflight", async () => {
+    const { state, evidence } = investigationState();
+    const seedNotebook = structuredClone(state.notebook);
+    const executeUpdate = vi.fn(async () => {
+      const applied = applyRepositoryInvestigationNotebookUpdate({
+        state,
+        update: notebookUpdate(evidence.evidenceId),
+      });
+      if (!applied.accepted) throw new Error("Expected the terminal update to pass.");
+      return { status: "accepted", done: true, unresolvedAreaCount: 0 };
+    });
+    const update = defineBedrockConverseTool({
+      name: "update_repository_notebook",
+      description: "Persist the validated repository notebook.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute: executeUpdate,
+    });
+    const transport = {
+      converse: vi.fn(async () => ({
+        message: {
+          role: "assistant" as const,
+          content: [{
+            toolUse: {
+              toolUseId: "terminal-update",
+              name: "update_repository_notebook",
+              input: {},
+            },
+          }],
+        },
+        stopReason: "tool_use",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        requestId: "request-terminal-update",
+      })),
+    };
+    const agent = new BedrockConverseAgent(transport, { modelId: "test-investigator" });
+    let preflightError: unknown;
+    try {
+      await agent.run({
+        messages: [{ role: "user", content: [{ text: "Finish the notebook." }] }],
+        tools: [update],
+        limits: { maxIterations: 4, maxToolCalls: 3, maxTotalTokens: 20 },
+      });
+    } catch (error) {
+      preflightError = error;
+    }
+
+    expect(executeUpdate).toHaveBeenCalledTimes(1);
+    expect(transport.converse).toHaveBeenCalledTimes(1);
+    expect(preflightError).toMatchObject({ code: "token_limit_exceeded" });
+    expect(state.notebook).toMatchObject({ done: true, unresolvedAreas: [] });
+    const recovery = recoverRepositoryInvestigatorAgentBudgetError({
+      error: preflightError,
+      seedNotebook,
+      notebook: state.notebook,
+      configuredIdentity: { provider: "openrouter", modelId: "test-investigator" },
+    });
+    expect(recovery).toMatchObject({
+      notebook: { done: true, unresolvedAreas: [] },
+      terminationReason: "investigator_done",
+      capacityLimitation: null,
+    });
+    if (!recovery) throw new Error("Expected terminal notebook recovery.");
+    const context = {
+      refreshRunId: "refresh-terminal-recovery",
+      snapshotId: "snapshot-terminal-recovery",
+      target: {
+        sourceId: "source-1",
+        repository: "owner/project",
+        commitSha,
+        treeSha: "c".repeat(40),
+      },
+      files: Array.from(state.filesByPath.values()),
+      wave: 1,
+      investigationInputDigest: "d".repeat(64),
+      seedNotebookDigest: null,
+    };
+    const checkpoint = buildRepositoryInvestigationCheckpoint({
+      context,
+      notebook: recovery.notebook,
+      checkpointKind: "final",
+      generationRunId: "generation-terminal-recovery",
+      terminationReason: recovery.terminationReason,
+      capacityLimitation: recovery.capacityLimitation,
+      sourceInspection: buildRepositorySourceInspectionAttestation({
+        evidence: [evidence],
+        visibleRanges: state.visibleEvidenceRanges,
+      }),
+      agentToolTrace: [{
+        iteration: 1,
+        toolCall: 1,
+        toolName: "update_repository_notebook",
+        outcome: "success",
+      }],
+    });
+
+    expect(checkpoint).toMatchObject({
+      checkpointKind: "final",
+      terminationReason: "investigator_done",
+      capacityLimitation: null,
+      notebook: { done: true, unresolvedAreas: [] },
+    });
+    expect(recovery.result.text).toContain("validated repository notebook");
+
+    const nonterminalRecovery = recoverRepositoryInvestigatorAgentBudgetError({
+      error: preflightError,
+      seedNotebook,
+      notebook: { ...state.notebook, done: false },
+      configuredIdentity: { provider: "openrouter", modelId: "test-investigator" },
+    });
+    expect(nonterminalRecovery).toMatchObject({
+      notebook: { done: false },
+      terminationReason: "agent_phase_budget_exhausted",
+      capacityLimitation: "token_limit_exceeded",
+    });
+    expect(recoverRepositoryInvestigatorAgentBudgetError({
+      error: preflightError,
+      seedNotebook,
+      notebook: { ...seedNotebook, done: true },
+      configuredIdentity: { provider: "openrouter", modelId: "test-investigator" },
+    })).toBeNull();
   });
 
   it("still shares semantic work across independent verifier contexts", () => {
@@ -1530,6 +1724,38 @@ describe("repository knowledge investigator", () => {
       firstRequest.independentObservations,
     );
     expect(nextRequest.candidate).not.toEqual(firstRequest.candidate);
+
+    const blindKey = repositoryIndependentReviewIdempotencyKey({
+      refreshRunId: "refresh-1",
+      sourceId: fixture.target.sourceId,
+      commitSha: fixture.target.commitSha,
+      snapshotScopeDigest: fixture.snapshotScopeDigest,
+    });
+    expect(repositoryIndependentReviewIdempotencyKey({
+      refreshRunId: "refresh-1",
+      sourceId: fixture.target.sourceId,
+      commitSha: fixture.target.commitSha,
+      snapshotScopeDigest: fixture.snapshotScopeDigest,
+    })).toBe(blindKey);
+    expect(repositoryIndependentReviewIdempotencyKey({
+      refreshRunId: "refresh-1",
+      sourceId: fixture.target.sourceId,
+      commitSha: fixture.target.commitSha,
+      snapshotScopeDigest: "f".repeat(64),
+    })).not.toBe(blindKey);
+    expect(repositoryCandidateAuditIdempotencyKey({
+      refreshRunId: "refresh-1",
+      sourceId: fixture.target.sourceId,
+      commitSha: fixture.target.commitSha,
+      wave: 1,
+      notebookDigest: "1".repeat(64),
+    })).not.toBe(repositoryCandidateAuditIdempotencyKey({
+      refreshRunId: "refresh-1",
+      sourceId: fixture.target.sourceId,
+      commitSha: fixture.target.commitSha,
+      wave: 2,
+      notebookDigest: "2".repeat(64),
+    }));
   });
 
   it("directs the independent verifier to submit before its tool cap", () => {
@@ -1792,7 +2018,7 @@ describe("repository knowledge investigator", () => {
     }).accepted).toBe(false);
   });
 
-  it("does not call the verifier for an incomplete investigator notebook", async () => {
+  it("only critiques an incomplete grounded notebook at investigator closeout", async () => {
     const { state, evidence } = investigationState();
     const result = applyRepositoryInvestigationNotebookUpdate({
       state,
@@ -1818,6 +2044,34 @@ describe("repository knowledge investigator", () => {
       verify,
     })).resolves.toBeNull();
     expect(verify).not.toHaveBeenCalled();
+
+    await expect(runRepositoryVerificationIfCandidate({
+      notebook: incomplete,
+      allowGroundedCloseout: true,
+      verify,
+    })).resolves.toEqual({ status: "called" });
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(prioritizedRepositoryInvestigationGaps(
+      incomplete.unresolvedAreas,
+    )).toEqual(incomplete.unresolvedAreas);
+
+    await expect(runRepositoryVerificationIfCandidate({
+      notebook: { ...result.notebook, done: false },
+      allowGroundedCloseout: true,
+      verify,
+    })).resolves.toEqual({ status: "called" });
+    expect(verify).toHaveBeenCalledTimes(2);
+
+    await expect(runRepositoryVerificationIfCandidate({
+      notebook: {
+        ...incomplete,
+        capabilities: [],
+        findings: [],
+      },
+      allowGroundedCloseout: true,
+      verify,
+    })).resolves.toBeNull();
+    expect(verify).toHaveBeenCalledTimes(2);
   });
 
   it("cannot certify a completed repository notebook with no grounded knowledge", () => {
@@ -1949,6 +2203,66 @@ describe("repository knowledge investigator", () => {
       maxToolCalls: 8,
       maxTotalTokens: 50_000,
     }, 10_000)).toBeNull();
+  });
+
+  it("adds the protected critic tail without reducing discovery capacity", () => {
+    const initialReserve = repositoryInvestigationPhaseBudget(
+      "initial_investigator",
+    ).reserve;
+    const tiers = [
+      {
+        files: 80,
+        limits: { maxModelTokens: 280_000, maxModelCalls: 68, maxInspectionOperations: 110 },
+        legacyDiscovery: { modelTokens: 210_000, modelCalls: 46, inspectionOperations: 82 },
+      },
+      {
+        files: 81,
+        limits: { maxModelTokens: 460_000, maxModelCalls: 100, maxInspectionOperations: 194 },
+        legacyDiscovery: { modelTokens: 390_000, modelCalls: 78, inspectionOperations: 166 },
+      },
+      {
+        files: 251,
+        limits: { maxModelTokens: 760_000, maxModelCalls: 152, maxInspectionOperations: 314 },
+        legacyDiscovery: { modelTokens: 690_000, modelCalls: 130, inspectionOperations: 286 },
+      },
+    ];
+
+    for (const tier of tiers) {
+      const limits = repositoryInvestigationSharedBudgetLimits({
+        repositoryCount: 1,
+        analyzedFileCount: tier.files,
+      });
+      expect(limits).toEqual(tier.limits);
+      const discovery = {
+        modelTokens: limits.maxModelTokens - initialReserve.modelTokens,
+        modelCalls: limits.maxModelCalls - initialReserve.modelCalls,
+        inspectionOperations:
+          limits.maxInspectionOperations - initialReserve.inspectionOperations,
+      };
+      expect(discovery.modelTokens).toBeGreaterThanOrEqual(
+        tier.legacyDiscovery.modelTokens,
+      );
+      expect(discovery.modelCalls).toBe(tier.legacyDiscovery.modelCalls);
+      expect(discovery.inspectionOperations).toBe(
+        tier.legacyDiscovery.inspectionOperations,
+      );
+    }
+
+    const oneRepository = repositoryInvestigationSharedBudgetLimits({
+      repositoryCount: 1,
+      analyzedFileCount: 80,
+    });
+    const twoRepositories = repositoryInvestigationSharedBudgetLimits({
+      repositoryCount: 2,
+      analyzedFileCount: 80,
+    });
+    expect({
+      modelTokens: twoRepositories.maxModelTokens - oneRepository.maxModelTokens,
+      modelCalls: twoRepositories.maxModelCalls - oneRepository.maxModelCalls,
+      inspectionOperations:
+        twoRepositories.maxInspectionOperations -
+        oneRepository.maxInspectionOperations,
+    }).toEqual({ modelTokens: 64_000, modelCalls: 22, inspectionOperations: 28 });
   });
 
   it("does not charge cached input replay to the refresh-wide semantic token allowance", () => {

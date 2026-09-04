@@ -54,7 +54,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v22-verifier-correction-headroom";
+  "repository-knowledge-investigator-v24-bounded-verifier-repair";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -108,28 +108,132 @@ const explicitPlannedImplementationPattern =
 const MAX_INVESTIGATION_CAPABILITIES = 64;
 const MAX_INVESTIGATION_FINDINGS = 160;
 const MAX_INVESTIGATION_UNRESOLVED_AREAS = 32;
-const MIN_INVESTIGATOR_PHASE_TOKENS = 16_000;
-const MIN_VERIFIER_REVIEW_PHASE_TOKENS = 12_000;
-const MIN_VERIFIER_AUDIT_PHASE_TOKENS = 18_000;
-const MIN_VERIFIER_PHASE_TOKENS =
-  MIN_VERIFIER_REVIEW_PHASE_TOKENS + MIN_VERIFIER_AUDIT_PHASE_TOKENS;
-const MIN_INVESTIGATOR_PHASE_MODEL_CALLS = 4;
-const MIN_VERIFIER_REVIEW_PHASE_MODEL_CALLS = 4;
-const MIN_VERIFIER_AUDIT_PHASE_MODEL_CALLS = 6;
-const MIN_VERIFIER_PHASE_MODEL_CALLS =
-  MIN_VERIFIER_REVIEW_PHASE_MODEL_CALLS +
-  MIN_VERIFIER_AUDIT_PHASE_MODEL_CALLS;
-const MIN_INVESTIGATOR_INSPECTION_OPERATIONS = 4;
-const MIN_VERIFIER_REVIEW_INSPECTION_OPERATIONS = 4;
-const MIN_VERIFIER_AUDIT_INSPECTION_OPERATIONS = 10;
-const MIN_VERIFIER_INSPECTION_OPERATIONS =
-  MIN_VERIFIER_REVIEW_INSPECTION_OPERATIONS +
-  MIN_VERIFIER_AUDIT_INSPECTION_OPERATIONS;
 const INVESTIGATOR_INSPECTION_CALLS_PER_DURABLE_PHASE = 3;
 export const REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS = 3;
 export const REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS = 4;
+export const MAX_REPOSITORY_VERIFIER_REPAIR_CYCLES = 1;
+const MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION = 2;
+const MIN_INVESTIGATOR_PHASE_TOKENS = 16_000;
+const MIN_VERIFIER_REVIEW_PHASE_TOKENS = 12_000;
+const MIN_VERIFIER_AUDIT_PHASE_TOKENS = 18_000;
+const MIN_INVESTIGATOR_PHASE_MODEL_CALLS =
+  INVESTIGATOR_INSPECTION_CALLS_PER_DURABLE_PHASE +
+  MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION;
+const MIN_VERIFIER_REVIEW_PHASE_MODEL_CALLS =
+  REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS +
+  MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION;
+const MIN_VERIFIER_AUDIT_PHASE_MODEL_CALLS =
+  REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS +
+  MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION;
+const MIN_INVESTIGATOR_INSPECTION_OPERATIONS = 4;
+const MIN_VERIFIER_REVIEW_INSPECTION_OPERATIONS = 4;
+const MIN_VERIFIER_AUDIT_INSPECTION_OPERATIONS = 10;
 /** Bounded verifier safety ceiling; it is never a requested observation count. */
 export const REPOSITORY_VERIFIER_MAX_OBSERVATIONS = 32;
+
+type RepositoryInvestigationBudgetAmount = {
+  modelTokens: number;
+  modelCalls: number;
+  inspectionOperations: number;
+};
+
+export type RepositoryInvestigationBudgetPhase =
+  | "initial_investigator"
+  | "independent_review"
+  | "candidate_audit"
+  | "verifier_repair"
+  | "candidate_reaudit";
+
+const investigatorMinimum: RepositoryInvestigationBudgetAmount = {
+  modelTokens: MIN_INVESTIGATOR_PHASE_TOKENS,
+  modelCalls: MIN_INVESTIGATOR_PHASE_MODEL_CALLS,
+  inspectionOperations: MIN_INVESTIGATOR_INSPECTION_OPERATIONS,
+};
+const independentReviewMinimum: RepositoryInvestigationBudgetAmount = {
+  modelTokens: MIN_VERIFIER_REVIEW_PHASE_TOKENS,
+  modelCalls: MIN_VERIFIER_REVIEW_PHASE_MODEL_CALLS,
+  inspectionOperations: MIN_VERIFIER_REVIEW_INSPECTION_OPERATIONS,
+};
+const candidateAuditMinimum: RepositoryInvestigationBudgetAmount = {
+  modelTokens: MIN_VERIFIER_AUDIT_PHASE_TOKENS,
+  modelCalls: MIN_VERIFIER_AUDIT_PHASE_MODEL_CALLS,
+  inspectionOperations: MIN_VERIFIER_AUDIT_INSPECTION_OPERATIONS,
+};
+
+function addRepositoryInvestigationBudgetAmounts(
+  ...amounts: RepositoryInvestigationBudgetAmount[]
+): RepositoryInvestigationBudgetAmount {
+  return amounts.reduce((total, amount) => ({
+    modelTokens: total.modelTokens + amount.modelTokens,
+    modelCalls: total.modelCalls + amount.modelCalls,
+    inspectionOperations:
+      total.inspectionOperations + amount.inspectionOperations,
+  }), { modelTokens: 0, modelCalls: 0, inspectionOperations: 0 });
+}
+
+const verifierRepairAndReauditMinimum = addRepositoryInvestigationBudgetAmounts(
+  investigatorMinimum,
+  candidateAuditMinimum,
+);
+const initialVerifierPassMinimum = addRepositoryInvestigationBudgetAmounts(
+  independentReviewMinimum,
+  candidateAuditMinimum,
+);
+const boundedCriticTailMinimum = addRepositoryInvestigationBudgetAmounts(
+  initialVerifierPassMinimum,
+  verifierRepairAndReauditMinimum,
+);
+
+/**
+ * Reserves one correction-capable blind review and candidate audit, followed
+ * by at most one verifier-directed investigator repair and re-audit. The blind
+ * review is snapshot-scoped and is replayed without another model call during
+ * the re-audit.
+ */
+export function repositoryInvestigationPhaseBudget(
+  phase: RepositoryInvestigationBudgetPhase,
+): {
+  minimum: RepositoryInvestigationBudgetAmount;
+  reserve: RepositoryInvestigationBudgetAmount;
+} {
+  switch (phase) {
+    case "initial_investigator":
+      return { minimum: investigatorMinimum, reserve: boundedCriticTailMinimum };
+    case "independent_review":
+      return {
+        minimum: independentReviewMinimum,
+        reserve: addRepositoryInvestigationBudgetAmounts(
+          candidateAuditMinimum,
+          verifierRepairAndReauditMinimum,
+        ),
+      };
+    case "candidate_audit":
+      return {
+        minimum: candidateAuditMinimum,
+        reserve: verifierRepairAndReauditMinimum,
+      };
+    case "verifier_repair":
+      return { minimum: investigatorMinimum, reserve: candidateAuditMinimum };
+    case "candidate_reaudit":
+      return {
+        minimum: candidateAuditMinimum,
+        reserve: { modelTokens: 0, modelCalls: 0, inspectionOperations: 0 },
+      };
+  }
+}
+
+export function repositoryVerifierRepairDecision(completedCycles: number) {
+  if (
+    Math.max(0, Math.floor(completedCycles)) <
+      MAX_REPOSITORY_VERIFIER_REPAIR_CYCLES
+  ) {
+    return { action: "repair" as const };
+  }
+  return {
+    action: "stop" as const,
+    terminationReason: "verifier_gaps_after_bounded_repair" as const,
+  };
+}
 
 export type RepositoryInvestigationSharedBudgetLimits = {
   /**
@@ -178,23 +282,23 @@ export function repositoryInvestigationSharedBudgetLimits(input: {
   const repositoryCount = Math.max(1, input.repositoryCount);
   const fileCount = Math.max(0, input.analyzedFileCount);
   const base = fileCount <= 80
-    ? { maxModelTokens: 240_000, maxModelCalls: 56, maxInspectionOperations: 96 }
+    ? { maxModelTokens: 280_000, maxModelCalls: 68, maxInspectionOperations: 110 }
     : fileCount <= 250
-      ? { maxModelTokens: 420_000, maxModelCalls: 88, maxInspectionOperations: 180 }
-      : { maxModelTokens: 720_000, maxModelCalls: 140, maxInspectionOperations: 300 };
+      ? { maxModelTokens: 460_000, maxModelCalls: 100, maxInspectionOperations: 194 }
+      : { maxModelTokens: 760_000, maxModelCalls: 152, maxInspectionOperations: 314 };
   const additionalRepositories = Math.max(0, repositoryCount - 1);
   return {
     maxModelTokens: Math.min(
       900_000,
-      base.maxModelTokens + additionalRepositories * 60_000,
+      base.maxModelTokens + additionalRepositories * 64_000,
     ),
     maxModelCalls: Math.min(
       180,
-      base.maxModelCalls + additionalRepositories * 10,
+      base.maxModelCalls + additionalRepositories * 22,
     ),
     maxInspectionOperations: Math.min(
       420,
-      base.maxInspectionOperations + additionalRepositories * 24,
+      base.maxInspectionOperations + additionalRepositories * 28,
     ),
   };
 }
@@ -265,7 +369,10 @@ export class RepositoryInvestigationSharedBudget {
       modelTokens: 0,
       modelCalls: 0,
     },
-    options?: { preserveRawTokenLimit?: boolean },
+    options?: {
+      preserveRawTokenLimit?: boolean;
+      acceptTerminalToolAtIterationLimit?: boolean;
+    },
   ): BedrockConverseAgentLimits | null {
     const remaining = this.snapshot().remaining;
     const availableModelTokens = Math.max(
@@ -283,7 +390,12 @@ export class RepositoryInvestigationSharedBudget {
     );
     return {
       maxIterations,
-      maxToolCalls: Math.max(1, Math.min(preferred.maxToolCalls, maxIterations - 1 || 1)),
+      maxToolCalls: Math.max(1, Math.min(
+        preferred.maxToolCalls,
+        options?.acceptTerminalToolAtIterationLimit
+          ? maxIterations
+          : maxIterations - 1 || 1,
+      )),
       maxTotalTokens: options?.preserveRawTokenLimit
         ? preferred.maxTotalTokens
         : Math.max(
@@ -338,6 +450,21 @@ export class RepositoryInvestigationSharedBudget {
       );
     }
   }
+}
+
+function repositoryInvestigationBudgetCanStartPhase(
+  budget: RepositoryInvestigationSharedBudget,
+  policy: ReturnType<typeof repositoryInvestigationPhaseBudget>,
+) {
+  const required = addRepositoryInvestigationBudgetAmounts(
+    policy.minimum,
+    policy.reserve,
+  );
+  return budget.canStart({
+    minimumTokens: required.modelTokens,
+    minimumModelCalls: required.modelCalls,
+    minimumInspectionOperations: required.inspectionOperations,
+  });
 }
 
 const investigationCapabilitySchema = z.object({
@@ -3150,9 +3277,15 @@ function sourceFromSnapshot(input: {
 
 export async function runRepositoryVerificationIfCandidate<T>(input: {
   notebook: RepositoryInvestigationNotebook;
+  allowGroundedCloseout?: boolean;
   verify: () => Promise<T>;
 }) {
-  if (!input.notebook.done || input.notebook.unresolvedAreas.length > 0) {
+  const internallyComplete = input.notebook.done &&
+    input.notebook.unresolvedAreas.length === 0;
+  const groundedCloseout = input.allowGroundedCloseout === true &&
+    input.notebook.capabilities.length > 0 &&
+    input.notebook.findings.length > 0;
+  if (!internallyComplete && !groundedCloseout) {
     return null;
   }
   return input.verify();
@@ -3351,6 +3484,51 @@ function isAgentBudgetError(error: unknown): error is BedrockConverseAgentError 
   ].includes(error.code);
 }
 
+export function recoverRepositoryInvestigatorAgentBudgetError(input: {
+  error: unknown;
+  seedNotebook: RepositoryInvestigationNotebook;
+  notebook: RepositoryInvestigationNotebook;
+  configuredIdentity: { provider: string; modelId: string };
+}) {
+  if (!isAgentBudgetError(input.error)) return null;
+  const claimsTerminalNotebook = input.notebook.done &&
+    input.notebook.unresolvedAreas.length === 0;
+  const terminalNotebook = claimsTerminalNotebook &&
+    input.notebook.capabilities.length > 0 &&
+    input.notebook.findings.length > 0;
+  if (claimsTerminalNotebook && !terminalNotebook) return null;
+  const hasDurableProgress = repositoryInvestigationHasMaterialProgress({
+    previous: input.seedNotebook,
+    next: input.notebook,
+  });
+  if (
+    !terminalNotebook &&
+    !hasDurableProgress &&
+    input.notebook.findings.length === 0
+  ) return null;
+  if (terminalNotebook) {
+    return {
+      notebook: input.notebook,
+      terminationReason: "investigator_done" as const,
+      capacityLimitation: null,
+      result: agentResultFromValidatedTerminalTool(
+        input.error,
+        input.configuredIdentity,
+        "The validated repository notebook was checkpointed before the redundant terminal model turn reached its budget boundary.",
+      ),
+    };
+  }
+  return {
+    notebook: repositoryInvestigationNotebookWithoutTransientCapacityAreas({
+      ...input.notebook,
+      done: false,
+    }),
+    terminationReason: "agent_phase_budget_exhausted" as const,
+    capacityLimitation: input.error.code,
+    result: agentResultFromBudgetError(input.error, input.configuredIdentity),
+  };
+}
+
 async function ensureRootAgentRun(input: {
   runId: string;
   userId: string;
@@ -3406,6 +3584,7 @@ async function runRepositoryInvestigator(input: {
   unsupportedFindingIds?: string[];
   sharedBudget: RepositoryInvestigationSharedBudget;
   wave: number;
+  verifierRepairCycle: number;
 }) {
   const requestedSeedNotebook = repositoryInvestigationNotebookWithoutTransientCapacityAreas(
     input.seedNotebook
@@ -3524,23 +3703,22 @@ async function runRepositoryInvestigator(input: {
     });
   }
   const preferredLimits = investigationLimits(input.files.length);
+  const budgetPolicy = repositoryInvestigationPhaseBudget(
+    input.verifierRepairCycle > 0 ? "verifier_repair" : "initial_investigator",
+  );
   const limits = input.sharedBudget.phaseLimits(
     preferredLimits,
-    MIN_INVESTIGATOR_PHASE_TOKENS,
+    budgetPolicy.minimum.modelTokens,
     {
-      modelTokens: MIN_VERIFIER_PHASE_TOKENS,
-      modelCalls: MIN_VERIFIER_PHASE_MODEL_CALLS,
+      modelTokens: budgetPolicy.reserve.modelTokens,
+      modelCalls: budgetPolicy.reserve.modelCalls,
     },
+    { acceptTerminalToolAtIterationLimit: true },
   );
-  if (!limits || !input.sharedBudget.canStart({
-    minimumTokens:
-      MIN_INVESTIGATOR_PHASE_TOKENS + MIN_VERIFIER_PHASE_TOKENS,
-    minimumModelCalls:
-      MIN_INVESTIGATOR_PHASE_MODEL_CALLS + MIN_VERIFIER_PHASE_MODEL_CALLS,
-    minimumInspectionOperations:
-      MIN_INVESTIGATOR_INSPECTION_OPERATIONS +
-      MIN_VERIFIER_INSPECTION_OPERATIONS,
-  })) {
+  if (
+    !limits ||
+    !repositoryInvestigationBudgetCanStartPhase(input.sharedBudget, budgetPolicy)
+  ) {
     return {
       notebook: repositoryInvestigationNotebookWithoutTransientCapacityAreas({
         ...seedNotebook,
@@ -3591,7 +3769,7 @@ async function runRepositoryInvestigator(input: {
     filesByPath: state.filesByPath,
     visibleEvidenceRanges,
     sharedBudget: input.sharedBudget,
-    reservedInspectionOperations: MIN_VERIFIER_INSPECTION_OPERATIONS,
+    reservedInspectionOperations: budgetPolicy.reserve.inspectionOperations,
     checkpointRequirement: () => {
       const action = repositoryInvestigationPhaseInspectionAction({
         inspectionToolCalls: phaseInspectionToolCalls,
@@ -3925,14 +4103,13 @@ async function runRepositoryInvestigator(input: {
             reportedCostUsd: result.reportedCostUsd,
           });
         } catch (error) {
-          const hasDurableProgress = repositoryInvestigationHasMaterialProgress({
-            previous: seedNotebook,
-            next: state.notebook,
+          const recovery = recoverRepositoryInvestigatorAgentBudgetError({
+            error,
+            seedNotebook,
+            notebook: state.notebook,
+            configuredIdentity,
           });
-          if (!(
-            isAgentBudgetError(error) &&
-            (hasDurableProgress || state.notebook.findings.length > 0)
-          )) {
+          if (!recovery) {
             if (error instanceof BedrockConverseAgentError) {
               input.sharedBudget.consumeModelUsage({
                 usage: error.usage,
@@ -3943,17 +4120,14 @@ async function runRepositoryInvestigator(input: {
             throw error;
           }
           input.sharedBudget.consumeModelUsage({
-            usage: error.usage,
-            fallbackModelCalls: error.iterations,
-            reportedCostUsd: error.reportedCostUsd,
+            usage: recovery.result.usage,
+            fallbackModelCalls: recovery.result.iterations,
+            reportedCostUsd: recovery.result.reportedCostUsd,
           });
-          terminationReason = "agent_phase_budget_exhausted";
-          capacityLimitation = error.code;
-          state.notebook = repositoryInvestigationNotebookWithoutTransientCapacityAreas({
-            ...state.notebook,
-            done: false,
-          });
-          result = agentResultFromBudgetError(error, configuredIdentity);
+          terminationReason = recovery.terminationReason;
+          capacityLimitation = recovery.capacityLimitation;
+          state.notebook = recovery.notebook;
+          result = recovery.result;
         }
         if (sharedInspectionBudgetExhausted) {
           terminationReason = "shared_budget_exhausted";
@@ -4101,6 +4275,42 @@ async function runRepositoryInvestigator(input: {
   }
 }
 
+export function repositoryIndependentReviewIdempotencyKey(input: {
+  refreshRunId: string;
+  sourceId: string;
+  commitSha: string;
+  snapshotScopeDigest: string;
+}) {
+  return [
+    "repository-investigator-coverage",
+    input.refreshRunId,
+    input.sourceId,
+    input.commitSha,
+    REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
+    "independent-review",
+    input.snapshotScopeDigest.slice(0, 16),
+  ].join(":");
+}
+
+export function repositoryCandidateAuditIdempotencyKey(input: {
+  refreshRunId: string;
+  sourceId: string;
+  commitSha: string;
+  wave: number;
+  notebookDigest: string;
+}) {
+  return [
+    "repository-investigator-coverage",
+    input.refreshRunId,
+    input.sourceId,
+    input.commitSha,
+    REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
+    "candidate-audit",
+    `wave-${input.wave}`,
+    input.notebookDigest.slice(0, 16),
+  ].join(":");
+}
+
 async function establishRepositoryIndependentReviewCheckpoint(input: {
   refreshRunId: string;
   userId: string;
@@ -4112,15 +4322,12 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
   sharedBudget: RepositoryInvestigationSharedBudget;
 }) {
   const scopeDigest = snapshotScopeDigest({ target: input.target, files: input.files });
-  const idempotencyKey = [
-    "repository-investigator-coverage",
-    input.refreshRunId,
-    input.target.sourceId,
-    input.target.commitSha,
-    REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
-    "independent-review",
-    scopeDigest.slice(0, 16),
-  ].join(":");
+  const idempotencyKey = repositoryIndependentReviewIdempotencyKey({
+    refreshRunId: input.refreshRunId,
+    sourceId: input.target.sourceId,
+    commitSha: input.target.commitSha,
+    snapshotScopeDigest: scopeDigest,
+  });
   const replay = await prisma.generationRun.findUnique({
     where: {
       workItemId_idempotencyKey: {
@@ -4157,19 +4364,21 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
     return { checkpoint, generationRunId: replay.id, replayed: true as const };
   }
 
-  if (!input.sharedBudget.canStart({
-    minimumTokens: MIN_VERIFIER_PHASE_TOKENS,
-    minimumModelCalls: MIN_VERIFIER_PHASE_MODEL_CALLS,
-    minimumInspectionOperations: MIN_VERIFIER_INSPECTION_OPERATIONS,
-  })) return null;
+  const budgetPolicy = repositoryInvestigationPhaseBudget("independent_review");
+  if (!repositoryInvestigationBudgetCanStartPhase(input.sharedBudget, budgetPolicy)) {
+    return null;
+  }
   const limits = input.sharedBudget.phaseLimits(
     repositoryCoverageReviewPhaseLimits(input.files.length),
-    MIN_VERIFIER_REVIEW_PHASE_TOKENS,
+    budgetPolicy.minimum.modelTokens,
     {
-      modelTokens: MIN_VERIFIER_AUDIT_PHASE_TOKENS,
-      modelCalls: MIN_VERIFIER_AUDIT_PHASE_MODEL_CALLS,
+      modelTokens: budgetPolicy.reserve.modelTokens,
+      modelCalls: budgetPolicy.reserve.modelCalls,
     },
-    { preserveRawTokenLimit: true },
+    {
+      preserveRawTokenLimit: true,
+      acceptTerminalToolAtIterationLimit: true,
+    },
   );
   if (!limits) return null;
 
@@ -4198,7 +4407,7 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
     filesByPath,
     visibleEvidenceRanges,
     sharedBudget: input.sharedBudget,
-    reservedInspectionOperations: MIN_VERIFIER_AUDIT_INSPECTION_OPERATIONS,
+    reservedInspectionOperations: budgetPolicy.reserve.inspectionOperations,
     maxInspectionToolCalls: REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
     maxQueriesPerCall: inspectorLimits.maxQueriesPerCall,
     maxExpansionRequestsPerCall: inspectorLimits.maxExpansionRequestsPerCall,
@@ -4426,10 +4635,11 @@ async function auditRepositoryInvestigationCoverage(input: {
   notebook: RepositoryInvestigationNotebook;
   sharedBudget: RepositoryInvestigationSharedBudget;
   wave: number;
+  verifierRepairCycle: number;
 }) {
-  if (!input.notebook.done || input.notebook.unresolvedAreas.length) {
+  if (!input.notebook.capabilities.length || !input.notebook.findings.length) {
     throw new Error(
-      "Independent verification requires an internally complete repository notebook.",
+      "Independent verification requires a nonempty source-grounded repository notebook.",
     );
   }
   const inputNotebookDigest = hash(input.notebook);
@@ -4496,16 +4706,13 @@ async function auditRepositoryInvestigationCoverage(input: {
     independentObservationDigest:
       independentReview.checkpoint.independentObservationDigest,
   };
-  const idempotencyKey = [
-    "repository-investigator-coverage",
-    input.refreshRunId,
-    input.target.sourceId,
-    input.target.commitSha,
-    REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
-    "candidate-audit",
-    `wave-${input.wave}`,
-    inputNotebookDigest.slice(0, 16),
-  ].join(":");
+  const idempotencyKey = repositoryCandidateAuditIdempotencyKey({
+    refreshRunId: input.refreshRunId,
+    sourceId: input.target.sourceId,
+    commitSha: input.target.commitSha,
+    wave: input.wave,
+    notebookDigest: inputNotebookDigest,
+  });
   const replay = await prisma.generationRun.findUnique({
     where: {
       workItemId_idempotencyKey: {
@@ -4590,17 +4797,25 @@ async function auditRepositoryInvestigationCoverage(input: {
         : null,
     };
   }
+  const budgetPolicy = repositoryInvestigationPhaseBudget(
+    input.verifierRepairCycle > 0 ? "candidate_reaudit" : "candidate_audit",
+  );
   const limits = input.sharedBudget.phaseLimits(
     repositoryCoverageAuditPhaseLimits(input.files.length),
-    MIN_VERIFIER_AUDIT_PHASE_TOKENS,
-    { modelTokens: 0, modelCalls: 0 },
-    { preserveRawTokenLimit: true },
+    budgetPolicy.minimum.modelTokens,
+    {
+      modelTokens: budgetPolicy.reserve.modelTokens,
+      modelCalls: budgetPolicy.reserve.modelCalls,
+    },
+    {
+      preserveRawTokenLimit: true,
+      acceptTerminalToolAtIterationLimit: true,
+    },
   );
-  if (!limits || !input.sharedBudget.canStart({
-    minimumTokens: MIN_VERIFIER_AUDIT_PHASE_TOKENS,
-    minimumModelCalls: MIN_VERIFIER_AUDIT_PHASE_MODEL_CALLS,
-    minimumInspectionOperations: MIN_VERIFIER_AUDIT_INSPECTION_OPERATIONS,
-  })) {
+  if (
+    !limits ||
+    !repositoryInvestigationBudgetCanStartPhase(input.sharedBudget, budgetPolicy)
+  ) {
     return {
       audit: incompleteAudit(
         "The shared refresh budget could not admit an independent pinned-source verification phase.",
@@ -4637,6 +4852,7 @@ async function auditRepositoryInvestigationCoverage(input: {
     filesByPath: verifierFilesByPath,
     visibleEvidenceRanges,
     sharedBudget: input.sharedBudget,
+    reservedInspectionOperations: budgetPolicy.reserve.inspectionOperations,
     maxInspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
     maxQueriesPerCall: inspectorLimits.maxQueriesPerCall,
     maxExpansionRequestsPerCall:
@@ -5453,6 +5669,7 @@ export async function investigateRepositoryKnowledge(runId: string) {
     let coverageGaps: RepositoryInvestigationUnresolvedArea[] = [];
     let unsupportedFindingIds: string[] = [];
     let wave = 1;
+    let verifierRepairCycle = 0;
     let terminationReason = "no_progress";
     let capacityLimitation: string | null = null;
     let coverageSatisfied = false;
@@ -5486,13 +5703,25 @@ export async function investigateRepositoryKnowledge(runId: string) {
         unsupportedFindingIds,
         sharedBudget,
         wave,
+        verifierRepairCycle,
       });
       notebook = repositoryInvestigationNotebookWithoutTransientCapacityAreas(
         investigation.notebook,
       );
+      const nextInvestigatorPolicy = repositoryInvestigationPhaseBudget(
+        verifierRepairCycle > 0
+          ? "verifier_repair"
+          : "initial_investigator",
+      );
+      const verifyGroundedCloseout = !investigation.replayed &&
+        !repositoryInvestigationBudgetCanStartPhase(
+          sharedBudget,
+          nextInvestigatorPolicy,
+        );
       activeRepository = {
         ...activeRepository,
-        stage: notebook.done && !notebook.unresolvedAreas.length
+        stage: (notebook.done && !notebook.unresolvedAreas.length) ||
+            verifyGroundedCloseout
           ? "verifier"
           : "investigator",
         checkpoint: investigation.checkpoint?.checkpointKind === "final" &&
@@ -5528,6 +5757,7 @@ export async function investigateRepositoryKnowledge(runId: string) {
       }
       verifier = await runRepositoryVerificationIfCandidate({
         notebook,
+        allowGroundedCloseout: verifyGroundedCloseout,
         verify: async () => {
           await assertRepositoryInvestigationActive(runId);
           return auditRepositoryInvestigationCoverage({
@@ -5541,6 +5771,7 @@ export async function investigateRepositoryKnowledge(runId: string) {
             notebook,
             sharedBudget,
             wave,
+            verifierRepairCycle,
           });
         },
       });
@@ -5567,15 +5798,10 @@ export async function investigateRepositoryKnowledge(runId: string) {
         }
         if (
           investigation.terminationReason === "shared_budget_exhausted" ||
-          !sharedBudget.canStart({
-            minimumTokens:
-              MIN_INVESTIGATOR_PHASE_TOKENS + MIN_VERIFIER_PHASE_TOKENS,
-            minimumModelCalls:
-              MIN_INVESTIGATOR_PHASE_MODEL_CALLS + MIN_VERIFIER_PHASE_MODEL_CALLS,
-            minimumInspectionOperations:
-              MIN_INVESTIGATOR_INSPECTION_OPERATIONS +
-              MIN_VERIFIER_INSPECTION_OPERATIONS,
-          })
+          !repositoryInvestigationBudgetCanStartPhase(
+            sharedBudget,
+            nextInvestigatorPolicy,
+          )
         ) {
           terminationReason = "shared_budget_exhausted";
           capacityLimitation = investigation.capacityLimitation ??
@@ -5627,6 +5853,7 @@ export async function investigateRepositoryKnowledge(runId: string) {
         !unsupported.size &&
         !notebook.unresolvedAreas.length;
       if (coverageSatisfied) {
+        notebook = investigationNotebookSchema.parse({ ...notebook, done: true });
         terminationReason = "coverage_satisfied";
         break;
       }
@@ -5640,25 +5867,27 @@ export async function investigateRepositoryKnowledge(runId: string) {
         terminationReason = "no_progress";
         break;
       }
+      const repairDecision = repositoryVerifierRepairDecision(
+        verifierRepairCycle,
+      );
+      if (repairDecision.action === "stop") {
+        terminationReason = repairDecision.terminationReason;
+        break;
+      }
+      const repairPolicy = repositoryInvestigationPhaseBudget("verifier_repair");
       if (
-        investigation.terminationReason === "shared_budget_exhausted" ||
+        (!verifyGroundedCloseout &&
+          investigation.terminationReason === "shared_budget_exhausted") ||
         verifier.terminationReason === "shared_budget_exhausted" ||
         verifier.terminationReason === "verifier_phase_budget_exhausted" ||
-        !sharedBudget.canStart({
-          minimumTokens:
-            MIN_INVESTIGATOR_PHASE_TOKENS + MIN_VERIFIER_PHASE_TOKENS,
-          minimumModelCalls:
-            MIN_INVESTIGATOR_PHASE_MODEL_CALLS + MIN_VERIFIER_PHASE_MODEL_CALLS,
-          minimumInspectionOperations:
-            MIN_INVESTIGATOR_INSPECTION_OPERATIONS +
-            MIN_VERIFIER_INSPECTION_OPERATIONS,
-          })
+        !repositoryInvestigationBudgetCanStartPhase(sharedBudget, repairPolicy)
       ) {
         // Preserve an explicit verifier ceiling as distinct from exhaustion of
         // the refresh-wide allowance. Conflating them hides whether another
         // wave could ever have started and makes capacity diagnostics false.
         terminationReason =
-          investigation.terminationReason === "shared_budget_exhausted" ||
+          (!verifyGroundedCloseout &&
+              investigation.terminationReason === "shared_budget_exhausted") ||
             verifier.terminationReason === "shared_budget_exhausted" ||
             verifier.terminationReason !== "verifier_phase_budget_exhausted"
           ? "shared_budget_exhausted"
@@ -5675,6 +5904,7 @@ export async function investigateRepositoryKnowledge(runId: string) {
       ].map((area) => [area.id, area])).values());
       unsupportedFindingIds = unsupportedFindingIdsFromCoverageAudit(verifier.audit);
       notebook = investigationNotebookSchema.parse({ ...notebook, done: false });
+      verifierRepairCycle += 1;
       wave += 1;
     }
     const remainingGaps = coverageSatisfied ? [] : unresolvedRepositoryInvestigationGaps({
