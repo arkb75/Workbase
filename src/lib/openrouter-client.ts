@@ -30,6 +30,8 @@ const OPENROUTER_RETRY_BACKOFF_MS = 5_000;
 const OPENROUTER_MAX_RETRY_AFTER_MS = 60_000;
 const OPENROUTER_RATE_LIMIT_INTERVAL_MS = 2_500;
 const OPENROUTER_RATE_LIMIT_INTERVAL_TTL_MS = 60_000;
+const OPENROUTER_TOOL_AGENT_TRANSIENT_ATTEMPT_LIMIT = 2;
+const OPENROUTER_TOOL_AGENT_RATE_LIMIT_ATTEMPT_LIMIT = 5;
 
 function openRouterRequestKey(config: OpenRouterTextConfig, modelId: string) {
   return `${config.baseUrl}:${modelId}`;
@@ -108,8 +110,13 @@ async function paceOpenRouterRequest(input: {
   }
 }
 
-function retryAfterDelayMs(value: string | null) {
-  if (value == null) return OPENROUTER_RETRY_BACKOFF_MS;
+function retryAfterDelayMs(
+  value: string | null,
+  noHeaderBackoffMs = OPENROUTER_RETRY_BACKOFF_MS,
+) {
+  if (value == null) {
+    return Math.min(OPENROUTER_MAX_RETRY_AFTER_MS, noHeaderBackoffMs);
+  }
   if (/^\d{1,8}$/u.test(value)) {
     return Math.min(
       OPENROUTER_MAX_RETRY_AFTER_MS,
@@ -129,11 +136,12 @@ function installOpenRouterCooldown(input: {
   config: OpenRouterTextConfig;
   modelId: string;
   retryAfter: string | null;
+  noHeaderBackoffMs?: number;
 }) {
   const key = openRouterRequestKey(input.config, input.modelId);
   const cooldownUntil = Date.now() + Math.max(
     input.config.minRequestIntervalMs,
-    retryAfterDelayMs(input.retryAfter),
+    retryAfterDelayMs(input.retryAfter, input.noHeaderBackoffMs),
   );
   openRouterCooldownUntil.set(
     key,
@@ -145,6 +153,35 @@ function installOpenRouterCooldown(input: {
       OPENROUTER_RATE_LIMIT_INTERVAL_MS,
     ),
     expiresAt: Date.now() + OPENROUTER_RATE_LIMIT_INTERVAL_TTL_MS,
+  });
+}
+
+function openRouterRateLimitBackoffMs(failedAttemptCount: number) {
+  const exponent = Math.max(0, Math.floor(failedAttemptCount) - 1);
+  return Math.min(
+    OPENROUTER_MAX_RETRY_AFTER_MS,
+    OPENROUTER_RETRY_BACKOFF_MS * (2 ** exponent),
+  );
+}
+
+function installOpenRouterRetryCooldown(input: {
+  config: OpenRouterTextConfig;
+  modelId: string;
+  error: OpenRouterRequestError;
+  failedAttemptCount: number;
+}) {
+  installOpenRouterCooldown({
+    config: input.config,
+    modelId: input.modelId,
+    retryAfter: input.error.retryAfter,
+    // OpenRouter documents exponential backoff for 429s. When Retry-After is
+    // present it remains authoritative; otherwise repeated retries of the same
+    // unbilled request use 5/10/20/40s delays instead of hammering the route at
+    // a fixed five-second cadence.
+    noHeaderBackoffMs:
+      input.error.status === 429 && input.error.retryAfter == null
+        ? openRouterRateLimitBackoffMs(input.failedAttemptCount)
+        : undefined,
   });
 }
 
@@ -1093,10 +1130,11 @@ export class RetryableSameModelTextRuntime implements ConverseTextRuntime {
           );
         }
 
-        installOpenRouterCooldown({
+        installOpenRouterRetryCooldown({
           config: this.config,
           modelId: this.modelId,
-          retryAfter: error.retryAfter,
+          error,
+          failedAttemptCount: providerAttemptCount,
         });
       }
     }
@@ -1471,8 +1509,11 @@ export class OpenRouterConverseTransport implements BedrockConverseTransport {
 }
 
 /**
- * Retry one unbilled transient tool-agent failure on the same model before an
- * explicitly configured cross-model fallback gets a chance to run.
+ * Retry an unbilled transient tool-agent turn on the same model. Ordinary
+ * infrastructure failures retain the existing one-retry contract. A 429 gets
+ * four bounded, exponentially paced retries so the active agent conversation
+ * (including completed tool turns) stays in memory instead of being restarted
+ * by the outer durable workflow.
  */
 export class RetryableSameModelConverseTransport
   implements BedrockConverseTransport
@@ -1487,13 +1528,14 @@ export class RetryableSameModelConverseTransport
     input: ConverseCommandInput,
     options?: { signal?: AbortSignal },
   ): Promise<BedrockConverseTransportResponse> {
-    const attemptLimit = 2;
     const failedAttempts: JsonValue[] = [];
     const observedTokenUsage: JsonValue[] = [];
     let unknownUsageAttempts = 0;
     let providerAttemptCount = 0;
 
-    while (providerAttemptCount < attemptLimit) {
+    while (
+      providerAttemptCount < OPENROUTER_TOOL_AGENT_RATE_LIMIT_ATTEMPT_LIMIT
+    ) {
       try {
         const response = await this.transport.converse(input, options);
         if (!providerAttemptCount) return response;
@@ -1528,10 +1570,10 @@ export class RetryableSameModelConverseTransport
           openRouterFailureAttempt(error, this.modelId),
         );
 
-        if (
-          !sameModelRetryEligible(error) ||
-          providerAttemptCount >= attemptLimit
-        ) {
+        const attemptLimit = error.status === 429
+          ? OPENROUTER_TOOL_AGENT_RATE_LIMIT_ATTEMPT_LIMIT
+          : OPENROUTER_TOOL_AGENT_TRANSIENT_ATTEMPT_LIMIT;
+        if (!sameModelRetryEligible(error) || providerAttemptCount >= attemptLimit) {
           if (providerAttemptCount === error.providerAttemptCount) throw error;
           throw new OpenRouterRequestError(
             error.message,
@@ -1557,10 +1599,11 @@ export class RetryableSameModelConverseTransport
           );
         }
 
-        installOpenRouterCooldown({
+        installOpenRouterRetryCooldown({
           config: this.config,
           modelId: this.modelId,
-          retryAfter: error.retryAfter,
+          error,
+          failedAttemptCount: providerAttemptCount,
         });
       }
     }

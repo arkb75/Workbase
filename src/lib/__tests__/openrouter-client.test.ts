@@ -1255,6 +1255,137 @@ describe("RetryableSameModelConverseTransport", () => {
     }
   });
 
+  it("keeps a rate-limited tool turn in place with bounded headerless exponential backoff", async () => {
+    vi.useFakeTimers();
+    try {
+      const rateLimited = (requestId: string) => new Response(
+        JSON.stringify({
+          error: {
+            message: "rate limited",
+            code: 429,
+            metadata: { error_type: "rate_limit_exceeded" },
+          },
+        }),
+        {
+          status: 429,
+          headers: { "x-request-id": requestId },
+        },
+      );
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(rateLimited("req_agent_limited_1"))
+        .mockResolvedValueOnce(rateLimited("req_agent_limited_2"))
+        .mockResolvedValueOnce(rateLimited("req_agent_limited_3"))
+        .mockResolvedValueOnce(rateLimited("req_agent_limited_4"))
+        .mockResolvedValueOnce(response({
+          model: "openai/gpt-5.6-terra",
+          provider: "openai",
+          choices: [{ finish_reason: "stop", message: { content: "Done." } }],
+          usage: {
+            prompt_tokens: 12,
+            completion_tokens: 2,
+            total_tokens: 14,
+            cost: 0.0003,
+          },
+        }));
+      const runtimeConfig = config({
+        baseUrl: "https://headerless-agent-retry.example/api/v1",
+      });
+      const transport = new RetryableSameModelConverseTransport(
+        new OpenRouterConverseTransport(
+          runtimeConfig,
+          undefined,
+          fetchMock,
+        ),
+        runtimeConfig,
+      );
+
+      const pending = transport.converse(input);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      for (const [delay, expectedCalls] of [
+        [5_000, 2],
+        [10_000, 3],
+        [20_000, 4],
+        [40_000, 5],
+      ] as const) {
+        await vi.advanceTimersByTimeAsync(delay - 1);
+        expect(fetchMock).toHaveBeenCalledTimes(expectedCalls - 1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(fetchMock).toHaveBeenCalledTimes(expectedCalls);
+      }
+
+      const result = await pending;
+      const requestBodies = fetchMock.mock.calls.map((call) =>
+        JSON.parse(String(call[1].body)) as Record<string, unknown>
+      );
+      expect(requestBodies.map((body) => body.model)).toEqual(
+        Array.from({ length: 5 }, () => "openai/gpt-5.6-terra"),
+      );
+      expect(requestBodies.map((body) => body.messages)).toEqual(
+        Array.from({ length: 5 }, () => requestBodies[0]!.messages),
+      );
+      expect(result).toMatchObject({
+        modelId: "openai/gpt-5.6-terra",
+        usage: {
+          providerAttemptCount: 5,
+          unknownUsageAttempts: 4,
+          failedAttempts: [
+            expect.objectContaining({ requestId: "req_agent_limited_1" }),
+            expect.objectContaining({ requestId: "req_agent_limited_2" }),
+            expect.objectContaining({ requestId: "req_agent_limited_3" }),
+            expect.objectContaining({ requestId: "req_agent_limited_4" }),
+          ],
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails closed after five headerless rate-limit attempts with exact accounting", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn().mockImplementation(() =>
+        Promise.resolve(new Response(
+          JSON.stringify({ error: { message: "rate limited", code: 429 } }),
+          { status: 429 },
+        ))
+      );
+      const runtimeConfig = config({
+        baseUrl: "https://bounded-headerless-agent-retry.example/api/v1",
+      });
+      const transport = new RetryableSameModelConverseTransport(
+        new OpenRouterConverseTransport(
+          runtimeConfig,
+          undefined,
+          fetchMock,
+        ),
+        runtimeConfig,
+      );
+
+      const assertion = expect(transport.converse(input)).rejects.toMatchObject({
+        status: 429,
+        providerAttemptCount: 5,
+        unknownUsageAttempts: 5,
+        failedAttempts: Array.from({ length: 5 }, () =>
+          expect.objectContaining({ httpStatus: 429 })
+        ),
+        tokenUsage: {
+          providerAttemptCount: 5,
+          unknownUsageAttempts: 5,
+        },
+      });
+      await vi.advanceTimersByTimeAsync(75_000);
+      await assertion;
+
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops after one retry and aggregates both failures on the error", async () => {
     vi.useFakeTimers();
     try {
