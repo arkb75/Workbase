@@ -1031,6 +1031,15 @@ describe("structured generation audit usage", () => {
     const failure = new BedrockConverseAgentError(
       "The agent returned an unsupported stop reason.",
       "protocol_error",
+      {
+        requestIds: [
+          "gen-host-protocol",
+          "https://sensitive.example/request",
+          "x".repeat(201),
+          "gen-host-protocol",
+        ],
+        routedProviders: ["Azure", "invalid provider!", "Azure"],
+      },
     );
 
     await expect(runAuditedStructuredGeneration({
@@ -1052,6 +1061,8 @@ describe("structured generation audit usage", () => {
     expect(data.resultRefs).toEqual(expect.objectContaining({
       failureOrigin: "host",
       failureCode: "protocol_error",
+      requestIds: ["gen-host-protocol"],
+      routedProviders: ["Azure"],
     }));
   });
 

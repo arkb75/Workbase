@@ -262,6 +262,23 @@ function auditedUsageString(
     : null;
 }
 
+function mergeAuditedUsageStrings(
+  key: "requestId" | "routedProvider",
+  ...collections: readonly (readonly string[])[]
+) {
+  const merged = new Set<string>();
+  for (const collection of collections) {
+    for (const value of collection) {
+      const sanitized = auditedUsageString(key, value);
+      if (sanitized) merged.add(sanitized);
+      if (merged.size >= MAX_AUDITED_USAGE_EVIDENCE_ITEMS) {
+        return Array.from(merged);
+      }
+    }
+  }
+  return Array.from(merged);
+}
+
 function auditedUsageArrayStringKey(key: string) {
   switch (key) {
     case "providers":
@@ -858,6 +875,12 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
         modelId: run.modelId,
       });
       const providerAttempts = collectProviderAttemptMetadata(tokenUsage);
+      const hostRequestIds = error instanceof BedrockConverseAgentError
+        ? error.requestIds
+        : [];
+      const hostRoutedProviders = error instanceof BedrockConverseAgentError
+        ? error.routedProviders
+        : [];
       const failureResultAttestation = input.failureResultAttestation?.(error);
       const hostFailure = hostGenerationFailure(error);
       const failureResultRefs = {
@@ -865,7 +888,11 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
         transportMode: structured?.transportMode ?? null,
         profile: input.profile ?? profileForAuditedKind(input.kind),
         configuredModelId: config!.modelId,
-        requestIds: providerAttempts.requestIds,
+        requestIds: mergeAuditedUsageStrings(
+          "requestId",
+          providerAttempts.requestIds,
+          hostRequestIds,
+        ),
         structuredAttemptCount: structuredAttemptCount(
           structured?.attempts,
         ),
@@ -878,7 +905,11 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
         auditAttemptCount: auditUsage.auditAttemptCount,
         providerAttemptCount: auditUsage.currentProviderAttemptCount,
         failedProviderAttempts: providerAttempts.failedAttempts,
-        routedProviders: providerAttempts.routedProviders,
+        routedProviders: mergeAuditedUsageStrings(
+          "routedProvider",
+          providerAttempts.routedProviders,
+          hostRoutedProviders,
+        ),
         unknownUsageAttempts: auditUsage.unknownUsageAttempts,
         auditEvidenceTruncated: evidence.truncated,
         usageComplete: auditUsage.usageComplete,

@@ -19,6 +19,7 @@ const DEFAULT_MAX_ITERATIONS = 8;
 const DEFAULT_MAX_TOOL_CALLS = 16;
 const DEFAULT_MAX_TOTAL_TOKENS = 120_000;
 const DEFAULT_MAX_TOKENS_PER_ITERATION = 4_096;
+const MAX_EMPTY_TOOL_USE_RECOVERIES = 1;
 const DEFAULT_EVENT_STRING_LIMIT = 512;
 const DEFAULT_EVENT_COLLECTION_LIMIT = 20;
 const DEFAULT_EVENT_DEPTH_LIMIT = 5;
@@ -1035,6 +1036,7 @@ export class BedrockConverseAgent {
     let hasReportedCost = false;
     const requestIds: string[] = [];
     const invalidInputAttemptsByTool = new Map<string, number>();
+    let emptyToolUseRecoveryCount = 0;
     let iterations = 0;
     let toolCalls = 0;
 
@@ -1241,6 +1243,12 @@ export class BedrockConverseAgent {
               : []
           ),
         ]);
+        failureRequestIds.forEach((requestId) => {
+          if (!requestIds.includes(requestId)) requestIds.push(requestId);
+        });
+        for (const routedProvider of failureUsage.routedProviders ?? []) {
+          routedProviders.add(routedProvider);
+        }
         await emit({
           type: "model_call_failed",
           iteration: iterations,
@@ -1269,7 +1277,7 @@ export class BedrockConverseAgent {
         });
         const providerName = getProviderErrorName(error);
         const providerMessage = getProviderErrorMessage(error);
-        const errorState = {
+        const errorState = failureOptions({
           iterations,
           toolCalls,
           usage: aggregateUsage,
@@ -1286,7 +1294,7 @@ export class BedrockConverseAgent {
             typeof providerFailure?.code === "string"
               ? providerFailure.code
               : null,
-        };
+        });
 
         if (providerFailure?.code === "response_blocked") {
           throw new BedrockConverseAgentError(
@@ -1374,10 +1382,18 @@ export class BedrockConverseAgent {
         );
       }
 
+      const recoverableEmptyToolUseMessage =
+        stopReason === "tool_use" &&
+        response.message?.role === "assistant" &&
+        Array.isArray(response.message.content) &&
+        response.message.content.length === 0;
       if (
         !response.message ||
         response.message.role !== "assistant" ||
-        !response.message.content?.length
+        (
+          !response.message.content?.length &&
+          !recoverableEmptyToolUseMessage
+        )
       ) {
         throw new BedrockConverseProviderError(
           `${this.providerLabel()} response did not include a complete assistant message.`,
@@ -1443,7 +1459,12 @@ export class BedrockConverseAgent {
           throw new BedrockConverseAgentError(
             `${this.providerLabel()} returned tool requests with stop reason \"${stopReason}\".`,
             "protocol_error",
-            { stopReason, iterations, toolCalls, usage: aggregateUsage },
+            failureOptions({
+              stopReason,
+              iterations,
+              toolCalls,
+              usage: aggregateUsage,
+            }),
           );
         }
 
@@ -1535,14 +1556,33 @@ export class BedrockConverseAgent {
         );
       }
 
-      const requestedTools = readRequestedTools(response.message, seenToolUseIds, {
-        stopReason,
-        iterations,
-        toolCalls,
-        usage: aggregateUsage,
-      });
+      const requestedTools = readRequestedTools(
+        response.message,
+        seenToolUseIds,
+        failureOptions({
+          stopReason,
+          iterations,
+          toolCalls,
+          usage: aggregateUsage,
+        }),
+      );
 
       if (!requestedTools.length) {
+        if (
+          tools.length > 0 &&
+          emptyToolUseRecoveryCount < MAX_EMPTY_TOOL_USE_RECOVERIES
+        ) {
+          emptyToolUseRecoveryCount += 1;
+          messages.push({
+            role: "user",
+            content: [{
+              text: forcedToolName
+                ? `Your previous response indicated tool use but did not include a valid tool request. Call the required tool "${forcedToolName}" now with an ID, its exact name, and JSON input matching its schema. Do not narrate.`
+                : "Your previous response indicated tool use but did not include a valid tool request. Call exactly one available tool now with an ID, its exact name, and JSON input matching its schema. Do not narrate.",
+            }],
+          });
+          continue;
+        }
         throw new BedrockConverseAgentError(
           `${this.providerLabel()} stopped for tool use without returning a tool request.`,
           "protocol_error",

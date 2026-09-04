@@ -1327,7 +1327,10 @@ describe("BedrockConverseAgent", () => {
 
     await expect(
       malformedRun.agent.run({ messages: [userMessage()] }),
-    ).rejects.toMatchObject({ code: "protocol_error" });
+    ).rejects.toMatchObject({
+      code: "protocol_error",
+      requestIds: ["request-1"],
+    });
 
     const reusedRun = makeAgent([
       assistantResponse({
@@ -1347,6 +1350,129 @@ describe("BedrockConverseAgent", () => {
     ).rejects.toMatchObject({ code: "protocol_error" });
   });
 
+  it("reprompts one empty tool-use turn in place before executing the recovered request", async () => {
+    const execute = vi.fn(async (input: { query: string }) => ({
+      answer: input.query,
+    }));
+    const tool = defineBedrockConverseTool({
+      name: "research_project",
+      description: "Research imported project context.",
+      inputSchema: z.object({ query: z.string().min(1) }),
+      jsonSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["query"],
+        properties: { query: { type: "string" } },
+      },
+      execute,
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [],
+        requestId: "request-empty-tool-use",
+      }),
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [toolRequest({
+          id: "tool-recovered",
+          name: "research_project",
+          input: { query: "authentication" },
+        })],
+        requestId: "request-recovered-tool-use",
+      }),
+      assistantResponse({
+        stopReason: "end_turn",
+        content: [{ text: "Done." }],
+        requestId: "request-final",
+      }),
+    ]);
+
+    const result = await agent.run({
+      messages: [userMessage()],
+      tools: [tool],
+      limits: { maxIterations: 3 },
+      forceTool: ({ toolCalls }) =>
+        toolCalls === 0 ? "research_project" : null,
+    });
+
+    expect(result).toMatchObject({
+      text: "Done.",
+      iterations: 3,
+      toolCalls: 1,
+      requestIds: [
+        "request-empty-tool-use",
+        "request-recovered-tool-use",
+        "request-final",
+      ],
+    });
+    expect(execute).toHaveBeenCalledWith(
+      { query: "authentication" },
+      expect.objectContaining({ toolUseId: "tool-recovered" }),
+    );
+    expect(transport.calls[1]?.messages?.at(-1)).toEqual({
+      role: "user",
+      content: [{
+        text: expect.stringContaining(
+          'Call the required tool "research_project" now',
+        ),
+      }],
+    });
+    expect(transport.calls[1]?.toolConfig?.toolChoice).toEqual({
+      tool: { name: "research_project" },
+    });
+  });
+
+  it("fails closed when an empty tool-use turn repeats after one repair prompt", async () => {
+    const { agent } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [{ text: "I will use a tool." }],
+        requestId: "request-empty-tool-use-1",
+      }),
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [{ text: "Still trying." }],
+        requestId: "request-empty-tool-use-2",
+      }),
+    ]);
+
+    await expect(agent.run({
+      messages: [userMessage()],
+      tools: [defineBedrockConverseTool({
+        name: "research_project",
+        description: "Research imported project context.",
+        inputSchema: z.object({ query: z.string().min(1) }),
+        jsonSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["query"],
+          properties: { query: { type: "string" } },
+        },
+        execute: async () => ({ ok: true }),
+      })],
+    })).rejects.toMatchObject({
+      code: "protocol_error",
+      iterations: 2,
+      toolCalls: 0,
+    });
+
+    const withoutTools = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [{ text: "I will use a tool." }],
+      }),
+    ]);
+    await expect(withoutTools.agent.run({
+      messages: [userMessage()],
+    })).rejects.toMatchObject({
+      code: "protocol_error",
+      iterations: 1,
+      toolCalls: 0,
+    });
+    expect(withoutTools.transport.calls).toHaveLength(1);
+  });
+
   it("classifies incomplete provider envelopes as retryable interruptions", async () => {
     const missingMessage = makeAgent([{
       stopReason: "end_turn",
@@ -1355,6 +1481,34 @@ describe("BedrockConverseAgent", () => {
     } as unknown as BedrockConverseTransportResponse]);
     await expect(
       missingMessage.agent.run({ messages: [userMessage()] }),
+    ).rejects.toMatchObject({
+      code: "provider_error",
+      providerCode: "incomplete_response",
+      retryable: true,
+    });
+
+    const missingToolUseContent = makeAgent([{
+      message: { role: "assistant" },
+      stopReason: "tool_use",
+      usage: usage(3, 2),
+      requestId: "request-incomplete-tool-content",
+    } as unknown as BedrockConverseTransportResponse]);
+    await expect(
+      missingToolUseContent.agent.run({
+        messages: [userMessage()],
+        tools: [defineBedrockConverseTool({
+          name: "research_project",
+          description: "Research imported project context.",
+          inputSchema: z.object({ query: z.string().min(1) }),
+          jsonSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["query"],
+            properties: { query: { type: "string" } },
+          },
+          execute: async () => ({ ok: true }),
+        })],
+      }),
     ).rejects.toMatchObject({
       code: "provider_error",
       providerCode: "incomplete_response",
@@ -1535,6 +1689,7 @@ describe("BedrockConverseAgent", () => {
       code: "provider_error",
       providerStatus: 503,
       retryable: true,
+      requestIds: ["req_fallback", "req_primary"],
       usage: expect.objectContaining({
         providerAttemptCount: 2,
         unknownUsageAttempts: 2,
@@ -1550,6 +1705,26 @@ describe("BedrockConverseAgent", () => {
         }),
       }),
     ]));
+
+    const directFailure = new OpenRouterRequestError(
+      "upstream unavailable",
+      503,
+      true,
+      "req_direct",
+    );
+    const directAgent = new BedrockConverseAgent(
+      new FakeTransport([directFailure]),
+      {
+        modelId: "openai/gpt-5.6-terra",
+        providerLabel: "OpenRouter",
+      },
+    );
+    await expect(directAgent.run({
+      messages: [userMessage()],
+    })).rejects.toMatchObject({
+      code: "provider_error",
+      requestIds: ["req_direct"],
+    });
   });
 
   it("validates configuration before invoking Bedrock", async () => {
