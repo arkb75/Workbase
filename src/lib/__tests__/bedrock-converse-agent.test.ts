@@ -473,6 +473,48 @@ describe("BedrockConverseAgent", () => {
     expect(terminalExecute).not.toHaveBeenCalled();
   });
 
+  it("preserves batched read-only-style calls when no requested tool is terminal-capable", async () => {
+    const execute = vi.fn(({ path }: { path: string }) => ({
+      status: "completed",
+      path,
+    }));
+    const inspect = defineBedrockConverseTool({
+      name: "inspect_repository_snapshot",
+      description: "Read a repository snapshot.",
+      inputSchema: z.object({ path: z.string() }),
+      jsonSchema: {
+        type: "object",
+        required: ["path"],
+        properties: { path: { type: "string" } },
+      },
+      execute,
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({ id: "inspect-a", name: inspect.name, input: { path: "a.ts" } }),
+          toolRequest({ id: "inspect-b", name: inspect.name, input: { path: "b.ts" } }),
+        ],
+      }),
+      assistantResponse({
+        stopReason: "end_turn",
+        content: [{ text: "Inspection complete." }],
+      }),
+    ]);
+
+    const result = await agent.run({
+      messages: [userMessage()],
+      tools: [inspect],
+    });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute.mock.calls.map(([input]) => input.path)).toEqual(["a.ts", "b.ts"]);
+    expect(transport.calls).toHaveLength(2);
+    expect(result.toolCalls).toBe(2);
+    expect(result.text).toBe("Inspection complete.");
+  });
+
   it("surfaces a throwing terminal predicate as a host configuration error", async () => {
     const predicateError = new Error("terminal predicate bug");
     const execute = vi.fn(() => ({ status: "accepted" }));

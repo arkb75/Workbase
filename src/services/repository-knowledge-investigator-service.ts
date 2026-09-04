@@ -54,7 +54,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v27-verifier-provenance-state";
+  "repository-knowledge-investigator-v28-safe-inspection-batching";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -3639,7 +3639,6 @@ function createRepositoryInspectionTool(input: {
   maxExpansionRequestsPerCall?: number;
   nextAction?: (inspectionToolCalls: number) => string;
   checkpointRequirement?: () => string | null;
-  isTerminalResult?: (result: JsonValue) => boolean;
   onInspectionToolCallCompleted?: () => void;
   onSuccessfulInspectionToolCallCompleted?: () => void;
   objective: string;
@@ -3660,9 +3659,6 @@ function createRepositoryInspectionTool(input: {
     inputSchema: schemas.inputSchema,
     jsonSchema: schemas.jsonSchema,
     strict: true,
-    ...(input.isTerminalResult
-      ? { isTerminalResult: input.isTerminalResult }
-      : {}),
     execute: async ({ repositoryQueries, repositoryExpansions }) => {
       if (
         input.maxInspectionToolCalls !== undefined &&
@@ -4761,10 +4757,6 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
       REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
     maxQueriesPerCall: inspectorLimits.maxQueriesPerCall,
     maxExpansionRequestsPerCall: inspectorLimits.maxExpansionRequestsPerCall,
-    isTerminalResult: () =>
-      inspectionToolCalls >=
-        REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS &&
-      (!currentDiscoveryGate().accepted || submissionNeedsSourceRepair),
     nextAction: (completedInspectionToolCalls) => {
       if (submissionNeedsSourceRepair) {
         return "The prior submission cited source that was not inspectable at the submitted range. Use this one bounded repair call to read the exact production range named by the diagnostic, then resubmit the complete observation set.";
@@ -5388,10 +5380,6 @@ async function auditRepositoryInvestigationCoverage(input: {
             visibleRanges: visibleEvidenceRanges,
           }),
         }),
-    isTerminalResult: () =>
-      inspectionToolCalls >=
-        REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS &&
-      (!currentCandidateReadGate().accepted || submissionNeedsSourceRepair),
     objective:
       "Independently verify central implemented operations, exact claim support, and material placeholders, proxy boundaries, WIP seams, policy/security constraints, and other limitations.",
     onSharedBudgetExhausted: () => {
