@@ -1565,6 +1565,48 @@ describe("OpenRouterConverseTransport", () => {
     }
   });
 
+  it("maps a Bedrock specific-tool choice to OpenRouter named function choice", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      choices: [{
+        finish_reason: "tool_calls",
+        message: {
+          content: null,
+          tool_calls: [{
+            id: "submit-1",
+            function: { name: "submit_result", arguments: "{}" },
+          }],
+        },
+      }],
+    }));
+    const transport = new OpenRouterConverseTransport(
+      config(),
+      undefined,
+      fetchMock,
+    );
+
+    await transport.converse({
+      modelId: "ignored-by-transport",
+      messages: [{ role: "user", content: [{ text: "Submit it." }] }],
+      toolConfig: {
+        tools: [{
+          toolSpec: {
+            name: "submit_result",
+            description: "Submit the result.",
+            inputSchema: { json: { type: "object" } },
+            strict: true,
+          },
+        }],
+        toolChoice: { tool: { name: "submit_result" } },
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1].body));
+    expect(body.tool_choice).toEqual({
+      type: "function",
+      function: { name: "submit_result" },
+    });
+  });
+
   it("replays opaque reasoning details unchanged across tool-loop turns", async () => {
     const reasoningDetails = [
       {

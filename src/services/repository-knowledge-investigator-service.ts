@@ -54,7 +54,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v24-bounded-verifier-repair";
+  "repository-knowledge-investigator-v25-forced-verifier-submit";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -3255,6 +3255,18 @@ export function repositoryVerifierNextAction(input: {
   return `Re-read the ${Math.max(1, targets.length - coveredTargets.length)} remaining required exact HEAD:path range(s), then submit the audit.`;
 }
 
+export function repositoryVerifierForcedSubmissionTool(input: {
+  inspectionToolCalls: number;
+  maxInspectionToolCalls: number;
+  submitted: boolean;
+  toolName: string;
+}) {
+  return !input.submitted &&
+      input.inspectionToolCalls >= input.maxInspectionToolCalls
+    ? input.toolName
+    : null;
+}
+
 function sourceFromSnapshot(input: {
   source: {
     id: string;
@@ -4557,6 +4569,13 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
             effort: "high",
             enablePromptCaching: true,
             limits,
+            forceTool: () => repositoryVerifierForcedSubmissionTool({
+              inspectionToolCalls,
+              maxInspectionToolCalls:
+                REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+              submitted: submittedCheckpoint !== null,
+              toolName: "submit_repository_independent_review",
+            }),
           });
           input.sharedBudget.consumeModelUsage({
             usage: agentResult.usage,
@@ -4844,6 +4863,7 @@ async function auditRepositoryInvestigationCoverage(input: {
     target: input.target,
   }));
   const verifierFilesByPath = new Map(input.files.map((file) => [file.path, file]));
+  let inspectionToolCalls = 0;
   let sharedInspectionBudgetExhausted = false;
   const candidateDisclosure = durableCandidateDisclosure;
   const inspectTool = createRepositoryInspectionTool({
@@ -4871,6 +4891,9 @@ async function auditRepositoryInvestigationCoverage(input: {
       "Independently verify central implemented operations, exact claim support, and material placeholders, proxy boundaries, WIP seams, policy/security constraints, and other limitations.",
     onSharedBudgetExhausted: () => {
       sharedInspectionBudgetExhausted = true;
+    },
+    onInspectionToolCallCompleted: () => {
+      inspectionToolCalls += 1;
     },
   });
   let submittedAudit: z.infer<typeof coverageAuditSchema> | null = null;
@@ -5077,6 +5100,13 @@ async function auditRepositoryInvestigationCoverage(input: {
             effort: "high",
             enablePromptCaching: true,
             limits,
+            forceTool: () => repositoryVerifierForcedSubmissionTool({
+              inspectionToolCalls,
+              maxInspectionToolCalls:
+                REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+              submitted: submittedAudit !== null,
+              toolName: "submit_repository_coverage_audit",
+            }),
           });
           input.sharedBudget.consumeModelUsage({
             usage: agentResult.usage,

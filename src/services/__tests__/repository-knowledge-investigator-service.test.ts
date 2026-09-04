@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ConverseCommandInput } from "@aws-sdk/client-bedrock-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -56,6 +57,7 @@ import {
   repositoryVerifierIndependentNextAction,
   repositoryVerifierIndependentObservationDigest,
   repositoryVerifierNextAction,
+  repositoryVerifierForcedSubmissionTool,
   restoreRepositoryInvestigationCheckpoint,
   runRepositoryVerificationIfCandidate,
   validateRepositoryVerifierCandidateDisclosure,
@@ -395,7 +397,8 @@ describe("repository knowledge investigator", () => {
     ];
     let responseIndex = 0;
     const transport = {
-      converse: vi.fn(async () => {
+      converse: vi.fn(async (_input: ConverseCommandInput) => {
+        void _input;
         const response = responses[responseIndex++];
         if (!response) throw new Error("Unexpected verifier model turn.");
         return response;
@@ -409,11 +412,13 @@ describe("repository knowledge investigator", () => {
       jsonSchema: { type: "object", properties: {} },
       execute: executeInspection,
     });
-    const executeSubmission = vi.fn(async ({ corrected }: { corrected: boolean }) =>
-      corrected
+    let submitted = false;
+    const executeSubmission = vi.fn(async ({ corrected }: { corrected: boolean }) => {
+      submitted = corrected;
+      return corrected
         ? { status: "accepted" }
-        : { status: "rejected", instruction: "Correct the source contract." }
-    );
+        : { status: "rejected", instruction: "Correct the source contract." };
+    });
     const submit = defineBedrockConverseTool({
       name: "submit_repository_independent_review",
       description: "Submit the blind repository review.",
@@ -432,6 +437,13 @@ describe("repository knowledge investigator", () => {
       messages: [{ role: "user", content: [{ text: "Review this repository." }] }],
       tools: [inspect, submit],
       limits: repositoryCoverageReviewPhaseLimits(77),
+      forceTool: () => repositoryVerifierForcedSubmissionTool({
+        inspectionToolCalls: executeInspection.mock.calls.length,
+        maxInspectionToolCalls:
+          REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+        submitted,
+        toolName: "submit_repository_independent_review",
+      }),
     });
 
     expect(executeInspection).toHaveBeenCalledTimes(
@@ -442,6 +454,13 @@ describe("repository knowledge investigator", () => {
       REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 2,
     );
     expect(result.text).toBe("Review submitted.");
+    expect(transport.converse.mock.calls[3]?.[0].toolConfig?.toolChoice).toEqual({
+      tool: { name: "submit_repository_independent_review" },
+    });
+    expect(transport.converse.mock.calls[4]?.[0].toolConfig?.toolChoice).toEqual({
+      tool: { name: "submit_repository_independent_review" },
+    });
+    expect(transport.converse.mock.calls[5]?.[0].toolConfig?.toolChoice).toBeUndefined();
   });
 
   it("preserves a validated terminal notebook when the redundant model turn hits token preflight", async () => {

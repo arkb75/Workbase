@@ -277,6 +277,127 @@ describe("BedrockConverseAgent", () => {
     expect(JSON.stringify(result.events)).not.toContain("github_pat_");
   });
 
+  it("dynamically forces a corrected terminal tool instead of accepting prose", async () => {
+    let inspectionComplete = false;
+    let submitted = false;
+    let submissionAttempts = 0;
+    const inspect = defineBedrockConverseTool({
+      name: "inspect_source",
+      description: "Inspect source.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute: () => {
+        inspectionComplete = true;
+        return { status: "completed" };
+      },
+    });
+    const submit = defineBedrockConverseTool({
+      name: "submit_result",
+      description: "Submit the result.",
+      inputSchema: z.object({ corrected: z.boolean() }),
+      jsonSchema: {
+        type: "object",
+        required: ["corrected"],
+        properties: { corrected: { type: "boolean" } },
+      },
+      execute: ({ corrected }) => {
+        submissionAttempts += 1;
+        if (!corrected) {
+          return { status: "rejected", instruction: "Correct the result." };
+        }
+        submitted = true;
+        return { status: "accepted" };
+      },
+    });
+    const forcedSubmission = (
+      input: ConverseCommandInput,
+      id: string,
+      corrected: boolean,
+    ) => {
+      const selected = input.toolConfig?.toolChoice &&
+          "tool" in input.toolConfig.toolChoice
+        ? input.toolConfig.toolChoice.tool?.name
+        : null;
+      return selected === "submit_result"
+        ? assistantResponse({
+            stopReason: "tool_use",
+            content: [toolRequest({
+              id,
+              name: "submit_result",
+              input: { corrected },
+            })],
+          })
+        : assistantResponse({
+            stopReason: "end_turn",
+            content: [{ text: "Here is prose instead of a submission." }],
+          });
+    };
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [toolRequest({ id: "inspect-1", name: "inspect_source", input: {} })],
+      }),
+      (input) => forcedSubmission(input, "submit-rejected", false),
+      (input) => forcedSubmission(input, "submit-corrected", true),
+      assistantResponse({
+        stopReason: "end_turn",
+        content: [{ text: "Submitted." }],
+      }),
+    ]);
+
+    const result = await agent.run({
+      messages: [userMessage()],
+      tools: [inspect, submit],
+      effort: "high",
+      temperature: 0.2,
+      forceTool: () =>
+        inspectionComplete && !submitted ? "submit_result" : null,
+    });
+
+    expect(submissionAttempts).toBe(2);
+    expect(result.text).toBe("Submitted.");
+    for (const call of transport.calls.slice(1, 3)) {
+      expect(call.toolConfig?.toolChoice).toEqual({
+        tool: { name: "submit_result" },
+      });
+      expect(call.additionalModelRequestFields).toBeUndefined();
+      expect(call.inferenceConfig?.temperature).toBe(0.2);
+    }
+    expect(transport.calls[3]?.toolConfig?.toolChoice).toBeUndefined();
+    expect(transport.calls[3]?.additionalModelRequestFields).toEqual({
+      thinking: { type: "adaptive" },
+      output_config: { effort: "high" },
+    });
+  });
+
+  it("rejects parallel calls on a forced-tool turn", async () => {
+    const execute = vi.fn(() => ({ status: "accepted" }));
+    const submit = defineBedrockConverseTool({
+      name: "submit_result",
+      description: "Submit the result.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute,
+    });
+    const { agent } = makeAgent([assistantResponse({
+      stopReason: "tool_use",
+      content: [
+        toolRequest({ id: "parallel-1", name: "submit_result", input: {} }),
+        toolRequest({ id: "parallel-2", name: "submit_result", input: {} }),
+      ],
+    })]);
+
+    await expect(agent.run({
+      messages: [userMessage()],
+      tools: [submit],
+      forceTool: () => "submit_result",
+    })).rejects.toMatchObject({
+      code: "protocol_error",
+      toolCalls: 0,
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("returns invalid tool input to the model without executing the handler", async () => {
     const execute = vi.fn();
     const tool = defineBedrockConverseTool({

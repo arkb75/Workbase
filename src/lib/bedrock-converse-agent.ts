@@ -237,6 +237,11 @@ export interface BedrockConverseAgentRunInput {
   enablePromptCaching?: boolean;
   limits?: Partial<BedrockConverseAgentLimits>;
   signal?: AbortSignal;
+  /** Re-evaluated before every model turn; return null to leave tool choice automatic. */
+  forceTool?: (context: {
+    iteration: number;
+    toolCalls: number;
+  }) => string | null | undefined;
   onEvent?: (event: BedrockConverseAgentEvent) => void | Promise<void>;
 }
 
@@ -1054,7 +1059,27 @@ export class BedrockConverseAgent {
         }
       }
 
-      iterations += 1;
+      const nextIteration = iterations + 1;
+      const requestedForcedToolName = input.forceTool?.({
+        iteration: nextIteration,
+        toolCalls,
+      });
+      const forcedToolName = requestedForcedToolName?.trim() || null;
+      if (requestedForcedToolName != null && !forcedToolName) {
+        throw new BedrockConverseAgentError(
+          "A forced Converse tool name must be non-empty.",
+          "configuration_error",
+          failureOptions({ iterations, toolCalls, usage: aggregateUsage }),
+        );
+      }
+      if (forcedToolName && !toolByName.has(forcedToolName)) {
+        throw new BedrockConverseAgentError(
+          `Cannot force unknown Converse tool "${truncate(forcedToolName, 128)}".`,
+          "configuration_error",
+          failureOptions({ iterations, toolCalls, usage: aggregateUsage }),
+        );
+      }
+      iterations = nextIteration;
       await emit({
         type: "model_call_started",
         iteration: iterations,
@@ -1083,7 +1108,7 @@ export class BedrockConverseAgent {
             messages,
             inferenceConfig: {
               maxTokens,
-              temperature: input.effort ? 1 : temperature,
+              temperature: input.effort && !forcedToolName ? 1 : temperature,
             },
             toolConfig: tools.length
               ? {
@@ -1100,9 +1125,12 @@ export class BedrockConverseAgent {
                     })),
                     ...(input.enablePromptCaching ? [cachePoint] : []),
                   ],
+                  ...(forcedToolName
+                    ? { toolChoice: { tool: { name: forcedToolName } } }
+                    : {}),
                 }
               : undefined,
-            additionalModelRequestFields: input.effort
+            additionalModelRequestFields: input.effort && !forcedToolName
               ? {
                   thinking: { type: "adaptive" },
                   output_config: { effort: input.effort },
@@ -1357,6 +1385,13 @@ export class BedrockConverseAgent {
       }
 
       if (stopReason === "end_turn" || stopReason === "stop_sequence") {
+        if (forcedToolName) {
+          throw new BedrockConverseAgentError(
+            `${this.providerLabel()} completed a turn without calling forced tool "${truncate(forcedToolName, 128)}".`,
+            "protocol_error",
+            failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
+          );
+        }
         const unexpectedToolUse = (response.message.content ?? []).some(
           (block) => "toolUse" in block && block.toolUse,
         );
@@ -1465,6 +1500,20 @@ export class BedrockConverseAgent {
       if (!requestedTools.length) {
         throw new BedrockConverseAgentError(
           `${this.providerLabel()} stopped for tool use without returning a tool request.`,
+          "protocol_error",
+          failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
+        );
+      }
+
+      if (
+        forcedToolName &&
+        (
+          requestedTools.length !== 1 ||
+          requestedTools[0]?.name !== forcedToolName
+        )
+      ) {
+        throw new BedrockConverseAgentError(
+          `${this.providerLabel()} did not call forced tool "${truncate(forcedToolName, 128)}" exactly once.`,
           "protocol_error",
           failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
         );
