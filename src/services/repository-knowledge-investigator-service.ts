@@ -54,7 +54,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v20-rate-limit-resilient";
+  "repository-knowledge-investigator-v21-independent-verifier-contexts";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -1903,31 +1903,30 @@ export function repositoryCoverageVerifierLimits(fileCount: number) {
   return {
     maxIterations: Math.max(12, Math.ceil(preferred.maxIterations * 0.65)),
     maxToolCalls: Math.max(10, Math.ceil(preferred.maxToolCalls * 0.65)),
-    // Delayed disclosure deliberately adds an independent source walk before
-    // candidate comparison. Cumulative input telemetry counts the cached
-    // transcript again on every turn, so this runaway guard must be larger
-    // than the investigator's single-phase allowance. Refresh-wide semantic
-    // work, calls, inspections, and iterations remain independently capped.
+    // Each delayed-disclosure verifier phase starts a fresh agent context.
+    // Cumulative input telemetry counts that phase's cached transcript again
+    // on every turn, so this is a per-context runaway guard rather than a
+    // refresh-wide token allocation. Refresh-wide semantic work, calls, and
+    // inspections remain independently capped by the shared budget.
     maxTotalTokens: Math.ceil(preferred.maxTotalTokens * 1.5 / 10_000) * 10_000,
   };
 }
 
-function repositoryCoverageReviewPhaseLimits(fileCount: number) {
-  const total = repositoryCoverageVerifierLimits(fileCount);
+export function repositoryCoverageReviewPhaseLimits(fileCount: number) {
+  const context = repositoryCoverageVerifierLimits(fileCount);
   return {
     maxIterations: 5,
     maxToolCalls: 4,
-    maxTotalTokens: Math.ceil(total.maxTotalTokens * 0.4 / 10_000) * 10_000,
+    maxTotalTokens: context.maxTotalTokens,
   };
 }
 
-function repositoryCoverageAuditPhaseLimits(fileCount: number) {
-  const total = repositoryCoverageVerifierLimits(fileCount);
-  const review = repositoryCoverageReviewPhaseLimits(fileCount);
+export function repositoryCoverageAuditPhaseLimits(fileCount: number) {
+  const context = repositoryCoverageVerifierLimits(fileCount);
   return {
     maxIterations: 7,
     maxToolCalls: 5,
-    maxTotalTokens: Math.max(10_000, total.maxTotalTokens - review.maxTotalTokens),
+    maxTotalTokens: context.maxTotalTokens,
   };
 }
 

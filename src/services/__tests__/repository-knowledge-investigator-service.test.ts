@@ -21,7 +21,9 @@ import {
   REPOSITORY_VERIFIER_MAX_OBSERVATIONS,
   REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
   RepositoryInvestigationSharedBudget,
+  repositoryCoverageAuditPhaseLimits,
   repositoryCoverageCandidatePacket,
+  repositoryCoverageReviewPhaseLimits,
   repositoryCoverageVerifierLimits,
   repositoryCoverageVerificationTargets,
   repositoryImplementationBreadthByCapability,
@@ -223,6 +225,57 @@ describe("repository knowledge investigator", () => {
       maxTotalTokens: 170_000,
     });
     expect(repositoryCoverageVerifierLimits(251).maxTotalTokens).toBe(360_000);
+  });
+
+  it("gives each fresh verifier context its own raw transcript ceiling", () => {
+    expect(repositoryCoverageReviewPhaseLimits(77)).toEqual({
+      maxIterations: 5,
+      maxToolCalls: 4,
+      maxTotalTokens: 170_000,
+    });
+    expect(repositoryCoverageAuditPhaseLimits(77)).toEqual({
+      maxIterations: 7,
+      maxToolCalls: 5,
+      maxTotalTokens: 170_000,
+    });
+  });
+
+  it("still shares semantic work across independent verifier contexts", () => {
+    const budget = new RepositoryInvestigationSharedBudget({
+      maxModelTokens: 50_000,
+      maxModelCalls: 12,
+      maxInspectionOperations: 40,
+    });
+    const review = budget.phaseLimits(
+      repositoryCoverageReviewPhaseLimits(77),
+      12_000,
+      { modelTokens: 18_000, modelCalls: 6 },
+      { preserveRawTokenLimit: true },
+    );
+
+    expect(review).toMatchObject({
+      maxTotalTokens: 170_000,
+      maxSemanticTokens: 32_000,
+    });
+    budget.consumeModelUsage({
+      usage: {
+        inputTokens: 38_000,
+        outputTokens: 2_000,
+        totalTokens: 40_000,
+        cacheReadInputTokens: 14_000,
+        providerAttemptCount: 5,
+      },
+    });
+
+    expect(budget.phaseLimits(
+      repositoryCoverageAuditPhaseLimits(77),
+      18_000,
+      { modelTokens: 0, modelCalls: 0 },
+      { preserveRawTokenLimit: true },
+    )).toMatchObject({
+      maxTotalTokens: 170_000,
+      maxSemanticTokens: 24_000,
+    });
   });
 
   it("accepts only a visible exact pinned production-source range", () => {
