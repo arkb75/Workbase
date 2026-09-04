@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { JsonValue } from "@/src/domain/types";
 import {
   BedrockConverseAgentError,
+  BedrockConverseLimitError,
   defineBedrockConverseTool,
   type BedrockConverseAgentEvent,
   type BedrockConverseAgentLimits,
@@ -54,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v28-safe-inspection-batching";
+  "repository-knowledge-investigator-v29-correction-headroom";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -117,6 +118,7 @@ export const REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS =
   REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS + 1;
 export const MAX_REPOSITORY_VERIFIER_REPAIR_CYCLES = 1;
 const MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION = 2;
+const VERIFIER_CORRECTION_RAW_TOKEN_HEADROOM = 60_000;
 const MIN_INVESTIGATOR_PHASE_TOKENS = 16_000;
 const MIN_VERIFIER_REVIEW_PHASE_TOKENS = 12_000;
 const MIN_VERIFIER_AUDIT_PHASE_TOKENS = 18_000;
@@ -2134,7 +2136,13 @@ export function repositoryCoverageAuditPhaseLimits(fileCount: number) {
   return {
     maxIterations: context.maxIterations,
     maxToolCalls: context.maxToolCalls,
-    maxTotalTokens: context.maxTotalTokens,
+    // Candidate audits submit the largest structured payload in the verifier.
+    // A rejected submission and its bounded diagnostics remain in the raw
+    // transcript for the one correction turn promised by the tool contract.
+    // This headroom affects only cumulative raw replay; refresh-wide semantic
+    // work, model calls, inspections, and resubmissions retain their own caps.
+    maxTotalTokens:
+      context.maxTotalTokens + VERIFIER_CORRECTION_RAW_TOKEN_HEADROOM,
   };
 }
 
@@ -5524,6 +5532,11 @@ async function auditRepositoryInvestigationCoverage(input: {
     | "verifier_phase_budget_exhausted"
     | "shared_budget_exhausted" = "verifier_complete";
   let capacityLimitation: string | null = null;
+  let phaseBudgetBoundary: {
+    code: string;
+    limit: number | null;
+    actual: number | null;
+  } | null = null;
   const agent = createTextConverseAgent({
     profile: "verification",
     defaultLimits: limits,
@@ -5598,6 +5611,11 @@ async function auditRepositoryInvestigationCoverage(input: {
           schemaValidSubmissionAttemptCount,
           contractSubmissionRejectionCount,
           sourceRepairInspectionCount,
+          lastSubmissionRejectionReasons,
+          lastSubmissionRejectionCodes,
+          submissionNeedsSourceRepair,
+          terminalProtocolFailure,
+          phaseBudgetBoundary,
           submissionAttempts: repositoryVerifierSubmissionAttemptDiagnostics({
             result: executed.result,
             toolName: "submit_repository_coverage_audit",
@@ -5631,6 +5649,7 @@ async function auditRepositoryInvestigationCoverage(input: {
         lastSubmissionRejectionCodes,
         submissionNeedsSourceRepair,
         terminalProtocolFailure,
+        phaseBudgetBoundary,
         requiredReadGate: currentCandidateReadGate(),
         inspectionUsage: {
           operations: input.sharedBudget.snapshot().used.inspectionOperations -
@@ -5687,6 +5706,15 @@ async function auditRepositoryInvestigationCoverage(input: {
             });
           }
           if (isAgentBudgetError(error) && !submittedAudit) {
+            phaseBudgetBoundary = {
+              code: error.code,
+              limit: error instanceof BedrockConverseLimitError
+                ? error.limit
+                : null,
+              actual: error instanceof BedrockConverseLimitError
+                ? error.actual
+                : null,
+            };
             terminationReason = sharedInspectionBudgetExhausted
               ? "shared_budget_exhausted"
               : "verifier_phase_budget_exhausted";

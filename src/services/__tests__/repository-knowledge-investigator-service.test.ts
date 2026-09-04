@@ -6,6 +6,7 @@ import {
   BedrockConverseAgent,
   BedrockConverseAgentError,
   defineBedrockConverseTool,
+  estimateBedrockConverseInputTokens,
   type BedrockConverseTransportResponse,
 } from "@/src/lib/bedrock-converse-agent";
 import {
@@ -259,16 +260,18 @@ describe("repository knowledge investigator", () => {
     expect(repositoryCoverageAuditPhaseLimits(80)).toEqual({
       maxIterations: 12,
       maxToolCalls: 10,
-      maxTotalTokens: 170_000,
+      maxTotalTokens: 230_000,
     });
     for (const limits of [
       repositoryCoverageReviewPhaseLimits(81),
-      repositoryCoverageAuditPhaseLimits(81),
       repositoryCoverageReviewPhaseLimits(250),
-      repositoryCoverageAuditPhaseLimits(250),
     ]) expect(limits.maxTotalTokens).toBe(270_000);
+    for (const limits of [
+      repositoryCoverageAuditPhaseLimits(81),
+      repositoryCoverageAuditPhaseLimits(250),
+    ]) expect(limits.maxTotalTokens).toBe(330_000);
     expect(repositoryCoverageReviewPhaseLimits(251).maxTotalTokens).toBe(360_000);
-    expect(repositoryCoverageAuditPhaseLimits(251).maxTotalTokens).toBe(360_000);
+    expect(repositoryCoverageAuditPhaseLimits(251).maxTotalTokens).toBe(420_000);
   });
 
   it("returns indexed correction diagnostics for invalid blind-review observations", () => {
@@ -1130,6 +1133,141 @@ describe("repository knowledge investigator", () => {
     expect(transport.converse.mock.calls[6]).toBeUndefined();
   });
 
+  it("keeps raw transcript headroom for one candidate-audit correction", async () => {
+    const replayedUsage = {
+      inputTokens: 30_000,
+      outputTokens: 2_000,
+      totalTokens: 32_000,
+    };
+    const inspectionResponses: BedrockConverseTransportResponse[] = Array.from(
+      { length: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS },
+      (_, index) => ({
+        message: {
+          role: "assistant",
+          content: [{
+            toolUse: {
+              toolUseId: `candidate-inspect-${index + 1}`,
+              name: "inspect_repository_snapshot",
+              input: {},
+            },
+          }],
+        },
+        stopReason: "tool_use",
+        usage: replayedUsage,
+        requestId: `candidate-request-${index + 1}`,
+      }),
+    );
+    const responses: BedrockConverseTransportResponse[] = [
+      ...inspectionResponses,
+      {
+        message: {
+          role: "assistant",
+          content: [{
+            toolUse: {
+              toolUseId: "candidate-submit-rejected",
+              name: "submit_repository_coverage_audit",
+              input: { corrected: false },
+            },
+          }],
+        },
+        stopReason: "tool_use",
+        usage: replayedUsage,
+        requestId: "candidate-request-submit-rejected",
+      },
+      {
+        message: {
+          role: "assistant",
+          content: [{
+            toolUse: {
+              toolUseId: "candidate-submit-corrected",
+              name: "submit_repository_coverage_audit",
+              input: { corrected: true },
+            },
+          }],
+        },
+        stopReason: "tool_use",
+        usage: replayedUsage,
+        requestId: "candidate-request-submit-corrected",
+      },
+    ];
+    let responseIndex = 0;
+    const transport = {
+      converse: vi.fn(async (_input: ConverseCommandInput) => {
+        void _input;
+        const response = responses[responseIndex++];
+        if (!response) throw new Error("Unexpected candidate verifier turn.");
+        return response;
+      }),
+    };
+    const executeInspection = vi.fn(async () => ({ status: "completed" }));
+    const inspect = defineBedrockConverseTool({
+      name: "inspect_repository_snapshot",
+      description: "Inspect the pinned repository snapshot.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute: executeInspection,
+    });
+    let submitted = false;
+    const executeSubmission = vi.fn(async ({ corrected }: { corrected: boolean }) => {
+      submitted = corrected;
+      return corrected
+        ? { status: "accepted" }
+        : {
+            status: "rejected",
+            instruction: "Correct the bounded contract diagnostic and resubmit.",
+          };
+    });
+    const submit = defineBedrockConverseTool({
+      name: "submit_repository_coverage_audit",
+      description: "Submit the source-grounded candidate audit.",
+      inputSchema: z.object({ corrected: z.boolean() }),
+      jsonSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["corrected"],
+        properties: { corrected: { type: "boolean" } },
+      },
+      isTerminalResult: (result) =>
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result) &&
+        result.status === "accepted",
+      execute: executeSubmission,
+    });
+    const agent = new BedrockConverseAgent(transport, { modelId: "test-verifier" });
+    const longCandidatePacket = "candidate evidence ".repeat(2_500);
+
+    const result = await agent.run({
+      messages: [{ role: "user", content: [{ text: longCandidatePacket }] }],
+      tools: [inspect, submit],
+      limits: repositoryCoverageAuditPhaseLimits(77),
+      forceTool: () => repositoryVerifierForcedSubmissionTool({
+        inspectionToolCalls: executeInspection.mock.calls.length,
+        maxInspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+        readyToSubmit:
+          executeInspection.mock.calls.length >=
+            REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+        submitted,
+        toolName: "submit_repository_coverage_audit",
+        inspectionToolName: "inspect_repository_snapshot",
+      }),
+    });
+
+    const correctionRequest = transport.converse.mock.calls[5]?.[0];
+    expect(correctionRequest).toBeDefined();
+    const correctionProjection = 5 * replayedUsage.totalTokens +
+      estimateBedrockConverseInputTokens({
+        messages: correctionRequest?.messages ?? [],
+        tools: [inspect, submit],
+      });
+    expect(correctionProjection).toBeGreaterThan(170_000);
+    expect(correctionProjection).toBeLessThan(230_000);
+    expect(executeSubmission).toHaveBeenCalledTimes(2);
+    expect(result.usage.totalTokens).toBe(192_000);
+    expect(result.terminalTool?.name).toBe("submit_repository_coverage_audit");
+    expect(transport.converse).toHaveBeenCalledTimes(6);
+  });
+
   it("preserves a validated terminal notebook when the redundant model turn hits token preflight", async () => {
     const { state, evidence } = investigationState();
     const seedNotebook = structuredClone(state.notebook);
@@ -1286,7 +1424,7 @@ describe("repository knowledge investigator", () => {
       { modelTokens: 0, modelCalls: 0 },
       { preserveRawTokenLimit: true },
     )).toMatchObject({
-      maxTotalTokens: 170_000,
+      maxTotalTokens: 230_000,
       maxSemanticTokens: 24_000,
     });
   });
