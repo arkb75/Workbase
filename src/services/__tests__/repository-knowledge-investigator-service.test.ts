@@ -2717,6 +2717,9 @@ describe("repository knowledge investigator", () => {
       "one final provenance-only repair call",
     );
     expect(request.systemPrompt).toContain(
+      'begin each args array with "grep", "ls-tree", or "show", never "git"',
+    );
+    expect(request.systemPrompt).toContain(
       "No candidate notebook is available",
     );
     expect(request.systemPrompt).toContain(

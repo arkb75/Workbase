@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v33-empty-tool-use-repair";
+  "repository-knowledge-investigator-v34-explicit-git-tool-contract";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -742,6 +742,8 @@ function repositoryInspectionToolSchemas(input?: {
               type: "array",
               minItems: 1,
               maxItems: 40,
+              description:
+                'Git argument vector beginning with the subcommand, never the executable. Valid examples: ["ls-tree","-r","--name-only","HEAD"], ["grep","-n","-E","pattern","HEAD","--","src"], and ["show","HEAD:path/to/file"]. Do not pass "git" or "git grep" as args[0].',
               items: { type: "string", minLength: 1, maxLength: 1_000 },
             },
           },
@@ -3412,7 +3414,7 @@ export function independentCoverageReviewRequest(input: {
       repositoryInvestigationBoundaryReviewGuidance,
       "Do not infer repository-wide absence from a single snippet. Record the positive bounded constraint established by exact source and request multiple linked findings when multiple ranges are needed.",
       "README aspirations, tests alone, filenames, and attractive architecture labels are navigation hints only.",
-      "Use grep or ls-tree to discover the implementation, then read exact production source and submit source-cited independent observations or open leads about the operations, state transitions, side effects, integrations, and boundaries you found.",
+      'Use grep or ls-tree to discover the implementation, then read exact production source and submit source-cited independent observations or open leads about the operations, state transitions, side effects, integrations, and boundaries you found. In inspect_repository_snapshot, the host invokes Git: begin each args array with "grep", "ls-tree", or "show", never "git" or a combined command string.',
       `Use up to ${REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS} normal inspect_repository_snapshot calls. Batch related discovery and exact reads, then call submit_repository_independent_review. If the host reports that the required discovery/read provenance is still incomplete, it may require one final provenance-only repair call; use it only for the explicitly missing gate evidence.`,
       `Submit one independent observation for each materially distinct operation, state transition, external side effect, integration, or implementation boundary established by the source you inspected, up to the bounded safety ceiling of ${REPOSITORY_VERIFIER_MAX_OBSERVATIONS}. This ceiling is not a target: do not manufacture findings, split one behavior into trivia, or collapse unrelated behaviors merely to keep the review short.`,
       "Set observationCapacityReached true only when additional material observations were discovered but could not fit within that ceiling; that result will stop as explicitly incomplete instead of silently omitting them.",
@@ -3706,8 +3708,10 @@ function createRepositoryInspectionTool(input: {
     name: "inspect_repository_snapshot",
     description: [
       "Run bounded read-only Git queries against the one authorized immutable repository snapshot, or expand a prior result.",
-      "Use git grep/ls-tree to discover and exactly git show HEAD:path to read citable source. Grep/list/history output is navigation evidence only.",
-      "Use ordinary Git argument arrays only: no shell syntax, host paths, networking, or mutation.",
+      'The host invokes Git: every args array starts with a subcommand, never with "git", and never combines words such as "git grep".',
+      'Valid discovery arrays are ["ls-tree","-r","--name-only","HEAD"] and ["grep","-n","-E","pattern","HEAD","--","src"]. A valid exact source read is ["show","HEAD:path/to/file"].',
+      "Use grep or ls-tree to discover and show HEAD:path to read citable source. Grep/list/history output is navigation evidence only.",
+      "Use argument arrays only: no shell syntax, host paths, networking, or mutation.",
     ].join(" "),
     inputSchema: schemas.inputSchema,
     jsonSchema: schemas.jsonSchema,

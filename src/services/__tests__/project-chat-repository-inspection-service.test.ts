@@ -168,6 +168,68 @@ describe("project chat repository inspection", () => {
     });
   });
 
+  it("accepts a harmless leading git token and explains malformed command arrays", async () => {
+    const archived: Array<{ args: string[] }> = [];
+    const result = await inspector({
+      onEvidence: (evidence) => { archived.push(evidence); },
+    }).inspect({
+      sourceId: "source-robot",
+      queries: [
+        { args: ["git", "ls-tree", "-r", "--name-only", "HEAD"] },
+        { args: ["git", "show", "HEAD:src/controller.ts"] },
+        {
+          args: [
+            "git grep",
+            "-n",
+            "route_latency",
+            "HEAD",
+            "--",
+            "src",
+          ],
+        },
+        { args: ["git", "show", "--output=/tmp/leak", "HEAD"] },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      status: "completed",
+      results: [
+        {
+          status: "success",
+          args: ["ls-tree", "-r", "--name-only", "HEAD"],
+        },
+        {
+          status: "success",
+          args: ["show", "HEAD:src/controller.ts"],
+        },
+        {
+          status: "rejected",
+          args: [
+            "git grep",
+            "-n",
+            "route_latency",
+            "HEAD",
+            "--",
+            "src",
+          ],
+          code: "unsupported_command",
+          instruction: expect.stringContaining(
+            'Pass the Git subcommand as args[0], without a leading "git" token',
+          ),
+        },
+        {
+          status: "rejected",
+          args: ["git", "show", "--output=/tmp/leak", "HEAD"],
+          code: "unsafe_argument",
+        },
+      ],
+    });
+    expect(archived.map((evidence) => evidence.args)).toEqual([
+      ["ls-tree", "-r", "--name-only", "HEAD"],
+      ["show", "HEAD:src/controller.ts"],
+    ]);
+  });
+
   it("normalizes tree-less grep queries to HEAD and preserves explicit revisions", async () => {
     const archived: Array<{ args: string[]; exitCode?: number }> = [];
     const result = await inspector({

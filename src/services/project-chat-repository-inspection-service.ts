@@ -197,6 +197,20 @@ const grepPatternExpressionArguments = new Set([
   ")",
 ]);
 
+const repositoryGitArgumentExamples =
+  'Pass the Git subcommand as args[0], without a leading "git" token or a combined command string. Examples: ["ls-tree","-r","--name-only","HEAD"], ["grep","-n","-E","pattern","HEAD","--","src"], or ["show","HEAD:path/to/file"].';
+
+function normalizeLeadingGitExecutable(args: string[]) {
+  return args[0]?.toLowerCase() === "git" ? args.slice(1) : args;
+}
+
+function repositoryGitArgumentInstruction(reason: string) {
+  return reason === "invalid_grep_arguments" ||
+      reason === "ambiguous_grep_arguments"
+    ? `Give grep one explicit pattern and put path filters after --. Example: ["grep","-n","-E","pattern","HEAD","--","src"]. ${repositoryGitArgumentExamples}`
+    : repositoryGitArgumentExamples;
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -901,28 +915,30 @@ export class ProjectChatRepositoryInspector {
     const env = gitEnvironment({ privateHome: repository.privateHome });
     for (const query of input.queries) {
       this.#queryCount += 1;
-      const validation = validateProjectRepositoryGitArgs(query.args, this.limits);
+      const submittedArgs = query.args;
+      const queryArgs = normalizeLeadingGitExecutable(submittedArgs);
+      const validation = validateProjectRepositoryGitArgs(queryArgs, this.limits);
       if (!validation.valid) {
         results.push({
-          args: query.args,
+          args: submittedArgs,
           status: "rejected" as const,
           code: validation.reason,
-          instruction: "Use a supported read-only Git command and safe arguments.",
+          instruction: repositoryGitArgumentInstruction(validation.reason),
         });
         continue;
       }
       const normalized = await normalizeProjectRepositoryGitArgs({
-        args: query.args,
+        args: queryArgs,
         gitDir: repository.gitDir,
         env,
         limits: this.limits,
       });
       if (!normalized.valid) {
         results.push({
-          args: query.args,
+          args: submittedArgs,
           status: "rejected" as const,
           code: normalized.reason,
-          instruction: "Use an explicit grep pattern and place paths after --.",
+          instruction: repositoryGitArgumentInstruction(normalized.reason),
         });
         continue;
       }
@@ -932,10 +948,12 @@ export class ProjectChatRepositoryInspector {
       );
       if (!normalizedValidation.valid) {
         results.push({
-          args: query.args,
+          args: submittedArgs,
           status: "rejected" as const,
           code: normalizedValidation.reason,
-          instruction: "Use a supported read-only Git command and safe arguments.",
+          instruction: repositoryGitArgumentInstruction(
+            normalizedValidation.reason,
+          ),
         });
         continue;
       }
