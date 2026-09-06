@@ -21,6 +21,7 @@ import {
   buildRepositorySourceInspectionAttestation,
   buildRepositoryInvestigationTerminalState,
   compactRepositoryInvestigationNotebook,
+  compactRepositorySourceNavigation,
   candidateCoverageAuditRequest,
   independentCoverageReviewRequest,
   mergeRepositorySourceInspectionAttestations,
@@ -2234,6 +2235,62 @@ describe("repository knowledge investigator", () => {
         files: context.files.map((file) => ({ ...file, blobSha: "f".repeat(40) })),
       },
     })).toThrow();
+  });
+
+  it("preserves unclaimed source navigation across a checkpoint without granting citation access", () => {
+    const { state, evidence } = investigationState();
+    const sourceInspection = buildRepositorySourceInspectionAttestation({
+      evidence: [evidence], visibleRanges: state.visibleEvidenceRanges,
+    });
+    const context = {
+      refreshRunId: "refresh-navigation",
+      snapshotId: "snapshot-navigation",
+      target: { sourceId: "source-1", repository: "owner/project", commitSha, treeSha: "c".repeat(40) },
+      files: Array.from(state.filesByPath.values()),
+      wave: 2,
+      investigationInputDigest: "d".repeat(64),
+      seedNotebookDigest: null,
+    };
+    const checkpoint = buildRepositoryInvestigationCheckpoint({
+      context, notebook: state.notebook, checkpointKind: "partial",
+      generationRunId: null, terminationReason: null, capacityLimitation: null,
+      sourceInspection, agentToolTrace: [],
+    });
+    const restored = restoreRepositoryInvestigationCheckpoint({ value: checkpoint, context });
+    expect(restored.notebook.findings).toEqual([]);
+    expect(compactRepositorySourceNavigation(restored.sourceInspection)).toEqual([
+      { path: "src/session.ts", inspectedRanges: [[1, 4]] },
+    ]);
+    const next = investigationState();
+    next.state.notebook = restored.notebook;
+    next.state.evidenceById.clear();
+    next.state.visibleEvidenceRanges = [];
+    expect(applyRepositoryInvestigationNotebookUpdate({
+      state: next.state, update: notebookUpdate(evidence.evidenceId),
+    }).accepted).toBe(false);
+    expect(() => restoreRepositoryInvestigationCheckpoint({
+      value: checkpoint,
+      context: { ...context, files: context.files.map(file => ({ ...file, blobSha: "f".repeat(40) })) },
+    })).toThrow();
+  });
+
+  it("counts new inspected source as navigation progress but not repeated, split or contained windows", () => {
+    const { state, evidence } = investigationState();
+    const inspection = buildRepositorySourceInspectionAttestation({
+      evidence: [evidence], visibleRanges: state.visibleEvidenceRanges,
+    });
+    const read = inspection.readSet[0]!;
+    const navigation = (ranges: Array<[number, number]>) => compactRepositorySourceNavigation({
+      ...inspection,
+      readSet: ranges.map(([lineStart, lineEnd]) => ({ ...read, lineStart, lineEnd })),
+    });
+    expect(navigation([[3, 4], [1, 2], [2, 3], [1, 4], [1, 4]])).toEqual(navigation([[1, 4]]));
+    expect(navigation([[1, 4], [8, 10]])).not.toEqual(navigation([[1, 4]]));
+    expect(navigation([[1, 4], [8, 10]])).toEqual([
+      { path: "src/session.ts", inspectedRanges: [[1, 4], [8, 10]] },
+    ]);
+    expect(navigation([[1, 10]])).not.toEqual(navigation([[1, 4], [8, 10]]));
+    expect(JSON.stringify(navigation([[1, 4]]))).not.toContain(evidence.outputHash);
   });
 
   it("attests the last wave's validated narrow citation as well as its enclosing visible read", () => {

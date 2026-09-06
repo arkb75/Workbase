@@ -56,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v49-directed-source-ranges";
+  "repository-knowledge-investigator-v50-source-navigation-memory";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -2468,6 +2468,34 @@ export function compactRepositoryInvestigationNotebook(
   };
 }
 
+/** Navigation only: merged inspected intervals, never substitute source text.
+ * Adjacent/contained reads have the same identity as the enclosing interval,
+ * so rereading or recutting a window cannot manufacture exploration progress.
+ */
+export function compactRepositorySourceNavigation(
+  inspection: RepositorySourceInspectionAttestation,
+) {
+  const paths = new Map<string, Array<[number, number]>>();
+  for (const read of inspection.readSet) {
+    const ranges = paths.get(read.path) ?? [];
+    ranges.push([read.lineStart, read.lineEnd]);
+    paths.set(read.path, ranges);
+  }
+  return [...paths.entries()].sort(([left], [right]) => left.localeCompare(right))
+    .map(([path, ranges]) => {
+      const inspectedRanges: Array<[number, number]> = [];
+      for (const [start, end] of ranges.sort((a, b) => a[0] - b[0] || a[1] - b[1])) {
+        const previous = inspectedRanges.at(-1);
+        if (previous && start <= previous[1] + 1) {
+          previous[1] = Math.max(previous[1], end);
+        } else {
+          inspectedRanges.push([start, end]);
+        }
+      }
+      return { path, inspectedRanges };
+    });
+}
+
 export type RepositoryCoverageVerificationTarget = {
   capabilityKey: string;
   findingId: string;
@@ -4198,6 +4226,7 @@ async function runRepositoryInvestigator(input: {
   files: RepositorySnapshotFile[];
   repositoryMap: string;
   seedNotebook?: RepositoryInvestigationNotebook;
+  seedSourceInspection?: RepositorySourceInspectionAttestation;
   coverageGaps?: RepositoryInvestigationUnresolvedArea[];
   unsupportedFindingIds?: string[];
   sharedBudget: RepositoryInvestigationSharedBudget;
@@ -4239,6 +4268,9 @@ async function runRepositoryInvestigator(input: {
   const seedNotebookDigest = input.seedNotebook ? hash(requestedSeedNotebook) : null;
   const investigationInputDigest = hash({
     seedNotebookDigest,
+    seedSourceInspectionDigest: input.seedSourceInspection
+      ? hash(input.seedSourceInspection)
+      : null,
     coverageGaps: phaseCoverageGaps,
     unsupportedFindingIds: input.unsupportedFindingIds ?? [],
   });
@@ -4305,10 +4337,11 @@ async function runRepositoryInvestigator(input: {
     : requestedSeedNotebook;
   const carriedSourceInspection = mergeRepositorySourceInspectionAttestations(
     repositorySourceInspectionAttestationFromNotebook(requestedSeedNotebook),
+    ...(input.seedSourceInspection ? [input.seedSourceInspection] : []),
     ...(resumedCheckpoint ? [resumedCheckpoint.sourceInspection] : []),
   );
   const carriedAgentToolTrace = resumedCheckpoint?.agentToolTrace ?? [];
-  if (requestedSeedNotebook.findings.length) {
+  if (requestedSeedNotebook.findings.length || input.seedSourceInspection) {
     buildRepositoryInvestigationCheckpoint({
       context: checkpointContext,
       notebook: requestedSeedNotebook,
@@ -4706,6 +4739,9 @@ async function runRepositoryInvestigator(input: {
                 priorNotebook: input.seedNotebook || resumedCheckpoint
                   ? compactRepositoryInvestigationNotebook(seedNotebook)
                   : null,
+                priorSourceNavigation: compactRepositorySourceNavigation(carriedSourceInspection),
+                sourceNavigationGuidance:
+                  "Inspected ranges are navigation memory, not evidence available to quote. For unfinished workflows, continue beyond the last inspected boundary or follow an uninspected callee instead of repeating the same overview/search. Re-read the exact range when adding a claim. In unresolved-area reasons, retain discovered function locations and the next source question so the next phase can continue without rediscovery.",
                 independentCoverageGaps: phaseCoverageGaps,
                 unsupportedFindingIds: input.unsupportedFindingIds ?? [],
                 note: resumedCheckpoint
@@ -6686,6 +6722,7 @@ export async function investigateRepositoryKnowledge(runId: string) {
     let coverageSatisfied = false;
     let verifier: Awaited<ReturnType<typeof auditRepositoryInvestigationCoverage>> | null = null;
     let previousAudit: z.infer<typeof coverageAuditSchema> | undefined;
+    let previousSourceInspection: RepositorySourceInspectionAttestation | undefined;
 
     while (true) {
       await assertRepositoryInvestigationActive(runId);
@@ -6711,6 +6748,7 @@ export async function investigateRepositoryKnowledge(runId: string) {
         files,
         repositoryMap,
         seedNotebook: wave > 1 ? notebook : undefined,
+        seedSourceInspection: previousSourceInspection,
         coverageGaps,
         unsupportedFindingIds,
         sharedBudget,
@@ -6720,6 +6758,8 @@ export async function investigateRepositoryKnowledge(runId: string) {
       notebook = repositoryInvestigationNotebookWithoutTransientCapacityAreas(
         investigation.notebook,
       );
+      previousSourceInspection = investigation.checkpoint?.sourceInspection ??
+        previousSourceInspection;
       const nextInvestigatorPolicy = repositoryInvestigationPhaseBudget(
         verifierRepairCycle > 0
           ? "verifier_repair"
@@ -6794,6 +6834,9 @@ export async function investigateRepositoryKnowledge(runId: string) {
         const signature = hash({
           stage: "investigator_incomplete",
           notebook: repositoryInvestigationProgressIdentity(notebook),
+          sourceNavigation: previousSourceInspection
+            ? compactRepositorySourceNavigation(previousSourceInspection)
+            : [],
         });
         const signatureCount = (convergenceSignatureCounts.get(signature) ?? 0) + 1;
         convergenceSignatureCounts.set(signature, signatureCount);

@@ -901,3 +901,43 @@ security limitations should be usable for private project Q&A while remaining
 blocked from public outputs pending review. Until answered, quarantined
 findings remain excluded from active-output coverage; no score is inflated by
 counting them as available knowledge.
+
+### v34 SoloPilot outcome and v50 navigation-memory correction
+
+The clean `e7583342a3215789fa3b34bf0385d8bfee8a62db` SoloPilot run
+(`solopilot-v34-live.json` in `/tmp/workbase-source-audit-v27.YaErOL`, refresh
+`cmtq4kerc00028ysbgc85h8jo`, work item `cmtq4kdo200008ysbwsul0xe8`) ended
+insufficient-context after 177,560 ms. It used 22 calls, 194,225 semantic tokens,
+27 inspections and $0.61886420, with 265,775 semantic tokens still available.
+This was not a funding failure and has no eligible current source-audit score.
+
+Directed reads reached proposal lines 1343–1462 and wireframe API lines
+1945–2102. However, waves 3–5 retained 14 findings and three unresolved areas:
+developer pipeline completion, email approval/delivery, and durable wireframe
+generation. The final wave read new source (management API 470–584 and intake
+Lambda 740–894), but the incomplete-investigator convergence identity ignored
+source exploration. Meanwhile the next wave's carried source inspection was
+reconstructed from claim citations only: unclaimed source ranges were absent.
+These are observable state/termination defects, not evidence that the agent's
+14 provisional findings are sufficient coverage. Some invalid tool inputs
+also remain in traces; hashes alone do not establish their exact arguments.
+
+v50 carries the preceding validated source-inspection checkpoint into the next
+wave and binds it to the investigation input digest. The model receives only
+compact path/range navigation; exact source must still be reread before adding
+or revising a claim. Merged inspected intervals also enter the incomplete
+investigator's convergence identity. New source can therefore count as
+exploration progress without a new claim; duplicate, contained or differently
+split reads cannot. Existing spending bounds, review requirements and the
+three-repeat guard remain. No private/public sensitivity policy was changed.
+
+This is a lightweight application of the reference-preserving continuation
+approach in [Anthropic's context-engineering guidance](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents),
+not another harness or project-specific navigation rule. Focused tests cover
+unclaimed-source checkpoint restoration, stale-snapshot rejection, lack of
+citation authority from navigation alone, and normalized exploration identity.
+Otto remains excluded; no access attempt or pass/fail result is implied.
+
+Verification: 2,189 tests passed, one skipped; all 86 investigator tests,
+typecheck, changed-file lint and diff whitespace checks passed. Live coverage
+parity remains unproven.
