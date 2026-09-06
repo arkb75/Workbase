@@ -2717,6 +2717,41 @@ describe("repository knowledge investigator", () => {
     expect(validate(citationOutsideRead)).toBe(false);
   });
 
+  it("keeps unchanged review source in an identical prefix when candidate claims change", () => {
+    const fixture = verifierFixture();
+    const source = Array.from({ length: 120 }, (_, index) => `${index + 1}: // exact source π ${index}\n`).join("");
+    const freshSourceReads = [{ status: "completed", results: [{
+      evidenceId: "fresh-evidence", segments: [{ startLine: 1, endLine: 120, excerpt: source }],
+    }], instruction: "Inspect the remaining original candidate checks." }];
+    const changedNotebook = structuredClone(fixture.notebook);
+    changedNotebook.findings[0]!.statement = "A revised source-grounded statement about the session workflow.";
+    changedNotebook.findings[0]!.evidence[0]!.path = "src/revised-session.ts";
+    changedNotebook.findings[0]!.evidence[0]!.lineStart = 12;
+    changedNotebook.findings[0]!.evidence[0]!.lineEnd = 15;
+    const request = (notebook: RepositoryInvestigationNotebook, instruction: string) => candidateCoverageAuditRequest({
+      projectTitle: "Project", notebook, independentReview: fixture.checkpoint,
+      freshSourceReads: freshSourceReads.map(read => ({ ...read, instruction })),
+    });
+    const first = request(fixture.notebook, "Read check_1.");
+    const next = request(changedNotebook, "Read changed check_1 and then submit.");
+    const prefix = (text: string) => text.slice(0, text.indexOf(',"candidate":'));
+    expect(prefix(first.userPrompt)).toBe(prefix(next.userPrompt));
+    expect(prefix(first.userPrompt)).toContain(JSON.stringify(source));
+    expect(first.userPrompt).not.toBe(next.userPrompt);
+    expect(JSON.parse(next.userPrompt).candidate.candidateClaims[0].statement)
+      .toBe(changedNotebook.findings[0]!.statement);
+    expect(JSON.parse(next.userPrompt).freshSourceReads[0].results).toEqual(freshSourceReads[0]!.results);
+    expect(freshSourceReads[0]!.instruction).toContain("original");
+    expect(repositoryCoverageReviewToolSchemas(fixture.notebook, 1).jsonSchema)
+      .toEqual(repositoryCoverageReviewToolSchemas(changedNotebook, 1).jsonSchema);
+    const rejected = { status: "rejected", code: "missing_source", instruction: "Read the required missing range." };
+    const failedRequest = candidateCoverageAuditRequest({
+      projectTitle: "Project", notebook: fixture.notebook, independentReview: fixture.checkpoint,
+      freshSourceReads: [rejected],
+    });
+    expect(JSON.parse(failedRequest.userPrompt).freshSourceReads).toEqual([rejected]);
+  });
+
   it("sends only a compact blind checkpoint and candidate packet to comparison", () => {
     const fixture = verifierFixture();
     const sourceExcerptCanary = "RAW_SOURCE_EXCERPT_MUST_NOT_CROSS_THE_PHASE_BOUNDARY";

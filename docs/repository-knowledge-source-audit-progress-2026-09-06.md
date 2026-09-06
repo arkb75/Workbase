@@ -1025,3 +1025,34 @@ both local and origin highlights-visualization refs remain
 `d9f6c2dbc4c4b138dd30fdb7c7d9ae2b64df82bc`. User-owned untracked skill
 directories are unchanged. The private-Q&A sensitivity-policy question remains
 unanswered; quarantine has not been weakened to improve coverage scores.
+
+### v52: preserve an identical source prefix for implicit caching
+
+Context7's current [OpenRouter prompt-caching documentation](https://openrouter.ai/docs/guides/best-practices/prompt-caching)
+and [ZDR caching policy](https://openrouter.ai/docs/guides/features/zdr) distinguish
+transient implicit in-memory caching from retained prompt storage. OpenRouter
+permits the former under ZDR routing. This change does not add explicit cache
+breakpoints, TTLs, cache-control flags, provider/model changes, or weaker data
+policies.
+
+Candidate comparison previously placed changing candidate claims before fresh
+source in the user message and embedded candidate-specific file/range details
+in its tool schema. v52 keeps unchanged independent observations and fresh
+source before the candidate, uses stable generic check-slot descriptions (the
+exact candidate locations remain in the packet), and schedules the immutable
+blind-review source targets before changing representative targets. Every
+required source range is still checked; this is not verdict caching or reuse
+of unverified prior source.
+
+Only the redundant next-action instruction on successful host-prefetch result
+wrappers is omitted from the model-facing projection. The phase prompt and
+required-read gate retain that navigation responsibility. Source bytes, line
+numbers, IDs, errors and host attestations are preserved. Tests check an exact
+Unicode-containing source prefix across changed candidate statements and
+source locations, stable tool schemas for the same slot cardinality, unchanged
+source content, input immutability, and retained error instructions. This
+establishes cacheability, not an observed cache hit or a measured cost saving.
+
+Verification: 2,191 tests passed, one skipped; typecheck, changed-file lint and
+diff whitespace checks passed. All spending limits and privacy controls remain
+unchanged. Live efficiency and complete source coverage are still unproven.

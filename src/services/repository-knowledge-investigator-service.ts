@@ -56,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v51-required-observation-judgments";
+  "repository-knowledge-investigator-v52-stable-review-prefix";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -1136,9 +1136,9 @@ export function repositoryCoverageReviewToolSchemas(
         type: "object",
         additionalProperties: false,
         required: targets.map((_, index) => `check_${index + 1}`),
-        properties: Object.fromEntries(targets.map((target, index) => [`check_${index + 1}`, {
+        properties: Object.fromEntries(targets.map((_, index) => [`check_${index + 1}`, {
           type: "object", additionalProperties: false, required: ["verdict", "reason"],
-          description: `Judge the candidate claim identified by check_${index + 1} in requiredRepresentativeChecks (${target.path}:${target.lineStart}-${target.lineEnd}).`,
+          description: `Judge the candidate claim identified by check_${index + 1} in requiredRepresentativeChecks. Its source location is supplied in that packet.`,
           properties: { verdict: checkProperties.verdict, reason: checkProperties.reason },
         }])),
       },
@@ -3682,8 +3682,21 @@ export function candidateCoverageAuditRequest(input: {
       independentReviewCheckpointDigest: input.independentReview.checkpointDigest,
       independentObservations:
         repositoryIndependentReviewPacket(input.independentReview),
+      ...(input.freshSourceReads?.length ? {
+        freshSourceReads: input.freshSourceReads.map(result => {
+          if (record(result).status !== "completed") return result;
+          // The phase prompt and requiredReadGate already supply navigation.
+          // A changing next-action instruction between stable source batches
+          // needlessly breaks the reusable prefix. Preserve errors verbatim.
+          const sourceResult = { ...record(result) };
+          delete sourceResult.instruction;
+          return sourceResult;
+        }),
+      } : {}),
+      // Keep immutable observations/source ahead of candidate revisions so
+      // implicit provider caching can reuse an identical request prefix.
+      // This changes neither evidence nor the retention/routing policy.
       candidate: repositoryCoverageCandidatePacket(input.notebook),
-      ...(input.freshSourceReads?.length ? { freshSourceReads: input.freshSourceReads } : {}),
       ...(input.requiredReadGate ? { requiredReadGate: input.requiredReadGate } : {}),
       ...(input.previousAudit ? {
         previousAssessment: {
@@ -5538,7 +5551,8 @@ async function auditRepositoryInvestigationCoverage(input: {
     );
   }
   const candidateRequiredReadTargets: RepositoryVerifierRequiredExactRead[] = [
-    ...verificationTargets,
+    // Stable blind-review reads first; candidate-specific checks follow. All
+    // remain mandatory, including any that need the interactive read slot.
     ...independentReview.checkpoint.independentObservations.flatMap((observation) => {
       const read = independentReview.checkpoint.sourceInspection.readSet.find((entry) =>
         entry.evidenceId === observation.evidence.evidenceId &&
@@ -5554,6 +5568,7 @@ async function auditRepositoryInvestigationCoverage(input: {
           }]
         : [];
     }),
+    ...verificationTargets,
   ];
   const durableCandidateDisclosure: RepositoryVerifierCandidateDisclosure = {
     inspectionToolCallsAtReveal: independentReview.checkpoint.inspectionToolCalls,
