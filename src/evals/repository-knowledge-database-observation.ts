@@ -825,6 +825,7 @@ function normalizedKnowledgeStatement(value: string) {
 
 export function repositoryLimitationPersistenceIssues(input: {
   sourceId: string;
+  refreshRunId?: string;
   repository: string;
   commitSha: string;
   files: ReadonlyArray<{
@@ -841,6 +842,14 @@ export function repositoryLimitationPersistenceIssues(input: {
         metadata: unknown;
       };
     }>;
+  }>;
+  quarantinedFacts?: ReadonlyArray<{
+    statement: string;
+    lifecycleStatus: string;
+    approvalSource: string;
+    validatedThroughSha: string | null;
+    knowledgeChanges: ReadonlyArray<{ refreshRunId: string | null; action: string }>;
+    evidence: ReadonlyArray<{ evidenceItem: { sourceId: string; metadata: unknown } }>;
   }>;
   warnings: unknown;
 }) {
@@ -872,7 +881,18 @@ export function repositoryLimitationPersistenceIssues(input: {
         return [`${input.repository}: a final semantic limitation has no atomic statement and exact source range.`];
       }
       const normalizedStatement = normalizedKnowledgeStatement(statement);
-      const persisted = input.facts.some((candidate) =>
+      // Quarantine is an explicit durable disposition, not usable knowledge.
+      // Only the selected refresh's automated, commit-bound quarantine counts
+      // here; it never enters the scored active-output collection below.
+      const persisted = [...input.facts, ...(input.quarantinedFacts ?? []).filter((candidate) =>
+        candidate.lifecycleStatus === "quarantined" &&
+        candidate.approvalSource === "automation" &&
+        candidate.validatedThroughSha === input.commitSha &&
+        Boolean(input.refreshRunId) &&
+        candidate.knowledgeChanges.some((change) =>
+          change.refreshRunId === input.refreshRunId && change.action === "quarantined"
+        )
+      )].some((candidate) =>
         normalizedKnowledgeStatement(candidate.statement) === normalizedStatement &&
         candidate.evidence.some(({ evidenceItem }) => {
           const metadata = record(evidenceItem.metadata);
@@ -1026,7 +1046,7 @@ export async function repositoryKnowledgeObservationFromDatabase(
       `The analyzed snapshot for ${fixture.repository} is not bound to a repository refresh; rerun the repository refresh before evaluation.`,
     );
   }
-  const [highlights, facts, generationRunsInWindow] = await Promise.all([
+  const [highlights, facts, generationRunsInWindow, quarantinedFacts] = await Promise.all([
     prisma.highlight.findMany({
       where: {
         workItemId: source.workItemId,
@@ -1107,6 +1127,32 @@ export async function repositoryKnowledgeObservationFromDatabase(
           },
         })
       : Promise.resolve([]),
+    prisma.projectFact.findMany({
+      where: {
+        workItemId: source.workItemId,
+        lifecycleStatus: "quarantined",
+        approvalSource: "automation",
+        validatedThroughSha: snapshot.commitSha,
+        knowledgeChanges: { some: { refreshRunId, action: "quarantined" } },
+        evidence: { some: { evidenceItem: { sourceId: source.id } } },
+      },
+      take: 1000,
+      orderBy: { id: "asc" },
+      select: {
+        statement: true,
+        lifecycleStatus: true,
+        approvalSource: true,
+        validatedThroughSha: true,
+        knowledgeChanges: {
+          where: { refreshRunId, action: "quarantined" },
+          select: { refreshRunId: true, action: true },
+        },
+        evidence: {
+          where: { evidenceItem: { sourceId: source.id } },
+          select: { evidenceItem: { select: { sourceId: true, metadata: true } } },
+        },
+      },
+    }),
   ]);
   const generationRuns = repositoryGenerationRunsForRefresh(
     generationRunsInWindow,
@@ -1133,10 +1179,12 @@ export async function repositoryKnowledgeObservationFromDatabase(
   const observationIntegrityIssues: string[] = [];
   observationIntegrityIssues.push(...repositoryLimitationPersistenceIssues({
     sourceId: source.id,
+    refreshRunId,
     repository: snapshotRepository,
     commitSha: snapshot.commitSha,
     files: snapshot.files,
     facts,
+    quarantinedFacts,
     warnings: snapshot.refreshRun?.warnings,
   }));
   let semanticCoverage;

@@ -241,6 +241,33 @@ describe("repository limitation persistence integrity", () => {
     },
   }];
 
+  it("recognizes only exact, refresh-bound automated quarantine as a persistence disposition", () => {
+    const quarantine = {
+      statement, lifecycleStatus: "quarantined", approvalSource: "automation",
+      validatedThroughSha: commitSha,
+      knowledgeChanges: [{ refreshRunId: "refresh-1", action: "quarantined" }],
+      evidence: [{ evidenceItem: { sourceId, metadata: {
+        path: "src/contributions.ts", startLine: 10, endLine: 14,
+      } } }],
+    };
+    const base = { sourceId, refreshRunId: "refresh-1", repository: "owner/project",
+      commitSha, files, facts: [], warnings: null };
+    expect(repositoryLimitationPersistenceIssues({ ...base, quarantinedFacts: [quarantine] })).toEqual([]);
+    // Persistence recognition does not promote this to the scored Fact list.
+    expect(base.facts).toEqual([]);
+    for (const invalid of [
+      { ...quarantine, statement: "Unrelated claim." },
+      { ...quarantine, lifecycleStatus: "retired" },
+      { ...quarantine, approvalSource: "user" },
+      { ...quarantine, validatedThroughSha: "c".repeat(40) },
+      { ...quarantine, knowledgeChanges: [{ refreshRunId: "older-refresh", action: "quarantined" }] },
+      { ...quarantine, knowledgeChanges: [{ refreshRunId: "refresh-1", action: "created" }] },
+      { ...quarantine, evidence: [] },
+    ]) {
+      expect(repositoryLimitationPersistenceIssues({ ...base, quarantinedFacts: [invalid] })).toHaveLength(1);
+    }
+  });
+
   it("requires an exact durable Fact or an explicit source-critic rejection", () => {
     const base = {
       sourceId,

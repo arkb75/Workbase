@@ -1314,8 +1314,8 @@ existing post-response usage accounting and durable terminal save remain.
 Estimation and provider retry usage can still differ from actual billing; this
 is not advertised as an exact dollar-spend cap.
 
-The investigator requests a checkpoint while two estimated cold requests still
-fit, instead of using only 7k output headroom. Its working-context caps, shared
+The investigator requests a checkpoint when remaining headroom drops below two
+estimated cold requests, instead of using only 7k output headroom. Its working-context caps, shared
 allowances, exact-source checks, and review requirements are unchanged.
 Shared guidance also distinguishes executable source, declared configuration,
 and observed live deployment. A source-level assessment can state a declaration
@@ -1331,3 +1331,78 @@ and a forced checkpoint whose previous cache hit cannot fund a cold request;
 the continuity test still permits repeated cached calls with enough headroom.
 Targeted 140 passed; full suite 2,203 passed, one skipped; typecheck, changed-file
 lint, and diff checks passed. Live source parity remains unproven.
+
+### v42: three-project main-path test and quarantine-observer correction
+
+All three runs used clean `0c182681feefbaa59c16d640449c7eeb0a80c70a` and their
+unchanged pinned snapshots. Artifacts are under
+`/tmp/workbase-source-audit-v27.YaErOL/`. Otto was excluded, not accessed or scored.
+
+| Repository | Result | Investigation/review usage | Live artifact |
+| --- | --- | --- | --- |
+| SoloPilot | Failed before blind-review correction | 52 calls, 366,735 semantic tokens, 63 inspections, $1.16136152 | `solopilot-v42-live.json` |
+| CircleFund | Re-audit retained one supporting gap; repair stalled | 39 reported calls, 245,013 semantic tokens, 80 inspections, $0.57923528 | `circlefund-v42-live.json` |
+| Backer | Investigation, re-audit, synthesis and reconciliation completed | 47 calls, 373,190 semantic tokens, 125 inspections, $0.91583148 | `backer-v42-live.json` |
+
+SoloPilot refresh `cmtq8csqj00023usb0y5bggc3`, work item
+`cmtq8cs2400003usb87my6k71`, elapsed 304,005 ms. Blind review
+`cmtq8ie8j007h3usbrbmiqm68` rejected observation 10's citation 42–87: the visible
+segments were 1–59 and 62–166, so the exact range was not wholly visible.
+The next correction was rejected before dispatch: projected 91,365 semantic
+tokens versus a 76,276 phase allowance. The provenance gate itself was accepted;
+no valid independent review was saved. Admission preserved the shared reserve,
+but the main path failed. Do not call this a coverage improvement.
+
+CircleFund refresh `cmtq8dom40002lhsbsnucmbw8`, work item
+`cmtq8do080000lhsb1137hdhv`, elapsed 381,639 ms. Initial investigation produced
+23 provisional findings; repair produced 33. Re-audit
+`cmtq8k3pa002llhsbexuun8gq` retained only `user_deletion_membership_cascade`.
+The broader `relational_delete_policy` finding already attached schema lines
+44–107, which contain the user-to-membership Cascade at line 82, but its prose
+did not enumerate that clause. Whether that supporting detail is already
+recoverable knowledge needs a semantic standard review; its existing verdict
+has not been rewritten. Phases 5 and 6 made no further semantic-token or
+inspection progress. Reported call accounting increased by one in each despite
+pre-dispatch rejection; inspect legacy zero-usage attempt counting before
+treating those two as actual provider calls.
+
+Backer refresh `cmtq8g77p0002vmsb7qqwl8p4`, work item
+`cmtq8g6gt0000vmsbdshrjkk1`, elapsed 572,868 ms. Final candidate audit
+`cmtq8ounk0055vmsbv5cz4pez` found no gaps after 37 provisional findings. Full
+text pipeline: 97 reported calls, 1,252,540 total tokens, $1.12279899. Saved active
+outputs: 24 Facts, 13 Highlights, 50 exact-range evidence references.
+
+The first export `backer-v42-packet.json` was incorrectly marked ineligible by
+the limitation-persistence observer. Exact upload limitation Fact
+`b2b2ff73-dd3b-4bd0-af38-1b0bf2ade7dc` exists at `app/api/upload/route.ts:101–147`
+but is quarantined. Its automated quarantine is bound to this refresh and
+commit; the observer had checked only active, auto-applied Facts and therefore
+mistook explicit quarantine for silent loss. The observer now recognizes only
+exact, refresh-bound, automated quarantine as durable disposition. It does not
+include quarantined rows in active-output scoring, change the security policy,
+or waive exact source/range matching. Tests reject unrelated statements, retired
+rows, user approvals, different commits, other refreshes, other actions, and
+missing evidence. Full suite: 2,204 passed, one skipped; typecheck and changed-file
+lint passed.
+
+Re-export `backer-v42-packet-v2.json` is eligible with zero integrity issues and
+exactly the same 24 Facts and 13 Highlights. No database records were changed
+by this observer correction. Both export versions are retained.
+
+Independent inspection of all 37 active output texts reveals issues still
+requiring full source adjudication: no founder-profile Highlight despite the
+pinned profile-update operation at `app/api/profile/founder/route.ts:22–99`; no
+investment-commitment Highlight despite its active partial-state Fact; and the
+conversation Fact `234ac2e7-119c-4e93-ba88-9cc200f8d0c5` / Highlight
+`216c97b0-3169-4ccf-820f-4d11176be230` end with `; it` at 500 characters. These
+are saved-content issues, not a successful three-project parity result. A full
+17-unit/13-question Backer adjudication and the remaining eligible repository
+runs are still required. No certified numerical current comparison exists yet.
+
+For the supporting-detail question, research of
+[GraphRAG local search](https://microsoft.github.io/graphrag/query/local_search/)
+shows an established knowledge-query pattern combining structured descriptions
+with associated original text, rather than requiring every detail in a summary.
+This is a design reference, not permission to auto-pass a gap: any change must
+still preserve explicit central operations, material limitations, and exact
+source evidence. No such verifier change was made in this turn.
