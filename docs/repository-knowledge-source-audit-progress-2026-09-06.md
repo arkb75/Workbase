@@ -182,6 +182,35 @@ not yet established; the change does not retroactively certify v22.
 Verification: 2,164 tests passed, one skipped; typecheck and changed-file lint
 passed. No source-audit fixture or historical baseline was changed.
 
+### Live v23: repair completes, one reviewer gap remains
+
+Live v23 on `3966828c95b4d4ccb1efaa4cca88b8643778330e` ran for 344,590 ms
+with work item `cmtpa1q840000stsbxqptw22z` and refresh
+`cmtpa1quu0002stsblp2u4zla`; artifact
+`/tmp/workbase-source-audit-v27.YaErOL/circlefund-v23-live.json`.
+The first audit returned six gaps. Repair completed in four model calls and
+retained five additional findings. Re-audit accepted its contract but retained
+one membership-lifecycle gap, so finalization correctly remained failed and no
+saved-output comparison is certified. Shared usage: 50 calls, 236,452 semantic
+tokens, 68 inspection operations, $0.59565826; 43,548 semantic tokens remained.
+This shows a completed repair in this attempt, not a controlled estimate of the
+accounting fix's causal effect on quality or cost.
+
+The remaining objection overlaps two existing candidate statements: declared
+membership states versus active creation, and a repository-module boundary that
+exposes only circle-domain creates/reads rather than edits or deletion. The
+first statement's own citation covers only the enums, however, so exact source
+support still needs checking across the related claims; this is not an excuse
+to override the reviewer verdict. The candidate packet previously omitted the
+source locations of all but three representative checks. Version
+`repository-knowledge-investigator-v39-candidate-evidence-pointers` includes
+each claim's concise path/blob/range pointers and asks the reviewer to inspect
+those ranges when reconciling apparent gaps across related claims. It retains
+the same source gates, verdict rules, repair ceiling, and semantic thresholds;
+no excerpts or trusted prior tool results cross the phase boundary.
+The compact-packet test checks those pointers, absence of copied source/tool
+attestations, and explicit instructions that pointers are not proof.
+
 1. Complete a live run once the review endpoint can serve requests reliably;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.

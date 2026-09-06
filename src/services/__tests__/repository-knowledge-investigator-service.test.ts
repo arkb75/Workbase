@@ -2505,6 +2505,14 @@ describe("repository knowledge investigator", () => {
     expect(serialized).not.toContain("evidenceId");
     expect(serialized).not.toContain("ls-tree");
     expect(serialized.length).toBeLessThan(8_000);
+    const candidate = repositoryCoverageCandidatePacket(notebook);
+    expect(candidate.candidateClaims[0]?.sources).toEqual(
+      notebook.findings[0]!.evidence.map(({ path, blobSha, lineStart, lineEnd }) => ({
+        path, blobSha, lineStart, lineEnd,
+      })),
+    );
+    expect(request.systemPrompt).toContain("Evaluate the union of related candidate findings");
+    expect(request.systemPrompt).toContain("navigation pointers, not proof");
   });
 
   it("requires fresh exact representative reads in the candidate-comparison phase", () => {
