@@ -2085,6 +2085,7 @@ describe("repository knowledge investigator", () => {
     });
     if (!result.accepted) throw new Error("Expected the notebook update to be accepted.");
 
+    const original = structuredClone(result.notebook);
     const compact = compactRepositoryInvestigationNotebook(result.notebook);
     const serialized = JSON.stringify(compact);
 
@@ -2098,9 +2099,29 @@ describe("repository knowledge investigator", () => {
         path: "src/session.ts",
         lineStart: 1,
         lineEnd: 4,
-        excerptHash: result.notebook.findings[0]?.evidence[0]?.excerptHash,
+        blobSha,
       }],
     });
+    expect(compact.findings[0]?.evidence[0]).toEqual({
+      path: "src/session.ts", blobSha, lineStart: 1, lineEnd: 4,
+    });
+    expect(compact.capabilities).toEqual(original.capabilities);
+    expect(compact.unresolvedAreas).toEqual(original.unresolvedAreas);
+    expect(compact.findings.map((finding) => ({ ...finding, evidence: undefined }))).toEqual(
+      original.findings.map((finding) => ({ ...finding, evidence: undefined })),
+    );
+    expect(result.notebook).toEqual(original);
+    expect(result.notebook.findings[0]?.evidence[0]?.excerptHash).toMatch(/^[a-f0-9]{64}$/);
+    for (const key of ["evidenceId", "fileSnapshotId", "excerptHash", "outputHash", "evidenceVersion", "redactionPolicyVersion"]) {
+      expect(serialized).not.toContain(`"${key}"`);
+    }
+    const oldPacket = { ...compact, findings: original.findings.map((finding) => ({
+      ...finding,
+      evidence: finding.evidence.map((evidence) => Object.fromEntries(
+        Object.entries(evidence).filter(([key]) => key !== "excerpt"),
+      )),
+    })) };
+    expect(Buffer.byteLength(serialized)).toBeLessThan(Buffer.byteLength(JSON.stringify(oldPacket)));
   });
 
   it("round-trips a snapshot-bound durable candidate checkpoint and rejects drift", () => {

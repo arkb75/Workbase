@@ -301,6 +301,60 @@ Verification: 2,170 tests passed, one skipped with four workers; typecheck and
 changed-file lint passed. An earlier concurrent-check run hit two unrelated
 test timeouts; no timeout or assertion was weakened for the successful rerun.
 
+### Live v26: checkpoint behavior works; credits stop both projects
+
+Both attempts used clean implementation
+`a6be56107c674af36e2ed6643fa38dda055b332e`.
+
+- CircleFund: work item `cmtpw694q00008esbikjwp49j`, refresh
+  `cmtpw69w600028esbdrn50fld`, artifact
+  `/tmp/workbase-source-audit-v27.YaErOL/circlefund-v26-live.json`.
+  Started 14:13:11 UTC, ended 14:17:51 UTC (279,877 ms).
+- Backer: work item `cmtpwa6m300009bsbn8vd3122`, refresh
+  `cmtpwa7bv00029bsbwo8kv4v0`, artifact
+  `/tmp/workbase-source-audit-v27.YaErOL/backer-v26-live.json`.
+  Started 14:16:14 UTC, ended 14:17:41 UTC (86,585 ms).
+
+CircleFund completed three `investigator_checkpoint_yield` waves and one
+`investigator_done` wave, retaining 18 provisional findings in 17 model calls,
+122,665 semantic-accounting tokens, and $0.38758050. The prior v25 initial
+investigation used 32 calls and retained 23 findings, so the lower call count
+cannot be treated as a controlled quality-equivalent savings estimate.
+
+Independent review and the first candidate audit succeeded. The latter
+identified 11 gaps. A repair phase consumed 40,615 semantic tokens and ended at
+a phase budget boundary with 18 findings retained; the final re-audit then
+failed with an explicit insufficient-credit error. Shared recorded usage was
+34 calls, 266,629 semantic tokens, 74 inspections, and $0.56179695 known cost;
+the cost is incomplete because the failed attempt has unknown metering.
+Backer completed one small checkpoint and then also failed with an explicit
+insufficient-credit error. Neither run is eligible for semantic certification.
+No further paid replays were started after these errors.
+
+### Continuation payload reduction
+
+Version `repository-knowledge-investigator-v42-lean-continuation-pointers`
+keeps every retained finding, statement, operation key, implementation state,
+facet, capability link, confidence, sensitivity marker, unresolved question,
+and source path/blob/range in the model-facing continuation. It stops repeating
+per-citation evidence IDs, source/commit IDs, snapshot IDs, hashes, and policy
+versions already held in the host's full durable notebook and checkpoint.
+New or revised claims still require fresh exact reads; the model is explicitly
+told not to resubmit unchanged prior entries.
+
+On the v25 final notebook, the same semantic content and source pointers use
+15,385 bytes instead of 26,057 (41.0% smaller). This measures that packet only,
+not whole-request tokens, paid cost, or extraction quality. A regression test
+checks field preservation, absence of omitted metadata from the model packet,
+retention of full evidence in the unmodified original notebook, and smaller
+serialized size. Full checkpoint validation and source-audit gates are unchanged.
+The reduction follows the same tool/context guidance cited above and reuses the
+existing continuation projection; no new storage or orchestration layer is added.
+Verification: all 2,170 tests passed (one skipped), the focused 74-test
+investigator suite passed after final test cleanup, and typecheck and
+changed-file lint passed. Live validation of this revision remains pending
+available credits; the four-repository comparison remains incomplete.
+
 1. Complete a live run with a valid source-grounded review;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.

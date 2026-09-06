@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v41-terminal-durable-checkpoints";
+  "repository-knowledge-investigator-v42-lean-continuation-pointers";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -2396,19 +2396,13 @@ export function compactRepositoryInvestigationNotebook(
       capabilityKeys: finding.capabilityKeys,
       confidence: finding.confidence,
       sensitivityFlag: finding.sensitivityFlag,
+      // Continuation needs the source location, not the host's provenance
+      // bookkeeping. Full evidence remains in the durable notebook/checkpoint.
       evidence: finding.evidence.map((evidence) => ({
-        evidenceId: evidence.evidenceId,
-        sourceId: evidence.sourceId,
-        commitSha: evidence.commitSha,
-        fileSnapshotId: evidence.fileSnapshotId,
         path: evidence.path,
         blobSha: evidence.blobSha,
         lineStart: evidence.lineStart,
         lineEnd: evidence.lineEnd,
-        excerptHash: evidence.excerptHash,
-        outputHash: evidence.outputHash,
-        evidenceVersion: evidence.evidenceVersion,
-        redactionPolicyVersion: evidence.redactionPolicyVersion,
       })),
     })),
     unresolvedAreas: notebook.unresolvedAreas,
@@ -4559,7 +4553,7 @@ async function runRepositoryInvestigator(input: {
                 unsupportedFindingIds: input.unsupportedFindingIds ?? [],
                 note: resumedCheckpoint
                   ? "The compact prior notebook was restored from a content-addressed partial checkpoint for this exact snapshot and input. Preserve its validated claims, retract anything later disproved, and continue from its unresolved areas."
-                  : "The map and compact prior notebook are navigation/state aids, not source evidence. Preserve supported prior entries, retract unsupported entries, and investigate every unresolved area against the pinned Git snapshot.",
+                  : "The map and compact prior notebook are navigation/state aids, not source evidence. Full prior evidence is retained by the host. Preserve supported prior entries without resubmitting them; re-read pinned source to add or revise a claim, retract unsupported entries, and investigate every unresolved area.",
               }),
             }],
           }],
