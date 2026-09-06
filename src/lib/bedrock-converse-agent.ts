@@ -1047,6 +1047,7 @@ export class BedrockConverseAgent {
     let emptyToolUseRecoveryCount = 0;
     let iterations = 0;
     let toolCalls = 0;
+    let previousRequestFootprint = 0;
 
     const emit = async (event: BedrockConverseAgentEvent) => {
       events.push(event);
@@ -1076,7 +1077,7 @@ export class BedrockConverseAgent {
         );
       }
 
-      if (iterations > 0 || limits.maxInputTokens !== undefined) {
+      if (iterations > 0 || limits.maxInputTokens !== undefined || limits.maxSemanticTokens !== undefined) {
         const estimatedNextInputTokens = estimateBedrockConverseInputTokens({
           systemPrompt: input.systemPrompt,
           messages,
@@ -1084,6 +1085,21 @@ export class BedrockConverseAgent {
         });
         const projectedTotalTokens =
           aggregateUsage.totalTokens + estimatedNextInputTokens;
+        // Cache hits are an observed discount, never guaranteed capacity for
+        // the next request. Include output room and the last reported input
+        // footprint when the local text estimate would be smaller. This is
+        // admission estimation, not a provider-exact billing guarantee.
+        const projectedSemanticTokens = bedrockConverseAgentSemanticTokenCount(aggregateUsage) +
+          Math.max(estimatedNextInputTokens, previousRequestFootprint) + maxTokens;
+        if (limits.maxSemanticTokens !== undefined && projectedSemanticTokens > limits.maxSemanticTokens) {
+          throw new BedrockConverseLimitError(
+            `${this.providerLabel()} agent stopped before a cache-cold request could exceed its ${limits.maxSemanticTokens}-semantic-token budget.`,
+            "token_limit_exceeded",
+            limits.maxSemanticTokens,
+            projectedSemanticTokens,
+            failureOptions({ iterations, toolCalls, usage: aggregateUsage }),
+          );
+        }
         if (limits.maxInputTokens !== undefined && estimatedNextInputTokens > limits.maxInputTokens) {
           throw new BedrockConverseLimitError(
             `${this.providerLabel()} agent stopped before exceeding its ${limits.maxInputTokens}-token working-context limit.`,
@@ -1365,6 +1381,7 @@ export class BedrockConverseAgent {
         routedProviders.add(routedProvider);
       }
       actualModelId = response.modelId ?? actualModelId;
+      previousRequestFootprint = iterationUsage.inputTokens + iterationUsage.outputTokens;
       if (response.requestId) requestIds.push(response.requestId);
       if (typeof iterationUsage.costUsd === "number") {
         reportedCostUsd += iterationUsage.costUsd;

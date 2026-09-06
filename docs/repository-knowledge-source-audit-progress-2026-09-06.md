@@ -1300,3 +1300,34 @@ deployment rather than infer either enforcement or global absence.
 
 No further paid run was started after v41. The source-parity goal remains
 incomplete across the retained CircleFund, Backer, and SoloPilot comparison.
+
+### v57: cache-cold admission and source/deployment boundaries
+
+[OpenRouter's prompt caching documentation](https://github.com/openrouterteam/docs/blob/main/guides/best-practices/prompt-caching.mdx)
+describes provider cache routing and per-response cache accounting. Neither a
+previous cache hit nor a desired affinity is an appropriate pre-request budget
+guarantee. The runtime now admits semantic-budgeted requests using estimated
+uncached input plus the configured maximum output, with the last reported
+input/output footprint as a floor on a smaller local estimate. Repeated cached
+replay remains allowed when sufficient cold-request headroom remains. The
+existing post-response usage accounting and durable terminal save remain.
+Estimation and provider retry usage can still differ from actual billing; this
+is not advertised as an exact dollar-spend cap.
+
+The investigator requests a checkpoint while two estimated cold requests still
+fit, instead of using only 7k output headroom. Its working-context caps, shared
+allowances, exact-source checks, and review requirements are unchanged.
+Shared guidance also distinguishes executable source, declared configuration,
+and observed live deployment. A source-level assessment can state a declaration
+and its unverified-live qualifier without inventing enforcement or exhausting
+the repository looking for deployment proof. Actual uninspected material source
+questions still require investigation. No automatic gap-closing rule was added.
+
+This follows the existing lightweight context-management approach discussed by
+[Anthropic](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
+and [OpenCode](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/overflow.ts),
+not a new orchestration layer. New tests reject an unaffordable first request
+and a forced checkpoint whose previous cache hit cannot fund a cold request;
+the continuity test still permits repeated cached calls with enough headroom.
+Targeted 140 passed; full suite 2,203 passed, one skipped; typecheck, changed-file
+lint, and diff checks passed. Live source parity remains unproven.

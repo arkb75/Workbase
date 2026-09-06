@@ -855,11 +855,50 @@ describe("BedrockConverseAgent", () => {
     const { agent, transport } = makeAgent(responses);
     const result = await agent.run({
       messages: [userMessage()], tools: [tool],
-      limits: { maxInputTokens: 15_000, maxTotalTokens: 100_000, maxSemanticTokens: 20_000 },
+      limits: { maxInputTokens: 15_000, maxTotalTokens: 100_000, maxSemanticTokens: 30_000 },
     });
     expect(result.text).toBe("Complete.");
     expect(result.usage.totalTokens).toBe(40_400);
     expect(transport.calls).toHaveLength(4);
+  });
+
+  it("rejects a first request that cannot afford uncached input plus maximum output", async () => {
+    const { agent, transport } = makeAgent([]);
+    await expect(agent.run({
+      messages: [userMessage("source ".repeat(3000))], maxTokens: 3500,
+      limits: { maxSemanticTokens: 8000 },
+    })).rejects.toMatchObject({ code: "token_limit_exceeded", iterations: 0, limit: 8000 });
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("does not spend the checkpoint reserve by assuming the next request will stay cached", async () => {
+    const inspect = defineBedrockConverseTool({
+      name: "inspect", description: "Inspect source.", inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} }, execute: () => ({ status: "ok" }),
+    });
+    const save = vi.fn(() => ({ status: "accepted" }));
+    const checkpoint = defineBedrockConverseTool({
+      name: "checkpoint", description: "Save progress.", inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} }, execute: save,
+      isTerminalResult: () => true,
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use", content: [toolRequest({ id: "read", name: "inspect", input: {} })],
+        usage: { inputTokens: 24000, outputTokens: 200, totalTokens: 24200, cacheReadInputTokens: 21000 },
+      }),
+      assistantResponse({
+        stopReason: "tool_use", content: [toolRequest({ id: "save", name: "checkpoint", input: {} })],
+        usage: usage(25000, 300),
+      }),
+    ]);
+    await expect(agent.run({
+      messages: [userMessage()], tools: [inspect, checkpoint], maxTokens: 3500,
+      limits: { maxTotalTokens: 100000, maxSemanticTokens: 30000 },
+      forceTool: ({ iteration }) => iteration > 1 ? "checkpoint" : undefined,
+    })).rejects.toMatchObject({ code: "token_limit_exceeded", iterations: 1, actual: 30900 });
+    expect(transport.calls).toHaveLength(1);
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("rejects parallel calls on a forced-tool turn", async () => {

@@ -2141,7 +2141,7 @@ describe("repository knowledge investigator", () => {
     expect(repositoryInvestigationNeedsContextReset(room)).toBe(false);
     for (const pressure of [
       { iteration: 14 }, { toolCalls: 12 }, { totalTokens: 140_000 },
-      { semanticTokens: 94_000 },
+      { semanticTokens: 50_000 },
     ]) {
       expect(repositoryInvestigationNeedsContextReset({ ...room, ...pressure })).toBe(true);
     }

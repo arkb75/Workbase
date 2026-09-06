@@ -56,13 +56,14 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v56-working-context-budget";
+  "repository-knowledge-investigator-v57-cache-cold-admission";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
   "Retain a question only when its answer could add or materially change a major user operation, independently runnable subsystem, integration, state transition, side effect, authorization or security boundary, persistence invariant, or concrete implementation limitation.",
   "Once those behaviors are adequately evidenced, omit open-ended requests to enumerate every UI action, route, request validator, helper, presenter, endpoint, or possible absence unless exact source indicates distinct material behavior there.",
   "A bounded positive constraint evidenced at the repository's declared entry point is sufficient; do not keep a repository-wide search for what else may be absent.",
+  "Keep source behavior, declared configuration, and observed live deployment distinct. An exact configuration range supports what that configuration declares, not whether it is deployed or enforced live. Record that boundary explicitly; do not require deployment proof to close a source-level question once its implemented behavior and declared configuration are evidenced. Retain unresolved work when relevant source remains uninspected, not merely because live operation is unknowable from the pinned repository.",
   "Completion means an operation-level model sufficient to answer material project questions, not exhaustive file, route, or interface coverage.",
 ].join(" ");
 
@@ -715,7 +716,7 @@ export function repositoryInvestigationNeedsContextReset(input: {
     input.limits.maxTotalTokens - input.totalTokens < 2 * nextTurnEstimate ||
     (input.limits.maxSemanticTokens !== undefined &&
       input.limits.maxSemanticTokens - input.semanticTokens <
-        2 * INVESTIGATOR_MAX_OUTPUT_TOKENS);
+        2 * (nextTurnEstimate + INVESTIGATOR_MAX_OUTPUT_TOKENS));
 }
 
 export function repositoryInvestigationNotebookUpdateIsTerminal(result: unknown) {
