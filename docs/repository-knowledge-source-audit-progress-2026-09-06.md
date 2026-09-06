@@ -983,3 +983,45 @@ v51 verification: 2,190 tests passed, one skipped; typecheck, changed-file lint
 and diff whitespace checks passed. The adjudication guide now shows the
 explicit user-requested Otto exclusion instead of instructing a four-project
 current run. The frozen manifest and historical scores remain unchanged.
+
+### v36: valid audit submissions, one unresolved verifier gap at the budget boundary
+
+The clean `bdce78eb1f1837d1140c30115b0a9b6bcc46ac5e` run
+`solopilot-v36-live.json` finished after 360,463 ms with insufficient context.
+Refresh: `cmtq5dpzr0002cnsb3i5h9ey6`; work item:
+`cmtq5dpgl0000cnsbgk4rvnw8`. Both candidate audits submitted valid contracts;
+the previous duplicate/missing observation failure did not recur.
+
+The first audit (`cmtq5j17b007ocnsbnd4mxozw`) reported nine gaps. Repairs raised
+the provisional notebook from 22 to 30 findings. Final audit
+`cmtq5kze1007vcnsbowl9jvvn` resolved eight of the nine and retained
+`approval_reviewer_ownership_boundary`. Total usage: 51 calls, 450,661 semantic
+tokens, 91 inspections, $1.06741843; 9,339 semantic tokens remained, below the
+existing repair-plus-reaudit admission requirement. Termination followed a
+completed gaps verdict, not malformed output or a no-progress stop. The live
+process is terminal; no other paid evaluation was launched during this turn.
+
+Source inspection confirms this remaining topic is material but the verifier's
+citation is too narrow for its entire explanation. `approve_reply` selects the
+conversation using caller-supplied `conversation_id` at lines 493–521, while
+caller-supplied `reviewed_by` is recorded at 704 and again in outbound-history
+metadata around 800. The final candidate describes the outer Lambda's lack of
+identity validation but not that specific attribution boundary. A repair should
+inspect and retain the correct bounded clauses; do not treat lines 493–521 as
+proof of the later reviewer-assignment statement or generalize this into a
+repository-wide access claim. The checked-in API Gateway contract must also be
+considered before describing the deployed authentication boundary.
+
+The investigator's approval-delivery finding also bundles earlier validation
+and proposal selection with a citation to lines 657–706, which directly shows
+delivery and status mutation rather than every preceding validation action.
+Later synthesis critique must not silently promote all those clauses on that
+single citation. These are diagnostic observations about provisional output,
+not a scored persisted result. There is still no eligible current three-project
+comparison or independently established source parity.
+
+Main and origin/main remain `e470dcb3534ee8eb9c0c1030a4a58adc9c25f404`;
+both local and origin highlights-visualization refs remain
+`d9f6c2dbc4c4b138dd30fdb7c7d9ae2b64df82bc`. User-owned untracked skill
+directories are unchanged. The private-Q&A sensitivity-policy question remains
+unanswered; quarantine has not been weakened to improve coverage scores.
