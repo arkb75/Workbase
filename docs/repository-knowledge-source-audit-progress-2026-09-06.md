@@ -1188,3 +1188,43 @@ yielding. Separate tests cover raw-token, semantic-token, iteration, and tool
 pressure, as well as continuing after an ordinary checkpoint. Full suite:
 2,197 passed, one skipped; typecheck passed. Live coverage and relative
 efficiency remain to be established on the same pinned repositories.
+
+### v40: second audit completed, six gaps remain
+
+`/tmp/workbase-source-audit-v27.YaErOL/solopilot-v40-live.json` on clean
+`b4757a22589f83c71488ecb2c6f8685e2a13167e` finished after 437,768 ms.
+Refresh `cmtq799h50002eysb32kz0bnu`, work item
+`cmtq798a40000eysbftzx9a8t`. Initial investigation ended after five waves
+with 18 provisional findings. The first valid candidate audit
+`cmtq7f0xs007ieysb6qxoijcw` found 11 gaps. Repair reached 27 findings;
+final valid audit `cmtq7hj6h007peysbe3swqjnr` retained six gaps:
+conversation/reply routes, proposal/wireframe routes, pending-reply record,
+inbound phase/message mappings, async annotation entry, and the bounded
+authentication behavior of later mutation routes.
+
+Final investigation/review usage: 54 calls, 458,557 semantic tokens, 88
+inspections, $1.22610243. Only 1,443 semantic tokens remained. No synthesis or
+eligible saved-output score exists. This is modestly cheaper/faster than v39
+($1.30326773, 455,700 ms), but different model-selected findings and review gaps
+mean this single run does not prove non-regressing quality or a general gain.
+
+The re-audit's first call reported 23,859 input / 4,112 cached-input tokens;
+its second reported 26,628 / 23,726. There was some cross-audit reuse, but not
+full immutable-source-prefix reuse. The initial audit reported 21,950 / 0 then
+24,691 / 21,817. All figures are provider-reported leaf attempt usage.
+
+Direct independent inspection of the clean pinned SoloPilot source confirms
+that `lambda_api.py:103–165` exposes additional concrete routes beyond a few
+representative handlers. A route registry does not itself prove each handler's
+downstream effects. `conversation_state.py:152–185` constructs a pending-reply
+record and lists possible statuses in a comment; the DynamoDB append begins
+later. Do not treat that comment alone as implementation of every transition,
+or that range alone as proof of the append side effect. These distinctions
+must remain in subsequent semantic review, not be flattened into keyword or
+route-count coverage.
+
+The source audits and historical-control refs remain unchanged. Next work
+should distinguish actual working-context pressure from cumulative cached
+replay, which still causes early phase resets. No further paid run was started
+after this terminal result. The three-project source-parity goal remains
+incomplete, and Otto remains excluded.
