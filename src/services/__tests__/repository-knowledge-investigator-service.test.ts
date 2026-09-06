@@ -2802,6 +2802,30 @@ describe("repository knowledge investigator", () => {
       ...submission,
       independentObservationChecks: [{ ...submission.independentObservationChecks[0]!, matchedFindingIds: [] }],
     } })).toMatchObject({ accepted: false });
+    for (const decision of [
+      { verdict: "covered_by_candidate" as const, matchedFindingIds: [], missingOperationId: "" },
+      { verdict: "covered_by_candidate" as const, matchedFindingIds: [finding.id], missingOperationId: "remaining_gap" },
+      { verdict: "material_gap" as const, matchedFindingIds: [finding.id], missingOperationId: "remaining_gap" },
+      { verdict: "material_gap" as const, matchedFindingIds: [], missingOperationId: "" },
+      { verdict: "not_material" as const, matchedFindingIds: [finding.id], missingOperationId: "" },
+      { verdict: "not_material" as const, matchedFindingIds: [], missingOperationId: "remaining_gap" },
+    ]) {
+      const rejected = resolve({ submission: {
+        ...submission,
+        status: "gaps",
+        independentObservationChecks: [{ ...submission.independentObservationChecks[0]!, ...decision }],
+      } });
+      expect(rejected).toMatchObject({ accepted: false });
+      if (rejected.accepted) throw new Error("Invalid link combination was accepted.");
+      expect(rejected.errors.join(" ")).toContain(`obs_1 (independentObservationChecks.0): ${decision.verdict}:`);
+      expect(rejected.errors.join(" ")).toContain(`matchedFindingIds=${JSON.stringify(decision.matchedFindingIds)}`);
+      expect(rejected.errors.join(" ")).toContain(`missingOperationId=${JSON.stringify(decision.missingOperationId)}`);
+    }
+    expect(candidateCoverageAuditRequest({
+      projectTitle: "Generic session service",
+      notebook: fixture.notebook,
+      independentReview: fixture.checkpoint,
+    }).systemPrompt).toContain("If related findings cover only part of an observation, use material_gap");
 
     const properties = repositoryCoverageAuditSubmissionJsonSchema.properties as Record<string, {
       items: { required: string[]; properties: Record<string, unknown> };

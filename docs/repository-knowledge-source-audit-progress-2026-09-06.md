@@ -211,7 +211,32 @@ no excerpts or trusted prior tool results cross the phase boundary.
 The compact-packet test checks those pointers, absence of copied source/tool
 attestations, and explicit instructions that pointers are not proof.
 
-1. Complete a live run once the review endpoint can serve requests reliably;
+### Live v24: ambiguous decision-link feedback
+
+Live v24 on `1a1e3e0f4875659f026473625bb774c4c2ef48f5` ended after
+274,266 ms, with work item `cmtpad0yu00009fsbkofx8cf5`, refresh
+`cmtpad1i100029fsbtuwfrm8d`, and candidate audit `cmtpahk91002n9fsbe8lyw5of`.
+Artifact: `/tmp/workbase-source-audit-v27.YaErOL/circlefund-v24-live.json`.
+All 16 required source ranges were freshly read. Both candidate submissions
+failed the observation decision/link contract; the last rejection identified
+four array positions but repeated one generic explanation for every invalid
+combination. Raw submissions were not retained, so the specific conflicting
+field values cannot be reconstructed from this record. Recorded usage was
+33 calls, 171,559 semantic tokens, 51 inspections, and $0.41349599. This is
+another failed run, not a coverage score or an out-of-credit condition.
+
+Version `repository-knowledge-investigator-v40-explicit-review-link-contract`
+specifies the exclusive link fields for each verdict in the prompt and tool
+field descriptions, including how to describe partial coverage. Rejection
+messages now identify the short observation ID, the specific rule, and the
+submitted link values. This retains the existing allowed combinations rather
+than silently clearing contradictory fields or weakening the coverage gate.
+The regression test exercises all six invalid combinations. Full suite:
+2,164 passed, one skipped; typecheck and changed-file lint passed. All 304
+frozen source anchors across the four repositories still match their digests.
+No source-audit expectations or historical controls were changed.
+
+1. Complete a live run with a valid source-grounded review;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.
 3. Adjudicate against the frozen source units and questions, including material

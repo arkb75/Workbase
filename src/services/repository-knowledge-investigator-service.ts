@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v39-candidate-evidence-pointers";
+  "repository-knowledge-investigator-v40-explicit-review-link-contract";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -912,10 +912,14 @@ const coverageIndependentObservationCheckSchema = z.object({
   const validNotMaterial = value.verdict === "not_material" &&
     value.matchedFindingIds.length === 0 && value.missingOperationId === "";
   if (!validCovered && !validGap && !validNotMaterial) {
+    const requiredLinks = value.verdict === "covered_by_candidate"
+      ? 'matchedFindingIds must contain the supporting candidate IDs and missingOperationId must be ""'
+      : value.verdict === "material_gap"
+        ? 'matchedFindingIds must be [] and missingOperationId must name one submitted missing operation; describe any partial candidate coverage in reason'
+        : 'matchedFindingIds must be [] and missingOperationId must be ""';
     context.addIssue({
       code: "custom",
-      message:
-        "Independent observation checks must link covered observations to candidate findings, material gaps to one missing operation, and non-material observations to neither.",
+      message: `${value.verdict}: ${requiredLinks}. Received matchedFindingIds=${JSON.stringify(value.matchedFindingIds)}, missingOperationId=${JSON.stringify(value.missingOperationId)}.`,
     });
   }
 });
@@ -1025,11 +1029,13 @@ export const repositoryCoverageAuditSubmissionJsonSchema: JsonSchemaObject = {
           reason: { type: "string", minLength: 10, maxLength: 700 },
           matchedFindingIds: {
             type: "array",
+            description: "Supporting candidate IDs only for covered_by_candidate. For material_gap or not_material, submit []; explain partial coverage in reason instead.",
             maxItems: 4,
             items: { type: "string", pattern: findingIdPattern.source },
           },
           missingOperationId: {
             type: "string",
+            description: 'ID of one item in missingOperations for material_gap. For covered_by_candidate or not_material, submit "".',
             pattern: "^(?:[a-z0-9][a-z0-9_-]{1,99})?$",
           },
         },
@@ -2634,9 +2640,13 @@ export function resolveRepositoryCoverageAuditSubmission(input: {
   });
   return resolved.success
     ? { accepted: true as const, audit: resolved.data }
-    : { accepted: false as const, errors: resolved.error.issues.map((issue) =>
-      `${issue.path.join(".")}: ${issue.message}`
-    ) };
+    : { accepted: false as const, errors: resolved.error.issues.map((issue) => {
+      const observationIndex = issue.path[0] === "independentObservationChecks" &&
+        typeof issue.path[1] === "number" ? issue.path[1] : null;
+      const label = observationIndex === null ? issue.path.join(".") :
+        `${input.submission.independentObservationChecks[observationIndex]?.observationId} (${issue.path.join(".")})`;
+      return `${label}: ${issue.message}`;
+    }) };
 }
 
 export function validateRepositoryCoverageAuditContract(input: {
@@ -3533,6 +3543,7 @@ export function candidateCoverageAuditRequest(input: {
       "Compare those observations with the candidate, investigate concrete discrepancies, and re-read the exact pinned source range for every required representative capability check in this fresh phase.",
       "Evaluate the union of related candidate findings, not exact wording or one finding in isolation. Candidate sources are navigation pointers, not proof: read their pinned ranges when resolving an apparent discrepancy. A declaration plus its implemented mutator or explicit repository boundary may jointly cover an observation; link all needed finding IDs. If a material clause remains uncovered or the cited source does not support it, identify that precise clause in the gap reason. Do not require a duplicate finding just to restate a boundary already established by the candidate's source-supported claims.",
       "Disposition every independent observation exactly once by its short observationId (for example obs_1) as covered_by_candidate, material_gap, or not_material. Re-read its cited path and range in this phase; link covered observations to candidate finding IDs and material gaps to a submitted missing-operation ID. The host preserves the full observation digest in the saved audit; do not calculate or copy hashes.",
+      'Link fields are exclusive: covered_by_candidate requires nonempty matchedFindingIds and missingOperationId=""; material_gap requires matchedFindingIds=[] and missingOperationId naming one submitted missingOperations item; not_material requires matchedFindingIds=[] and missingOperationId="". If related findings cover only part of an observation, use material_gap, explain that partial coverage in reason, and link the remaining gap only—not the partially matching findings.',
       "For known capability and independent-observation checks, submit IDs, verdicts, reasons, and links only: the host attaches their exact citations from this phase's fresh read set. You must still re-read every required range. Unsupported means you re-read the investigator's exact claim range and found the statement unsupported. Each newly discovered missing operation must supply its own exact visible git show HEAD:path citation.",
       "A missing operation may cite a different freshly read range or file from the observation that led to it. Choose the source that directly establishes the gap; link related observations to that operation by missingOperationId.",
       repositoryInvestigationBoundaryReviewGuidance,
