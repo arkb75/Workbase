@@ -3111,14 +3111,14 @@ describe("repository knowledge investigator", () => {
     const original = structuredClone(notebook);
     const targets = repositoryCoverageVerificationTargets(notebook);
     expect(targets).toHaveLength(3);
-    const schemas = repositoryCoverageReviewToolSchemas(notebook);
+    const schemas = repositoryCoverageReviewToolSchemas(notebook, 0);
     const judgments = Object.fromEntries(targets.map((_, index) => [`check_${index + 1}`, {
       verdict: index === 1 ? "unsupported" : "supported",
       reason: `Independent source assessment for representative ${index + 1}.`,
     }]));
     const value = {
       status: "gaps", representativeChecks: judgments, additionalCapabilityChecks: [],
-      independentObservationChecks: [], missingOperations: [], rationale: "One claim is unsupported by the inspected source.",
+      independentObservationChecks: {}, missingOperations: [], rationale: "One claim is unsupported by the inspected source.",
     };
     const bound = schemas.bind(schemas.inputSchema.parse(value));
     expect(bound.capabilityChecks).toEqual(targets.map((target, index) => ({
@@ -3141,10 +3141,48 @@ describe("repository knowledge investigator", () => {
     expect(repositoryCoverageCandidatePacket(notebook).requiredRepresentativeChecks.map(check => check.checkId)).toEqual(Object.keys(judgments));
   });
 
+  it("requires every independent observation judgment without an error-prone identity array", () => {
+    const { notebook } = verifierFixture();
+    const schemas = repositoryCoverageReviewToolSchemas(notebook, 14);
+    const observations = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [`obs_${index + 1}`, {
+      verdict: index === 6 ? "material_gap" : "not_material",
+      reason: `Source-based judgment for observation ${index + 1}.`,
+      matchedFindingIds: [],
+      missingOperationId: index === 6 ? "missing_boundary" : "",
+    }]));
+    const value = {
+      status: "gaps",
+      representativeChecks: { check_1: { verdict: "supported", reason: "The inspected source supports this claim." } },
+      additionalCapabilityChecks: [], independentObservationChecks: observations,
+      missingOperations: [], rationale: "Independent observations were compared with the candidate.",
+    };
+    const bound = schemas.bind(schemas.inputSchema.parse(value));
+    expect(bound.independentObservationChecks).toEqual(Object.entries(observations).map(([observationId, judgment]) => ({
+      observationId, ...judgment,
+    })));
+    for (const id of Object.keys(observations)) {
+      const incomplete = { ...observations };
+      delete incomplete[id];
+      expect(schemas.inputSchema.safeParse({ ...value, independentObservationChecks: incomplete }).success).toBe(false);
+    }
+    expect(schemas.inputSchema.safeParse({ ...value, independentObservationChecks: { ...observations, obs_15: observations.obs_1 } }).success).toBe(false);
+    expect(schemas.inputSchema.safeParse({ ...value, independentObservationChecks: bound.independentObservationChecks }).success).toBe(false);
+    const schema = schemas.jsonSchema as { properties: { independentObservationChecks: { type: string; required: string[]; additionalProperties: boolean } } };
+    expect(schema.properties.independentObservationChecks).toMatchObject({
+      type: "object", required: Object.keys(observations), additionalProperties: false,
+    });
+    expect(() => repositoryCoverageReviewToolSchemas(notebook, -1)).toThrow();
+    expect(() => repositoryCoverageReviewToolSchemas(notebook, REPOSITORY_VERIFIER_MAX_OBSERVATIONS + 1)).toThrow();
+    // Binding assigns identities only. Cross-link semantics and exact-source
+    // checks still run afterward; it must not invent the missing boundary.
+    expect(bound.missingOperations).toEqual([]);
+    expect(bound.independentObservationChecks[6]!.verdict).toBe("material_gap");
+  });
+
   it("binds known review decisions to fresh exact citations without asking the model to copy ranges", () => {
     const fixture = verifierFixture();
     const finding = fixture.notebook.findings[0]!;
-    const toolSchemas = repositoryCoverageReviewToolSchemas(fixture.notebook);
+    const toolSchemas = repositoryCoverageReviewToolSchemas(fixture.notebook, 1);
     const submission = toolSchemas.bind(toolSchemas.inputSchema.parse({
       status: "satisfied",
       representativeChecks: { check_1: {
@@ -3152,13 +3190,12 @@ describe("repository knowledge investigator", () => {
         reason: "The exact implementation range supports this session operation.",
       } },
       additionalCapabilityChecks: [],
-      independentObservationChecks: [{
-        observationId: "obs_1",
+      independentObservationChecks: { obs_1: {
         verdict: "covered_by_candidate",
         reason: "The candidate captures the independently observed session operation.",
         matchedFindingIds: [finding.id],
         missingOperationId: "",
-      }],
+      } },
       missingOperations: [],
       rationale: "The independently observed operation is supported by fresh source reads.",
     }));

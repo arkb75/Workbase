@@ -941,3 +941,45 @@ Otto remains excluded; no access attempt or pass/fail result is implied.
 Verification: 2,189 tests passed, one skipped; all 86 investigator tests,
 typecheck, changed-file lint and diff whitespace checks passed. Live coverage
 parity remains unproven.
+
+### v35 outcome: investigation advances, audit submission remains incomplete
+
+`solopilot-v35-live.json` ran clean commit
+`4d2e2071c8967d5dced64312fdf90c2f7409caf5`, refresh
+`cmtq4yblf0002rrsbc8bjst1m`, work item `cmtq4yaig0000rrsb2letc1el`.
+After 378,162 ms it remained insufficient-context, not a coverage pass. The
+investigator reached done with 25 provisional findings and no unresolved areas
+after seven waves (38 calls, 322,368 semantic tokens, 42 inspections,
+$1.02575940). The navigation correction therefore reached review where v33/v34
+stalled; this is a process improvement, not a semantic score.
+
+Blind review `cmtq53sdb007nrrsb5gv8rowa` completed 14 observations. Candidate
+review `cmtq55403007orrsbjcqr9sb4` completed all 16 required exact reads, but its
+first schema-valid submission duplicated an observation and failed the exact
+14-observation disposition contract. The bounded phase then exhausted its
+34,614-token allowance at 63,230 actual tokens during the correction attempt.
+Total investigation/review usage was 48 calls, 454,616 semantic tokens, 73
+inspections and $1.07576605; 5,384 semantic tokens remained. No synthesis or
+eligible current score exists. Empty missingOperations in the host-generated
+incomplete audit is not evidence of complete coverage.
+
+v51 reuses the existing host-required representative-check pattern for
+independent observations: required obs_1/obs_2/etc. fields replace the model's
+free-form identity array. The host converts these judgments back into the
+existing durable array/digest contract. It does not select verdicts, create
+missing operations, skip fresh reads, or relax semantic links. Tests cover all
+14 required slots, missing/extra slots, rejection of the old free-form model
+array, unchanged verdict binding and continued exact-source validation. No
+further paid run is implied by these tests.
+
+Additional read-only diagnosis of Backer's upload fragment: the exact saved
+revision patch already has a 500-character statement ending in `with S`.
+The synthesis statement schema validates a maximum of 500; its materializer
+passes the candidate through. The stored raw provider preview is itself
+truncated, so it does not independently expose the full original response.
+This is not merely display clipping. No historical output was rewritten.
+
+v51 verification: 2,190 tests passed, one skipped; typecheck, changed-file lint
+and diff whitespace checks passed. The adjudication guide now shows the
+explicit user-requested Otto exclusion instead of instructing a four-project
+current run. The frozen manifest and historical scores remain unchanged.

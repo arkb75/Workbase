@@ -56,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v50-source-navigation-memory";
+  "repository-knowledge-investigator-v51-required-observation-judgments";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -1097,21 +1097,36 @@ export const repositoryCoverageAuditSubmissionJsonSchema: JsonSchemaObject = {
 // The representative identities are selected by the host, not invented by the
 // reviewer. Make each judgment a required field instead of asking the model to
 // transcribe the same long capability/finding IDs into a free-form array.
-export function repositoryCoverageReviewToolSchemas(notebook: RepositoryInvestigationNotebook) {
+export function repositoryCoverageReviewToolSchemas(
+  notebook: RepositoryInvestigationNotebook,
+  independentObservationCount: number,
+) {
+  if (!Number.isInteger(independentObservationCount) || independentObservationCount < 0 ||
+      independentObservationCount > REPOSITORY_VERIFIER_MAX_OBSERVATIONS) {
+    throw new Error("Independent observation count is outside the bounded review contract.");
+  }
   const targets = repositoryCoverageVerificationTargets(notebook);
   const judgmentSchema = coverageCapabilityCheckSchema.pick({ verdict: true, reason: true }).strict();
   const representativeChecks = z.object(Object.fromEntries(targets.map((_, index) =>
     [`check_${index + 1}`, judgmentSchema]
   ))).strict();
   const additionalLimit = 12 - targets.length;
+  const observationIds = Array.from({ length: independentObservationCount }, (_, index) => `obs_${index + 1}`);
+  const observationJudgmentSchema = repositoryCoverageAuditSubmissionSchema.shape
+    .independentObservationChecks.element.omit({ observationId: true }).strict();
   const inputSchema = repositoryCoverageAuditSubmissionSchema.omit({ capabilityChecks: true }).extend({
     representativeChecks,
     additionalCapabilityChecks: repositoryCoverageAuditSubmissionSchema.shape.capabilityChecks.max(additionalLimit),
+    independentObservationChecks: z.object(Object.fromEntries(observationIds.map(id =>
+      [id, observationJudgmentSchema]
+    ))).strict(),
   }).strict();
   const properties = { ...record(repositoryCoverageAuditSubmissionJsonSchema.properties) };
   const capabilityChecks = record(properties.capabilityChecks);
   delete properties.capabilityChecks;
   const checkProperties = record(record(capabilityChecks.items).properties);
+  const observationProperties = { ...record(record(record(properties.independentObservationChecks).items).properties) };
+  delete observationProperties.observationId;
   const jsonSchema: JsonSchemaObject = {
     ...repositoryCoverageAuditSubmissionJsonSchema,
     required: ["status", "representativeChecks", "additionalCapabilityChecks", "independentObservationChecks", "missingOperations", "rationale"],
@@ -1128,15 +1143,26 @@ export function repositoryCoverageReviewToolSchemas(notebook: RepositoryInvestig
         }])),
       },
       additionalCapabilityChecks: { ...capabilityChecks, maxItems: additionalLimit },
+      independentObservationChecks: {
+        type: "object", additionalProperties: false, required: observationIds,
+        properties: Object.fromEntries(observationIds.map(id => [id, {
+          type: "object", additionalProperties: false,
+          required: Object.keys(observationProperties), properties: observationProperties,
+          description: `Judge ${id} from the independent observation packet.`,
+        }])),
+      },
     },
   };
   return {
     inputSchema,
     jsonSchema,
     bind: (value: z.infer<typeof inputSchema>) => {
-      const { representativeChecks: judgments, additionalCapabilityChecks, ...rest } = value;
+      const { representativeChecks: judgments, additionalCapabilityChecks, independentObservationChecks, ...rest } = value;
       return repositoryCoverageAuditSubmissionSchema.parse({
         ...rest,
+        independentObservationChecks: observationIds.map(observationId => ({
+          observationId, ...independentObservationChecks[observationId]!,
+        })),
         capabilityChecks: [
           ...targets.map(({ capabilityKey, findingId }, index) => ({
             capabilityKey, findingId, ...judgments[`check_${index + 1}`]!,
@@ -3640,7 +3666,7 @@ export function candidateCoverageAuditRequest(input: {
       repositoryInvestigationMaterialityGuidance,
       "For every proposed material gap, explain what consequential project question would be answered incorrectly or incompletely without it. Incidental implementation details, alternative wording, or an extra example of an already established boundary are not separate coverage requirements. Use not_material when an observation adds no consequential operation or boundary; a partly covered observation is covered_by_candidate when only incidental detail remains. Preserve real security, authorization, state, and data-integrity distinctions.",
       "When previousAssessment is supplied, verify the repairs to its concrete gaps and check for regressions. Earlier decisions are review context, not evidence or binding verdicts: still perform the required fresh reads and correct a prior verdict when source justifies it. Explain any changed verdict with the newly recognized material clause, rather than silently replacing an operation-level assessment with a stricter wording checklist.",
-      "Disposition every independent observation exactly once by its short observationId (for example obs_1) as covered_by_candidate, material_gap, or not_material. Re-read its cited path and range in this phase; link covered observations to candidate finding IDs and material gaps to a submitted missing-operation ID. The host preserves the full observation digest in the saved audit; do not calculate or copy hashes.",
+      "Submit independentObservationChecks as an object with every required obs_1, obs_2, etc. field, not an array. Judge each as covered_by_candidate, material_gap, or not_material. Re-read its cited path and range in this phase; link covered observations to candidate finding IDs and material gaps to a submitted missing-operation ID. The host preserves the full observation digest in the saved audit; do not calculate or copy hashes.",
       'Link fields are exclusive: covered_by_candidate requires nonempty matchedFindingIds and missingOperationId=""; material_gap requires matchedFindingIds=[] and missingOperationId naming one submitted missingOperations item; not_material requires matchedFindingIds=[] and missingOperationId="". If related findings leave a material clause of an observation uncovered, use material_gap, explain that partial coverage in reason, and link the remaining gap only—not the partially matching findings.',
       "Do not supply citations for representativeChecks, additionalCapabilityChecks, or independentObservationChecks: the host attaches their exact citations from this phase's fresh read set. You must still re-read every required range. Unsupported means you re-read the investigator's exact claim range and found the statement unsupported. Each newly discovered missing operation must supply its own exact visible git show HEAD:path citation.",
       "A missing operation may cite a different freshly read range or file from the observation that led to it. Choose the source that directly establishes the gap; link related observations to that operation by missingOperationId.",
@@ -5739,7 +5765,9 @@ async function auditRepositoryInvestigationCoverage(input: {
       submissionNeedsSourceRepair = false;
     },
   });
-  const reviewToolSchemas = repositoryCoverageReviewToolSchemas(input.notebook);
+  const reviewToolSchemas = repositoryCoverageReviewToolSchemas(
+    input.notebook, independentReview.checkpoint.independentObservations.length,
+  );
   const submitAuditTool = defineBedrockConverseTool({
     name: "submit_repository_coverage_audit",
     description:

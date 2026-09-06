@@ -175,8 +175,14 @@ main-path run.
 
 ## Comparing the current suite with source truth and historical controls
 
-After scoring every current run and the three commit-matched historical
-controls, compare the complete frozen suite with:
+The current user-authorized comparison excludes Otto because its repository is
+inaccessible. Do not attempt to access it or count it as a pass/failure. The
+frozen manifest remains unchanged for provenance; explicitly record this scope
+exclusion in the comparator. The retained three repositories comprise 60 units,
+211 source anchors and 35 questions.
+
+After scoring the retained current runs and their three commit-matched
+historical controls, compare with:
 
 ```sh
 npm run --silent eval:repository-source-audit:compare -- \
@@ -184,7 +190,7 @@ npm run --silent eval:repository-source-audit:compare -- \
   --current-score <solopilot-current-score.json> \
   --current-score <backer-current-score.json> \
   --current-score <circlefund-current-score.json> \
-  --current-score <otto-current-score.json> \
+  --exclude-fixture 'otto-marketing-platform=Excluded by user: repository inaccessible' \
   --historical-score <solopilot-historical-score.json> \
   --historical-score <backer-historical-score.json> \
   --historical-score <circlefund-historical-score.json> \
@@ -194,15 +200,16 @@ npm run --silent eval:repository-source-audit:compare -- \
 ```
 
 The comparator fails closed unless the current score set exactly covers the
-frozen manifest and every score carries matching clean-checkout source
-verification. It reports:
+non-excluded manifest entries and every score carries matching clean-checkout
+source verification. Explicit exclusions and reasons remain in the report.
+It reports:
 
 - direction-aware gaps from source truth for every semantic metric;
 - the exact incomplete or incorrect source units and user questions;
 - per-metric, per-unit, and per-question changes for every matched historical
   control;
-- Otto (or any other unmatched current fixture) in a separate current-only
-  holdout section; and
+- any included unmatched current fixture in a separate current-only holdout
+  section (excluded fixtures are not scored); and
 - whether the declared comparison gate passes.
 
 The default comparison gate requires substantial-or-better coverage for every
