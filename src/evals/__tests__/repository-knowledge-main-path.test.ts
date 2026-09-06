@@ -75,6 +75,7 @@ function twoPhaseVerifierFixture(input: {
   commitSha: string;
   snapshotScopeDigest: string;
   notebookDigest: string;
+  splitReads?: boolean;
 }) {
   const discovery = {
     evidenceId: "evidence-discovery",
@@ -104,6 +105,9 @@ function twoPhaseVerifierFixture(input: {
     evidenceVersion: "repository-evidence-v1",
     redactionPolicyVersion: "repository-redaction-v1",
   }];
+  if (input.splitReads) {
+    readSet.push({ ...readSet[0]!, lineStart: 8, lineEnd: 10, excerptHash: "6".repeat(64) });
+  }
   const sourceInspection = {
     sourceSearchTrace: [discovery, exactRead],
     readSet,
@@ -820,6 +824,42 @@ describe("repository knowledge main-path integrity", () => {
       semanticPlanning: 0,
       semanticExtraction: 2,
     });
+  });
+
+  it("authenticates multiple visible ranges from one pinned evidence blob without dropping ranges", () => {
+    const context = {
+      sourceId: "source-1", repository: "owner/project", commitSha: "1".repeat(40),
+      snapshotScopeDigest: "a".repeat(64), notebookDigest: "b".repeat(64),
+    };
+    const fixture = twoPhaseVerifierFixture({ ...context, splitReads: true });
+    const repositoryAttestation = {
+      ...context,
+      verifierIndependentReviewGenerationRunId: fixture.independentReview.id,
+      verifierGenerationRunId: fixture.verifier.id,
+    };
+    const check = (verifier: RepositoryKnowledgeGenerationAuditRecord) =>
+      repositoryVerifierTwoPhaseIntegrityIssues({
+        repositoryAttestation, generationRuns: [fixture.independentReview, verifier],
+      });
+    expect(check(fixture.verifier)).toEqual([]);
+    const refs = fixture.verifier.resultRefs as Record<string, unknown>;
+    const attestation = refs.resultAttestation as Record<string, unknown>;
+    const disclosure = attestation.candidateDisclosure as Record<string, unknown>;
+    const changeDisclosure = (change: Record<string, unknown>) => ({
+      ...fixture.verifier,
+      resultRefs: { ...refs, resultAttestation: {
+        ...attestation, candidateDisclosure: { ...disclosure, ...change },
+      } },
+    });
+    for (const ids of [[], ["unread-blob"], ["evidence-verifier", "unread-blob"], ["evidence-verifier", "evidence-verifier"]]) {
+      expect(check(changeDisclosure({ preDisclosureExactReadEvidenceIds: ids })))
+        .toContainEqual(expect.stringMatching(/not an exact continuation/iu));
+    }
+    const inspection = fixture.checkpoint.sourceInspection;
+    expect(check(changeDisclosure({ preDisclosureAttestationDigest: digest({
+      sourceSearchTrace: inspection.sourceSearchTrace.filter((entry) => entry.operationKind === "discovery"),
+      readSet: inspection.readSet.slice(0, 1),
+    }) }))).toContainEqual(expect.stringMatching(/not an exact continuation/iu));
   });
 
   it("fails two-phase verifier integrity when blind execution or checkpoint linkage is tampered", () => {

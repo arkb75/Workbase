@@ -636,3 +636,59 @@ an omitted mandatory judgment. It is not yet evidence of saved-output parity.
 
 Verification: 2,178 tests passed, one skipped; typecheck, changed-file lint, and
 diff whitespace checks passed.
+
+### Live v31 Backer: completed product path; integrity and semantic gaps remain
+
+Clean implementation `b4c4f8482e3d278e7b6350dfed3025e1bf4c62a0`;
+artifact `/tmp/workbase-source-audit-v27.YaErOL/backer-v31-live.json`;
+work item `cmtq27iox0000njsbc6omm12s`, refresh
+`cmtq27jsj0002njsbif4jfhm8`. Duration 459,331 ms. No live process remains.
+CircleFund and SoloPilot were not rerun on this version; Otto remains excluded.
+
+The first candidate review (`cmtq2ca5m0053njsbrv56xgly`) passed all 15 required
+reads with no submission rejection, and reported investment lifecycle and
+non-atomic persistence gaps. Repair followed by the final review
+(`cmtq2dv400057njsblzis83vk`) reached `satisfied`; the refresh completed and
+reconciled. Investigation used 42 calls, 305,709 semantic tokens, 61 inspections,
+and $0.67787928. Reported synthesis/review cost was another $0.131497855; these
+are reported text-model costs, not an all-service billing total.
+
+The refresh's broad counts include seed records. The exported, refresh-scoped
+automatic saved output is **27 Facts and 13 Highlights**, with 43 evidence
+references. Diagnostic packet:
+`/tmp/workbase-source-audit-v27.YaErOL/backer-v31-packet.json`.
+It remains **ineligible**, not a passing source-audit score.
+
+The completed path exposed these independently diagnosable integrity problems:
+
+1. The two-phase evaluator compared the count of visible read ranges with the
+   count of unique evidence IDs. The blind checkpoint legitimately has 11
+   disjoint/expanded ranges across seven evidence blobs. The evaluator now
+   compares unique ID counts, while retaining the complete range digest and
+   enclosing-read checks. Tests reject omitted ranges, duplicate or unknown
+   IDs, and changed digests; no source requirement was weakened.
+2. The evaluator does not recognize the existing `limitation_entailment_critic`
+   phase (`cmtq2gpvp006mnjsbv95c41xc`) and consequently also checks its configured
+   verification model against the synthesis model. This needs phase-specific
+   attestation validation, not a blanket exemption or a provider/model switch.
+3. Database export found truncated investigator read-set attestations. For
+   example, generation `cmtq2afwy004ynjsbffmtlo2y` retains 20 entries followed by
+   the string `[4 more items]`; subsequent cumulative attestations have the same
+   problem. This is not an observed wrong commit or blob: the diagnostic
+   predicate fails on the non-record truncation marker. Preserve exact bounded
+   source attestations durably before another paid run; do not ignore markers
+   or overwrite old attestations/artifacts to manufacture eligibility.
+
+The saved text also does not yet match the independent audit: founder profile
+coverage reduces to a required-field check, media uploads and offline feed
+training are absent, and invitations/product administration omit important
+ownership and lifecycle boundaries. Investment limitations are materially
+better represented, but many Highlights still describe separate API steps.
+These are qualitative observations of saved text, not certified numerical
+coverage or a non-regression claim. Fixing integrity alone cannot satisfy the
+goal; investigate retention and workflow-level coverage next without feeding
+project-specific expected units into the extraction agent.
+
+Verification after the range-count correction: 2,179 tests passed, one skipped;
+typecheck, changed-file lint, and diff whitespace checks passed. The original
+live artifact is unchanged and still records its original integrity failure.

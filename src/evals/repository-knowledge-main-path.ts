@@ -560,7 +560,7 @@ export function repositoryVerifierTwoPhaseIntegrityIssues(input: {
     !discoveryIds.length || new Set(discoveryIds).size !== discoveryIds.length ||
     !exactReadIds.length || new Set(exactReadIds).size !== exactReadIds.length ||
     selectedPreDisclosureInspection.sourceSearchTrace.length !== discoveryIds.length ||
-    selectedPreDisclosureInspection.readSet.length !== exactReadIds.length ||
+    new Set(selectedPreDisclosureInspection.readSet.map((entry) => entry.evidenceId)).size !== exactReadIds.length ||
     !selectedPreDisclosureInspection.sourceSearchTrace.every((entry) =>
       entry.operationKind === "discovery" &&
       (entry.command === "grep" || entry.command === "ls-tree")
