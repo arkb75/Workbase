@@ -56,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v46-host-bound-review-checks";
+  "repository-knowledge-investigator-v47-lossless-source-attestations";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -4609,6 +4609,9 @@ async function runRepositoryInvestigator(input: {
         wave: input.wave,
       },
       exactParsedOutput: () => investigationAuditProjection(state.notebook),
+      // Read ranges are proof records, not event previews: truncating a growing
+      // cumulative list destroys the provenance of later investigation waves.
+      preserveResultAttestationExactly: true,
       resultAttestation: () => {
         const sourceAttestation = mergeRepositorySourceInspectionAttestations(
           carriedSourceInspection,

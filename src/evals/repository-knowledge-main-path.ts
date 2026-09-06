@@ -674,7 +674,8 @@ type RepositorySynthesisGenerationPhase =
   | "entailment_critic"
   | "operation_community_mapping"
   | "repository_highlight_selection"
-  | "repository_highlight_critic";
+  | "repository_highlight_critic"
+  | "limitation_entailment_critic";
 
 function repositorySynthesisGenerationPhase(
   inputSummary: unknown,
@@ -684,7 +685,8 @@ function repositorySynthesisGenerationPhase(
       phase === "entailment_critic" ||
       phase === "operation_community_mapping" ||
       phase === "repository_highlight_selection" ||
-      phase === "repository_highlight_critic"
+      phase === "repository_highlight_critic" ||
+      phase === "limitation_entailment_critic"
     ? phase
     : null;
 }
@@ -2247,6 +2249,30 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     repositorySynthesisGenerationPhase(run.inputSummary) ===
       "repository_highlight_critic"
   );
+  const limitationCriticRuns = capabilitySynthesisRuns.filter((run) =>
+    repositorySynthesisGenerationPhase(run.inputSummary) === "limitation_entailment_critic"
+  );
+  for (const run of limitationCriticRuns) {
+    const summary = record(run.inputSummary);
+    const attestation = record(record(run.resultRefs)?.resultAttestation);
+    const claims = Array.isArray(attestation?.claims) ? attestation.claims : [];
+    const claimDigest = repositorySynthesisCriticClaimContentDigest(claims);
+    const subsystemKeys = Array.isArray(summary?.subsystemKeys) ? summary.subsystemKeys : [];
+    const keys = claims.map((claim) => record(claim)?.claimKey);
+    const assessmentKeys = repositoryCriticAssessmentKeys(run.parsedOutput);
+    if (
+      !summary || typeof summary.refreshRunId !== "string" || !summary.refreshRunId ||
+      !claimDigest || claims.length > 10 || summary.claimCount !== claims.length ||
+      summary.claimContentDigest !== claimDigest || attestation?.claimContentDigest !== claimDigest ||
+      !subsystemKeys.length || !subsystemKeys.every((key) => typeof key === "string" && key.length > 0) ||
+      !claims.every((claim) => record(claim)?.kind === "fact") ||
+      !sameUniqueKeys(keys as string[], subsystemKeys.map((key) => `${key}:fact:1`)) ||
+      !assessmentKeys || !sameUniqueKeys(keys as string[], assessmentKeys) ||
+      attestation?.assessmentDigest !== verifierIntegrityDigest(run.parsedOutput)
+    ) {
+      issues.push(`Limitation entailment critic ${run.id ?? "unknown"} lacks exact claim and assessment attestation.`);
+    }
+  }
   const requiredCounts = {
     semanticPlanning: input.generationRuns.filter((run) =>
       run.kind === "execution_routing"
@@ -2271,7 +2297,7 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
 
   const missingPhaseAttestation = capabilitySynthesisRuns.length -
     synthesisRuns.length - criticRuns.length - operationCommunityMappingRuns.length -
-    highlightSelectionRuns.length - highlightCriticRuns.length;
+    highlightSelectionRuns.length - highlightCriticRuns.length - limitationCriticRuns.length;
   if (missingPhaseAttestation) {
     issues.push(
       `${missingPhaseAttestation} capability synthesis generation(s) have no valid synthesis-phase attestation.`,
@@ -2284,7 +2310,7 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       ? repositoryOperationCommunityMappingDescriptor(run.inputSummary)
           ?.batchKey === undefined
       : phase === "repository_highlight_selection" ||
-          phase === "repository_highlight_critic"
+          phase === "repository_highlight_critic" || phase === "limitation_entailment_critic"
         ? false
       : repositorySynthesisBatchKey(run.inputSummary) === null;
   }).length;
@@ -2996,7 +3022,7 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     const expected = agenticInvestigation && run.kind === "semantic_extraction"
       ? input.expectedAgenticInvestigatorIdentity
       : run.kind === "capability_synthesis" &&
-        (phase === "entailment_critic" || phase === "repository_highlight_critic")
+        (phase === "entailment_critic" || phase === "repository_highlight_critic" || phase === "limitation_entailment_critic")
       ? input.expectedSynthesisCriticIdentity ?? expectedIdentityFor(run.kind, input.expectedIdentities)
       : expectedIdentityFor(run.kind, input.expectedIdentities);
     if (run.status !== "success") {

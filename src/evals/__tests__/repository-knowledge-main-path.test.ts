@@ -1728,6 +1728,46 @@ describe("repository knowledge main-path integrity", () => {
     });
   });
 
+  it("requires exact fact-only limitation review claims and checks the verification model", () => {
+    const subsystemKey = "project_domain:device_control#limitation-manual-start";
+    const claims = [{ claimKey: `${subsystemKey}:fact:1`, kind: "fact",
+      claim: { statement: "The controller waits for a local start command; it has no scheduled trigger in this handler." },
+      citationIndexes: [1] }];
+    const claimContentDigest = repositorySynthesisCriticClaimContentDigest(claims);
+    const output = { assessments: [{ claimKey: claims[0]!.claimKey, supported: true, issues: [] }] };
+    const critic = generation("capability_synthesis", "verification-model", {
+      id: "limitation-review",
+      inputSummary: { phase: "limitation_entailment_critic", refreshRunId: "refresh-1",
+        claimCount: 1, subsystemKeys: [subsystemKey], claimContentDigest },
+      parsedOutput: output,
+      resultRefs: { configuredModelId: "verification-model", requestIds: ["limitation-request"],
+        usageComplete: true, providerAttemptCount: 1, failedProviderAttempts: [], transportMode: "json_schema",
+        resultAttestation: { claims, claimContentDigest, assessmentDigest: digest(output) } },
+    });
+    const evaluate = (run: RepositoryKnowledgeGenerationAuditRecord) => evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration({ subsystems: [{ subsystemKey: "project_domain:payments#scope", facts: [], highlights: [] }] }), run],
+      expectedIdentities, expectedSynthesisCriticIdentity: { provider: "bedrock", modelId: "verification-model" },
+      coverage: null, orchestration: { fallbackUsed: false, generationRunId: "generation-execution_routing" }, warnings: null,
+    });
+    expect(evaluate(critic)).toMatchObject({ passed: true, issues: [] });
+    for (const change of [
+      { parsedOutput: { assessments: [] } },
+      { parsedOutput: { assessments: [output.assessments[0], output.assessments[0]] } },
+      { inputSummary: { ...(critic.inputSummary as object), claimCount: 2 } },
+      { inputSummary: { ...(critic.inputSummary as object), subsystemKeys: ["unrelated"] } },
+      { resultRefs: { ...(critic.resultRefs as object), resultAttestation: { claimContentDigest } } },
+      { resultRefs: { ...(critic.resultRefs as object), resultAttestation: { claims: [{ ...claims[0],
+        claim: { statement: "The controller starts autonomously." } }], claimContentDigest, assessmentDigest: digest(output) } } },
+    ]) {
+      expect(evaluate({ ...critic, ...change }).issues).toContainEqual(
+        expect.stringContaining("lacks exact claim and assessment attestation"));
+    }
+    expect(evaluate({ ...critic, modelId: "synthesis-model" }).issues).toContainEqual(
+      expect.stringContaining("used model synthesis-model; expected verification-model"));
+  });
+
   it("rejects a revision round that masquerades as a full synthesis", () => {
     const initial = {
       subsystems: [{

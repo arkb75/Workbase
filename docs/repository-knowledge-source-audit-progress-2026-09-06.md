@@ -692,3 +692,43 @@ project-specific expected units into the extraction agent.
 Verification after the range-count correction: 2,179 tests passed, one skipped;
 typecheck, changed-file lint, and diff whitespace checks passed. The original
 live artifact is unchanged and still records its original integrity failure.
+
+### v47 / synthesis v78: exact provenance and actionable claim repair
+
+The investigator now uses the existing bounded lossless-attestation option.
+Cumulative read sets no longer pass through the event-preview serializer's
+20-item truncation. The 128 KiB audit-envelope cap remains; an oversized record
+fails explicitly rather than silently losing evidence. Backer's complete final
+checkpoint source inspection measured 23,455 bytes. Tests include a 35-entry
+attestation; old records are neither overwritten nor treated as complete.
+
+The limitation entailment critic now records its exact claim payload and output
+digest. The evaluator recognizes this phase and validates its fact-only claim
+keys, subsystem membership, count, content digest, assessment keys, output
+digest, and configured verification model. Merely naming this phase does not
+exempt a run: missing or altered attestations still fail. This does not make
+the earlier v31 record retrospectively eligible.
+
+Tracing Backer's founder-onboarding operation located a real retention failure:
+the investigation notebook retained the full handler at lines 11–79, initial
+synthesis described its profile-creation and invitation calls, then critique
+rejected it and the revision reduced it to a required-field guard. New critic
+output requires a bounded reason identifying the unsupported clause and source
+boundary, carried into the existing revision slots. Repairs are instructed to
+retain the supported central operation, describe visible invocations without
+inventing callee internals, and not substitute an incidental guard for the
+workflow. Old persisted code-only assessments remain readable, while the new
+model schema requires the reason. Verdict and source-support checks are not
+relaxed. Tests verify reason retention and continued rejection of unsupported
+claims. This is a hypothesis for improving semantic retention, not proof yet.
+
+The design follows the concrete-feedback refinement loop in
+[Anthropic's agent guidance](https://www.anthropic.com/engineering/building-effective-agents)
+and its emphasis on preserving useful state in
+[context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents).
+No new harness, model, or fallback path is introduced. Missing independent
+subsystems remain a separate investigation/review-breadth problem; this change
+does not purport to solve them through formatting alone.
+
+Verification: full suite 2,181 passed, one skipped; focused synthesis/audit
+tests, typecheck, changed-file lint, and diff whitespace checks passed.

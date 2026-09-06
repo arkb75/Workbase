@@ -43,7 +43,7 @@ import {
 } from "@/src/services/knowledge-reconciliation-service";
 
 export const REPOSITORY_SYNTHESIS_POLICY_VERSION =
-  "repository-synthesis-v77-operation-state-source-audit";
+  "repository-synthesis-v78-actionable-claim-review";
 export type RepositoryInvestigationMode = "agentic" | "orchestrated";
 
 export function resolveRepositoryInvestigationMode(): RepositoryInvestigationMode {

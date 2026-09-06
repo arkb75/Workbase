@@ -30,12 +30,15 @@ import {
   repositoryEvidenceBoundaryGuidance,
   repositoryModelEligibleSynthesisInputCount,
   repositorySynthesisCriticClaims,
+  repositorySynthesisCriticModelSchema,
+  repositorySynthesisCriticSchema,
   repositorySynthesisCriticPayload,
   repositorySynthesisCriticValidationErrors,
   repositorySynthesisFactFloorRevisionClaimKeys,
   repositorySynthesisBatchPromptBytes,
   repositorySynthesisPromptNotebook,
   repositorySynthesisRevisionErrors,
+  repositorySynthesisRevisionSlots,
   repositorySynthesisRevisionReplacementIsNoOp,
   repositorySynthesisRevisionCriticClaims,
   repositorySynthesisRevisionEvidenceIndexes,
@@ -799,6 +802,27 @@ describe("repository synthesis model-path limits", () => {
       claims,
     })]);
     expect(payload.subsystems[0]?.claims[0]).not.toHaveProperty("citations");
+  });
+
+  it("carries a precise rejected clause into repair without changing the verdict or losing legacy records", () => {
+    const fact = {
+      statement: "The device endpoint validates the command and atomically updates state and sends it to the controller.",
+      category: "behavior" as const, confidence: "high" as const, sensitivityFlag: false,
+      citationIndexes: [1], reviewNotes: null, productImportance: 5, implementationBreadth: 4,
+      technicalDifficulty: 3, distinctiveness: 3,
+    };
+    const prior = { subsystems: [{ subsystemKey: "project_domain:control#scope", facts: [fact], highlights: [], unresolvedQuestions: [] }] };
+    const assessment = { claimKey: "project_domain:control#scope:fact:1", supported: false,
+      issues: ["unsupported_broad_qualifier" as const],
+      reason: "The excerpt calls state.update and controller.send sequentially. It does not establish an atomic transaction across those calls." };
+    const parsed = repositorySynthesisCriticModelSchema.parse({ assessments: [assessment] });
+    const slots = repositorySynthesisRevisionSlots(prior, parsed);
+    expect(slots.factSlots[0]).toMatchObject({ priorClaim: fact, issues: assessment.issues, reason: assessment.reason });
+    expect(applyRepositorySynthesisCritic(prior, parsed).subsystems[0]?.facts).toEqual([]);
+    const legacy = { claimKey: assessment.claimKey, supported: assessment.supported, issues: assessment.issues };
+    expect(repositorySynthesisCriticSchema.safeParse({ assessments: [legacy] }).success).toBe(true);
+    expect(repositorySynthesisCriticModelSchema.safeParse({ assessments: [legacy] }).success).toBe(false);
+    expect(repositorySynthesisCriticModelSchema.safeParse({ assessments: [{ ...assessment, reason: " " }] }).success).toBe(false);
   });
 
   it("keeps terminal critic rejections diagnostic when a supported claim survives", () => {

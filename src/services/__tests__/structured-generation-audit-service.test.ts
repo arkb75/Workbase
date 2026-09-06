@@ -98,7 +98,7 @@ describe("structured generation audit usage", () => {
       });
   });
 
-  it("persists an opted-in replay attestation without depth truncation", async () => {
+  it("persists an opted-in replay attestation without depth or collection truncation", async () => {
     prismaMock.generationRun.upsert.mockResolvedValue({
       id: "generation-exact-attestation",
       modelId,
@@ -107,6 +107,10 @@ describe("structured generation audit usage", () => {
       estimatedCostUsd: null,
     });
     const evidence = {
+      readSet: Array.from({ length: 35 }, (_, index) => ({
+        evidenceId: `evidence-${index}`, path: `src/operation-${index}.ts`,
+        lineStart: 1, lineEnd: 20, blobSha: "a".repeat(40), excerptHash: "b".repeat(64),
+      })),
       independentObservations: [{
         kind: "boundary",
         evidence: {
