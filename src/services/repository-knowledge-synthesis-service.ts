@@ -5,6 +5,7 @@ import type { RepositoryCapabilityFunnelTraceV1 } from "@/src/domain/repository-
 import {
   repositorySynthesisClaimContentDigest,
   repositorySynthesisCriticClaimContentDigest,
+  repositorySynthesisCriticAssessmentDigest,
 } from "@/src/domain/repository-synthesis-attestation";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import {
@@ -1739,7 +1740,7 @@ async function verifyRepositoryLimitationFactScopes(input: {
         resultAttestation: (generation) => ({
           claimContentDigest,
           claims,
-          assessmentDigest: createHash("sha256").update(JSON.stringify(generation.data)).digest("hex"),
+          assessmentDigest: repositorySynthesisCriticAssessmentDigest(generation.data),
         }),
         exactParsedOutput: (generation) => generation.parsedOutput,
         execute: () => getStructuredLlmClient("verification").generateStructured({

@@ -775,3 +775,96 @@ fallback or project-specific rule was added.
 
 Verification: 2,182 tests passed, one skipped; typecheck, changed-file lint and
 diff whitespace checks passed. Live effectiveness remains to be measured.
+
+### Live v33: three retained repositories, no eligible parity result
+
+All three ran on `80def1d1d617afdd77e822317fa87bcb61b8d5e5`, with the same
+models and budgets. All processes are terminal. Artifacts remain in
+`/tmp/workbase-source-audit-v27.YaErOL/`; Otto was not accessed.
+
+| Repository | Artifact | Work item / refresh | Outcome |
+| --- | --- | --- | --- |
+| Backer | `backer-v33-live.json` | `cmtq3pofl0000vksbnavms2k8` / `cmtq3ppjq0002vksbgdxtm662` | Completed, degraded; original live integrity failed |
+| CircleFund | `circlefund-v33-retry-live.json` | `cmtq3qncl0000uosbpw3grhi1` / `cmtq3qob20002uosbsaji4276` | Remaining membership-lifecycle gap, insufficient repair budget |
+| SoloPilot | `solopilot-v33-live.json` | `cmtq3ppjf00002dsbudoiwkhe` / `cmtq3pql400022dsbxmw44d1t` | Three repeated no-progress checkpoints; no review or synthesis |
+
+CircleFund's original `circlefund-v33-live.json` records a database setup
+transaction conflict, before a refresh or model analysis. It was retried once
+after setup contention ended; the failed artifact and temporary work item
+`cmtq3poum0000wcsboim47ml6` were preserved, not relabeled or deleted.
+
+Backer completed in 560,890 ms (558,074 ms refresh duration). Investigation
+used 56 calls, 453,179 semantic tokens, 79 inspections and $1.12722974. The
+exported observer reports $1.34380330 across text generation phases, 104 model
+calls, and 1,049,980 total tokens (a different measure from uncached semantic
+work). Scoped active output is 29 Facts and 17 Highlights, 54 evidence links.
+The diagnostic packet `backer-v33-packet.json` is **ineligible**, not scored.
+Founder onboarding now retains its central creation and invitation invocations;
+media upload, profile updates and invitation transitions are present. This is
+qualitative evidence, not a matched score or proof of the cause of improvement.
+Offline feed training and important negative/security boundaries remain absent
+from active output. The upload summary also ends mid-clause and needs tracing.
+
+CircleFund completed all 16 required reads in its final review
+`cmtq3wx3n002vuosbzbj1qpxr` with no submission rejection. It still requested a
+concrete membership suspension/status-transition boundary. Usage reached 35
+calls, 275,433 semantic tokens, 73 inspections and $0.50789196, leaving 4,567
+tokens below the repair reserve. Duration was 343,180 ms. It did not synthesize.
+
+SoloPilot stopped after 205,604 ms with 28 calls, 228,444 semantic tokens, 38
+inspections and $0.73580710. It still had 231,556 semantic tokens available, so
+this is not a funding or capacity failure. Waves 4–6 retained 13 findings and
+the same three material questions. Tool records show repeated whole-file
+queries returning sparse windows: gateway lines 1–19, 296–332 and 608–625
+omit the global API-key requirement at lines 22–23; repeated management Lambda
+windows omit most of approval delivery (send call at 684), proposal generation
+(1343 onward), and wireframe generation (1945 onward). Some inspection calls
+were invalid, but stored trace hashes do not establish their exact bad inputs.
+Do not invent a specific schema error from those hashes.
+
+The next source-access change should let the agent request a bounded line
+range directly on a pinned file query, reusing the existing Git reader,
+budget and evidence callbacks. It should not depend on guessing why an earlier
+call failed, or on project-specific expected source paths. Existing expansion
+handles remain useful. Do not remove the no-progress guard or inflate budgets
+to hide this source-navigation failure.
+
+### JSONB-stable limitation assessment hashing
+
+The original Backer integrity error was the limitation critic's assessment
+digest. Rebuilding its exact schema property order reproduces the original
+stored hash `650f774b18f4545a018f592d6003ebd542db44f76d48cac7c4c0982987b211f5`;
+hashing database-returned property order produces a different digest. This is
+consistent with PostgreSQL's documented
+[JSONB key-order normalization](https://www.postgresql.org/docs/current/datatype-json.html),
+confirmed through Context7. A shared domain helper now reconstructs only the
+critic schema's property order. It preserves all values, reason text, issue
+and assessment array order, and rejects unknown fields. Producer and evaluator
+use the same function. Tests accept reordered object keys and reject modified
+reasons, verdicts, issues, claim keys and malformed records. Original live
+artifacts and database attestations remain unchanged.
+
+After this correction, database export exposes two other issues, not a pass:
+
+1. The exact no-auth upload and missing founder/product-association limitations
+   exist as draft **quarantined** Facts (`04a4ee12-b5aa-4df0-be9a-6a42a3b94660`
+   and `dd53a5df-e070-4a00-87d6-48ab668d532a`). They were not overwritten.
+   The observer sees neither active persistence nor an explicit synthesis
+   rejection. Inspect the sensitivity classification and disposition contract;
+   do not silently count quarantined knowledge or disable privacy controls.
+2. The last investigator attests `lib/db/repository.ts:1818–1897`, but its final
+   materialized limitation cites the contained range 1839–1867. The observer
+   requires an exact range/hash tuple and finds none. Earlier-wave claim ranges
+   are reconstructed into carried attestations; final-wave narrow claims do
+   not necessarily receive the same record. Preserve host-validated atomic
+   citation attestations in the producing phase, with enclosure and exact-byte
+   tests; do not replace content verification with range containment alone.
+
+Separately, the limitation critic rejected claims about an unshown PENDING
+declaration and callee persistence not shown by a route-only citation. These
+are retained as explicit synthesis gaps. The audit remains incomplete; neither
+smaller tool output nor a completed Backer refresh establishes source parity.
+
+Verification after JSONB hashing correction: 2,183 tests passed, one skipped;
+132 focused synthesis/attestation tests, typecheck, changed-file lint and diff
+whitespace checks passed. No further paid run was started on this correction.

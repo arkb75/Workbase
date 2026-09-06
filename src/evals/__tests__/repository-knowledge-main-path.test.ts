@@ -1734,7 +1734,8 @@ describe("repository knowledge main-path integrity", () => {
       claim: { statement: "The controller waits for a local start command; it has no scheduled trigger in this handler." },
       citationIndexes: [1] }];
     const claimContentDigest = repositorySynthesisCriticClaimContentDigest(claims);
-    const output = { assessments: [{ claimKey: claims[0]!.claimKey, supported: true, issues: [] }] };
+    const output = { assessments: [{ claimKey: claims[0]!.claimKey, supported: true, issues: [],
+      reason: "The handler awaits a local start command." }] };
     const critic = generation("capability_synthesis", "verification-model", {
       id: "limitation-review",
       inputSummary: { phase: "limitation_entailment_critic", refreshRunId: "refresh-1",
@@ -1752,7 +1753,14 @@ describe("repository knowledge main-path integrity", () => {
       coverage: null, orchestration: { fallbackUsed: false, generationRunId: "generation-execution_routing" }, warnings: null,
     });
     expect(evaluate(critic)).toMatchObject({ passed: true, issues: [] });
+    expect(evaluate({ ...critic, parsedOutput: { assessments: [{
+      issues: [], reason: output.assessments[0]!.reason,
+      supported: true, claimKey: claims[0]!.claimKey,
+    }] } })).toMatchObject({ passed: true, issues: [] });
     for (const change of [
+      { parsedOutput: { assessments: [{ ...output.assessments[0], reason: "A changed explanation." }] } },
+      { parsedOutput: { assessments: [{ ...output.assessments[0], supported: false }] } },
+      { parsedOutput: { assessments: [{ ...output.assessments[0], issues: ["unsupported_detail"] }] } },
       { parsedOutput: { assessments: [] } },
       { parsedOutput: { assessments: [output.assessments[0], output.assessments[0]] } },
       { inputSummary: { ...(critic.inputSummary as object), claimCount: 2 } },

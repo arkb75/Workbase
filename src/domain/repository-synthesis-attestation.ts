@@ -6,6 +6,31 @@ function record(value: unknown) {
     : null;
 }
 
+/** Match the critic schema's property order, independent of JSONB key order. */
+export function repositorySynthesisCriticAssessmentDigest(value: unknown) {
+  const output = record(value);
+  if (!output || Object.keys(output).some((key) => key !== "assessments") ||
+    !Array.isArray(output.assessments)) return null;
+  const assessments: Array<Record<string, unknown>> = [];
+  for (const candidate of output.assessments) {
+    const entry = record(candidate);
+    if (!entry ||
+      Object.keys(entry).some((key) => !["claimKey", "supported", "issues", "reason"].includes(key)) ||
+      typeof entry.claimKey !== "string" || !entry.claimKey ||
+      typeof entry.supported !== "boolean" ||
+      !Array.isArray(entry.issues) || !entry.issues.every((issue) => typeof issue === "string") ||
+      (entry.reason !== undefined && typeof entry.reason !== "string")) return null;
+    assessments.push({
+      claimKey: entry.claimKey,
+      supported: entry.supported,
+      issues: entry.issues,
+      ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
+    });
+  }
+  // Preserve array order and every value, including the full critique reason.
+  return createHash("sha256").update(JSON.stringify({ assessments })).digest("hex");
+}
+
 function normalizedCitationIndexes(value: unknown) {
   if (
     !Array.isArray(value) ||

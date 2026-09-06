@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   repositorySynthesisClaimContentDigest as computedRepositorySynthesisClaimContentDigest,
   repositorySynthesisCriticClaimContentDigest,
+  repositorySynthesisCriticAssessmentDigest,
 } from "@/src/domain/repository-synthesis-attestation";
 import {
   canonicalRepositoryOperationCommunityMapping,
@@ -2268,7 +2269,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       !claims.every((claim) => record(claim)?.kind === "fact") ||
       !sameUniqueKeys(keys as string[], subsystemKeys.map((key) => `${key}:fact:1`)) ||
       !assessmentKeys || !sameUniqueKeys(keys as string[], assessmentKeys) ||
-      attestation?.assessmentDigest !== verifierIntegrityDigest(run.parsedOutput)
+      !attestation?.assessmentDigest ||
+      attestation.assessmentDigest !== repositorySynthesisCriticAssessmentDigest(run.parsedOutput)
     ) {
       issues.push(`Limitation entailment critic ${run.id ?? "unknown"} lacks exact claim and assessment attestation.`);
     }

@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   repositorySynthesisClaimContentDigest,
   repositorySynthesisCriticClaimContentDigest,
+  repositorySynthesisCriticAssessmentDigest,
 } from "@/src/domain/repository-synthesis-attestation";
 
 function synthesis(input: {
@@ -26,6 +28,24 @@ function synthesis(input: {
 }
 
 describe("repository synthesis claim attestation", () => {
+  it("preserves schema-order assessment hashes across JSONB object-key reordering", () => {
+    const assessment = { claimKey: "controller:fact:1", supported: false,
+      issues: ["unsupported_detail"], reason: "The cited handler invokes a helper; its implementation is not shown." };
+    const original = { assessments: [assessment] };
+    const digest = createHash("sha256").update(JSON.stringify(original)).digest("hex");
+    expect(repositorySynthesisCriticAssessmentDigest(original)).toBe(digest);
+    const reordered = { assessments: [{ issues: assessment.issues, reason: assessment.reason,
+      supported: assessment.supported, claimKey: assessment.claimKey }] };
+    expect(repositorySynthesisCriticAssessmentDigest(reordered)).toBe(digest);
+    for (const change of [{ supported: true }, { issues: [] }, { reason: "Supported." }, { claimKey: "other:fact:1" }]) {
+      expect(repositorySynthesisCriticAssessmentDigest({ assessments: [{ ...assessment, ...change }] })).not.toBe(digest);
+    }
+    expect(repositorySynthesisCriticAssessmentDigest({ assessments: [{ ...assessment, extra: true }] })).toBeNull();
+    expect(repositorySynthesisCriticAssessmentDigest({ assessments: [{ ...assessment, reason: 5 }] })).toBeNull();
+    expect(repositorySynthesisCriticAssessmentDigest({ assessments: [{ ...assessment, issues: [null] }] })).toBeNull();
+    expect(repositorySynthesisCriticAssessmentDigest({ assessments: [assessment], extra: true })).toBeNull();
+  });
+
   it("is stable across presentation-only citation and subsystem ordering", () => {
     const left = synthesis({ citationIndexes: [1, 2, 2] });
     const right = {
