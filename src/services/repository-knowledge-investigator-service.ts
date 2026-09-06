@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v35-independent-gap-evidence";
+  "repository-knowledge-investigator-v36-host-bound-review-citations";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -954,7 +954,19 @@ const coverageAuditSchema = z.object({
   }
 });
 
-const coverageAuditJsonSchema: JsonSchemaObject = {
+// The agent judges known claims; the host already knows which exact range each
+// claim must be checked against. Reapply all audit refinements after binding
+// those citations to the fresh read set. Newly discovered gaps remain cited by
+// the agent because their supporting source is not known in advance.
+export const repositoryCoverageAuditSubmissionSchema = z.object({
+  ...coverageAuditSchema.shape,
+  capabilityChecks: z.array(coverageCapabilityCheckSchema.omit({ evidence: true })).max(12),
+  independentObservationChecks: z.array(
+    z.object(coverageIndependentObservationCheckSchema.shape).omit({ evidence: true }),
+  ).max(REPOSITORY_VERIFIER_MAX_OBSERVATIONS),
+});
+
+export const repositoryCoverageAuditSubmissionJsonSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
   required: [
@@ -977,23 +989,12 @@ const coverageAuditJsonSchema: JsonSchemaObject = {
           "findingId",
           "verdict",
           "reason",
-          "evidence",
         ],
         properties: {
           capabilityKey: { type: "string", pattern: capabilityKeyPattern.source },
           findingId: { type: "string", pattern: findingIdPattern.source },
           verdict: { type: "string", enum: ["supported", "unsupported"] },
           reason: { type: "string", minLength: 10, maxLength: 700 },
-          evidence: {
-            type: "object",
-            additionalProperties: false,
-            required: ["evidenceId", "lineStart", "lineEnd"],
-            properties: {
-              evidenceId: { type: "string", minLength: 16, maxLength: 128 },
-              lineStart: { type: "integer", minimum: 1 },
-              lineEnd: { type: "integer", minimum: 1 },
-            },
-          },
         },
       },
     },
@@ -1009,7 +1010,6 @@ const coverageAuditJsonSchema: JsonSchemaObject = {
           "reason",
           "matchedFindingIds",
           "missingOperationId",
-          "evidence",
         ],
         properties: {
           observationDigest: {
@@ -1029,16 +1029,6 @@ const coverageAuditJsonSchema: JsonSchemaObject = {
           missingOperationId: {
             type: "string",
             pattern: "^(?:[a-z0-9][a-z0-9_-]{1,99})?$",
-          },
-          evidence: {
-            type: "object",
-            additionalProperties: false,
-            required: ["evidenceId", "lineStart", "lineEnd"],
-            properties: {
-              evidenceId: { type: "string", minLength: 16, maxLength: 128 },
-              lineStart: { type: "integer", minimum: 1 },
-              lineEnd: { type: "integer", minimum: 1 },
-            },
           },
         },
       },
@@ -2576,6 +2566,71 @@ export function repositoryUnsupportedFindingRepairGaps(input: {
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
+/** Attach known citations only after their exact source was read in this phase. */
+export function resolveRepositoryCoverageAuditSubmission(input: {
+  submission: z.infer<typeof repositoryCoverageAuditSubmissionSchema>;
+  notebook: RepositoryInvestigationNotebook;
+  sourceInspection: RepositorySourceInspectionAttestation;
+  independentReview: RepositoryVerifierIndependentReviewCheckpoint;
+}) {
+  const errors: string[] = [];
+  const bind = (label: string, expected: {
+    path: string;
+    blobSha: string | null;
+    lineStart: number;
+    lineEnd: number;
+  } | undefined) => {
+    const read = expected?.blobSha && input.sourceInspection.readSet.find((entry) =>
+      entry.sourceId === input.notebook.sourceId &&
+      entry.repository === input.notebook.repository &&
+      entry.commitSha === input.notebook.commitSha &&
+      entry.path === expected.path && entry.blobSha === expected.blobSha &&
+      entry.lineStart <= expected.lineStart && entry.lineEnd >= expected.lineEnd
+    );
+    if (!expected || !read) {
+      errors.push(`${label} has no fresh exact pinned read for its known source range.`);
+      return null;
+    }
+    return {
+      evidenceId: read.evidenceId,
+      lineStart: expected.lineStart,
+      lineEnd: expected.lineEnd,
+    };
+  };
+  const capabilityChecks = input.submission.capabilityChecks.flatMap((check) => {
+    const finding = input.notebook.findings.find((entry) => entry.id === check.findingId);
+    const evidence = bind(`${check.capabilityKey}:${check.findingId}`, finding?.evidence[0]);
+    return evidence ? [{ ...check, evidence }] : [];
+  });
+  const independentObservationChecks = input.submission.independentObservationChecks.flatMap((check) => {
+    const observation = input.independentReview.independentObservations.find((entry) =>
+      repositoryVerifierIndependentObservationDigest(entry) === check.observationDigest
+    );
+    const original = observation && input.independentReview.sourceInspection.readSet.find((entry) =>
+      entry.evidenceId === observation.evidence.evidenceId &&
+      entry.lineStart <= observation.evidence.lineStart && entry.lineEnd >= observation.evidence.lineEnd
+    );
+    const evidence = bind(check.observationDigest, original && observation ? {
+      path: original.path,
+      blobSha: original.blobSha,
+      lineStart: observation.evidence.lineStart,
+      lineEnd: observation.evidence.lineEnd,
+    } : undefined);
+    return evidence ? [{ ...check, evidence }] : [];
+  });
+  if (errors.length) return { accepted: false as const, errors };
+  const resolved = coverageAuditSchema.safeParse({
+    ...input.submission,
+    capabilityChecks,
+    independentObservationChecks,
+  });
+  return resolved.success
+    ? { accepted: true as const, audit: resolved.data }
+    : { accepted: false as const, errors: resolved.error.issues.map((issue) =>
+      `${issue.path.join(".")}: ${issue.message}`
+    ) };
+}
+
 export function validateRepositoryCoverageAuditContract(input: {
   audit: z.infer<typeof coverageAuditSchema>;
   notebook: RepositoryInvestigationNotebook;
@@ -3467,7 +3522,7 @@ export function candidateCoverageAuditRequest(input: {
       "A separate blind phase already formed the compact independent observations supplied here before it could see the candidate.",
       "Compare those observations with the candidate, investigate concrete discrepancies, and re-read the exact pinned source range for every required representative capability check in this fresh phase.",
       "Disposition every independent observation exactly once by its digest as covered_by_candidate, material_gap, or not_material. Re-read its cited path and range in this phase; link covered observations to candidate finding IDs and material gaps to a submitted missing-operation ID.",
-      "Every capability check and every newly discovered missing operation must cite one exact visible git show HEAD:path range read in this phase. Unsupported means you re-read the investigator's exact claim range and found the statement unsupported.",
+      "For known capability and independent-observation checks, submit IDs, verdicts, reasons, and links only: the host attaches their exact citations from this phase's fresh read set. You must still re-read every required range. Unsupported means you re-read the investigator's exact claim range and found the statement unsupported. Each newly discovered missing operation must supply its own exact visible git show HEAD:path citation.",
       "A missing operation may cite a different freshly read range or file from the observation that led to it. Choose the source that directly establishes the gap; link related observations to that operation by missingOperationId.",
       repositoryInvestigationBoundaryReviewGuidance,
       "Do not infer repository-wide absence from a single snippet. Express a source-bounded positive constraint.",
@@ -5463,17 +5518,17 @@ async function auditRepositoryInvestigationCoverage(input: {
   const submitAuditTool = defineBedrockConverseTool({
     name: "submit_repository_coverage_audit",
     description:
-      "Submit the independent operation-level coverage audit after source discovery and exact pinned-blob inspection.",
-    inputSchema: coverageAuditSchema,
-    jsonSchema: coverageAuditJsonSchema,
+      "Submit the independent coverage judgments after exact pinned-blob inspection. The host binds known checks to their freshly read source ranges; supply citations only for newly discovered missing operations.",
+    inputSchema: repositoryCoverageAuditSubmissionSchema,
+    jsonSchema: repositoryCoverageAuditSubmissionJsonSchema,
     strict: true,
     maxRecoverableInvalidInputAttempts: 1,
     isTerminalResult: (result) =>
       record(result).status === "accepted" ||
       terminalProtocolFailure === "submission_correction_exhausted",
-    execute: async (audit) => {
+    execute: async (submission) => {
       schemaValidSubmissionAttemptCount += 1;
-      if (audit.status === "incomplete") {
+      if (submission.status === "incomplete") {
         submissionNeedsSourceRepair = false;
         lastSubmissionRejectionCodes = ["model_submitted_incomplete"];
         lastSubmissionRejectionReasons = ["model_submitted_incomplete"];
@@ -5487,6 +5542,25 @@ async function auditRepositoryInvestigationCoverage(input: {
         evidence: rawEvidence.values(),
         visibleRanges: visibleEvidenceRanges,
       });
+      const resolved = resolveRepositoryCoverageAuditSubmission({
+        submission,
+        notebook: input.notebook,
+        sourceInspection: sourceAttestation,
+        independentReview: independentReview.checkpoint,
+      });
+      if (!resolved.accepted) {
+        contractSubmissionRejectionCount += 1;
+        lastSubmissionRejectionCodes = ["coverage_contract_invalid"];
+        lastSubmissionRejectionReasons = resolved.errors.slice(0, 12);
+        if (contractSubmissionRejectionCount >= 2) {
+          terminalProtocolFailure = "submission_correction_exhausted";
+        }
+        return {
+          status: "rejected" as const,
+          instruction: lastSubmissionRejectionReasons.join(" "),
+        };
+      }
+      const audit = resolved.audit;
       const performedPinnedImplementationRead = sourceAttestation.readSet.some((entry) => {
         const file = verifierFilesByPath.get(entry.path);
         return file?.disposition === "analyzed" &&

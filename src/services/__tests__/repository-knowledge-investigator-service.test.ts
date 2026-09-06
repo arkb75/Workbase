@@ -35,6 +35,9 @@ import {
   recoverRepositoryInvestigatorAgentBudgetError,
   RepositoryInvestigationSharedBudget,
   repositoryCoverageAuditPhaseLimits,
+  repositoryCoverageAuditSubmissionSchema,
+  repositoryCoverageAuditSubmissionJsonSchema,
+  resolveRepositoryCoverageAuditSubmission,
   repositoryCandidateAuditIdempotencyKey,
   repositoryCoverageCandidatePacket,
   repositoryCoverageReviewPhaseLimits,
@@ -2665,6 +2668,106 @@ describe("repository knowledge investigator", () => {
       accepted: false,
       errors: [expect.stringContaining("not tied to a visible exact pinned verifier read")],
     });
+  });
+
+  it("binds known review decisions to fresh exact citations without asking the model to copy ranges", () => {
+    const fixture = verifierFixture();
+    const finding = fixture.notebook.findings[0]!;
+    const submission = repositoryCoverageAuditSubmissionSchema.parse({
+      status: "satisfied",
+      capabilityChecks: [{
+        capabilityKey: finding.capabilityKeys[0],
+        findingId: finding.id,
+        verdict: "supported",
+        reason: "The exact implementation range supports this session operation.",
+      }],
+      independentObservationChecks: [{
+        observationDigest: repositoryVerifierIndependentObservationDigest(
+          fixture.checkpoint.independentObservations[0]!,
+        ),
+        verdict: "covered_by_candidate",
+        reason: "The candidate captures the independently observed session operation.",
+        matchedFindingIds: [finding.id],
+        missingOperationId: "",
+      }],
+      missingOperations: [],
+      rationale: "The independently observed operation is supported by fresh source reads.",
+    });
+    const sourceInspection = {
+      ...fixture.sourceInspection,
+      readSet: fixture.sourceInspection.readSet.map((read) => ({
+        ...read,
+        evidenceId: "fresh-candidate-evidence-1234",
+      })),
+    };
+    const resolve = (overrides: Partial<Parameters<typeof resolveRepositoryCoverageAuditSubmission>[0]> = {}) =>
+      resolveRepositoryCoverageAuditSubmission({
+        submission,
+        notebook: fixture.notebook,
+        sourceInspection,
+        independentReview: fixture.checkpoint,
+        ...overrides,
+      });
+    const resolved = resolve();
+    expect(resolved.accepted).toBe(true);
+    if (!resolved.accepted) throw new Error(resolved.errors.join("; "));
+    expect(resolved.audit.capabilityChecks[0]?.evidence).toEqual({
+      evidenceId: "fresh-candidate-evidence-1234",
+      lineStart: finding.evidence[0]!.lineStart,
+      lineEnd: finding.evidence[0]!.lineEnd,
+    });
+    expect(resolved.audit.independentObservationChecks[0]?.evidence).toEqual({
+      evidenceId: "fresh-candidate-evidence-1234",
+      lineStart: 1,
+      lineEnd: 4,
+    });
+    expect(validateRepositoryCoverageAuditContract({
+      audit: resolved.audit,
+      notebook: fixture.notebook,
+      sourceInspection,
+      independentReview: fixture.checkpoint,
+    })).toEqual({ accepted: true });
+
+    for (const readSet of [
+      [],
+      sourceInspection.readSet.map((read) => ({ ...read, lineEnd: 3 })),
+      sourceInspection.readSet.map((read) => ({ ...read, blobSha: "e".repeat(40) })),
+      sourceInspection.readSet.map((read) => ({ ...read, commitSha: "f".repeat(40) })),
+      sourceInspection.readSet.map((read) => ({ ...read, sourceId: "other-source" })),
+    ]) {
+      expect(resolve({ sourceInspection: { ...sourceInspection, readSet } })).toMatchObject({
+        accepted: false,
+        errors: expect.arrayContaining([expect.stringContaining("no fresh exact pinned read")]),
+      });
+    }
+    expect(resolve({ submission: {
+      ...submission,
+      capabilityChecks: [{ ...submission.capabilityChecks[0]!, findingId: "unknown_finding" }],
+    } })).toMatchObject({ accepted: false });
+    expect(resolve({ submission: {
+      ...submission,
+      independentObservationChecks: [{
+        ...submission.independentObservationChecks[0]!, observationDigest: "e".repeat(64),
+      }],
+    } })).toMatchObject({ accepted: false });
+    // Host enrichment must not lose the existing cross-field verdict rules.
+    expect(resolve({ submission: {
+      ...submission,
+      capabilityChecks: [{ ...submission.capabilityChecks[0]!, verdict: "unsupported" }],
+    } })).toMatchObject({ accepted: false });
+    expect(resolve({ submission: {
+      ...submission,
+      independentObservationChecks: [{ ...submission.independentObservationChecks[0]!, matchedFindingIds: [] }],
+    } })).toMatchObject({ accepted: false });
+
+    const properties = repositoryCoverageAuditSubmissionJsonSchema.properties as Record<string, {
+      items: { required: string[]; properties: Record<string, unknown> };
+    }>;
+    for (const name of ["capabilityChecks", "independentObservationChecks"]) {
+      expect(properties[name]!.items.required).not.toContain("evidence");
+      expect(properties[name]!.items.properties).not.toHaveProperty("evidence");
+    }
+    expect(properties.missingOperations!.items.required).toContain("evidence");
   });
 
   it("keeps the blind checkpoint reusable while later notebook waves change", () => {

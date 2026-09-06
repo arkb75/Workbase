@@ -100,6 +100,37 @@ retrieved through Context7, and the live per-model endpoint metadata.
 The next full evaluation must still establish saved-output quality. The v19
 failure above remains a failure; these probes do not retroactively certify it.
 
+### Live v20 and host-bound citation fix
+
+Live v20 ran on `ddbe6f6beb064dac1c294a03279d2796c40308ad`, with the review
+preference above. Work item `cmtp90an30000jasbidbadlf9`, refresh
+`cmtp90bc70002jasbf7wsfh2u`; artifact
+`/tmp/workbase-source-audit-v27.YaErOL/circlefund-v20-live.json`.
+
+The investigation finished with 15 provisional findings. Independent review
+completed, and both review stages had complete usage evidence: the upstream
+rate-limit obstruction was resolved for this attempt. The candidate audit read
+all 15 required exact source targets but failed after two submissions because
+one check copied the dashboard claim's range incorrectly. The required range
+was already visible: `src/server/services/circle-dashboard-service.ts:57-125`.
+This was a contract failure, not evidence that the review lacked source access.
+The run lasted 225,843 ms and stopped before saved-output synthesis. Its recorded
+investigation usage was 33 model calls, 174,455 semantic-accounting tokens,
+44 inspection operations, and $0.39482057 reported cost.
+
+Version `repository-knowledge-investigator-v36-host-bound-review-citations`
+removes model-written citation fields from checks of known candidate claims and
+known independent observations. The host binds those IDs to the required ranges
+only when the fresh read set proves matching source, repository, commit, blob,
+path, and full range. The full persisted audit retains those exact citations;
+all original verdict, link, completeness, and evidence-validation checks remain.
+New missing operations still require model-chosen source citations. No retry
+ceiling or semantic threshold was increased.
+
+This is an application of reducing unnecessary agent-side tool bookkeeping,
+consistent with [Anthropic's tool-design guidance](https://www.anthropic.com/engineering/writing-tools-for-agents).
+It does not retroactively certify v20; a fresh live result is still required.
+
 1. Complete a live run once the review endpoint can serve requests reliably;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.
