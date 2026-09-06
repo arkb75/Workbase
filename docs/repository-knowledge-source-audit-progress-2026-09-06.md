@@ -554,3 +554,54 @@ retained repositories remains necessary.
 
 Verification for v45: all 2,177 tests passed, one skipped; typecheck,
 changed-file lint, and diff whitespace checks passed.
+
+### Live v30: all three terminal, parity remains unproven
+
+All three runs used clean implementation
+`8c2d13c330dc73a74d005641ab4cc222a99dd1f2`. Artifacts remain at
+`/tmp/workbase-source-audit-v27.YaErOL/{circlefund,backer,solopilot}-v30-live.json`.
+No run is eligible for a certified saved-output score. No live process remains.
+
+| Repository | Work item / refresh | Duration | Final semantic tokens | Calls | Inspections | Reported cost |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| CircleFund | `cmtq1fwhc0000c2sbmndd07dd` / `cmtq1fxky0002c2sbk5jn030g` | 241,754 ms | 267,922 | 29 | 63 | $0.43403044 |
+| Backer | `cmtq1gycn0000mksbnqqbvx3u` / `cmtq1gz6a0002mksbwco38fky` | 279,088 ms | 318,393 | 34 | 57 | $0.66819068 |
+| SoloPilot | `cmtq1hcsd0000wysbrxymnhl7` / `cmtq1he540002wysbnqjp6knf` | 339,418 ms | 389,561 | 44 | 66 | $0.92335275 |
+
+- CircleFund's first candidate audit passed 20/20 required reads and reported
+  four gaps. It corrected one omitted representative-check submission. Repair
+  retained 18 findings. Re-audit passed its read gate but still reported browser
+  logout and executable policy-transition boundaries as missing. Only 12,078
+  semantic tokens remained, below the existing repair-plus-re-audit minimum.
+  The removed fixed repair-count ceiling was not the stop this time. Inspection
+  of the provisional notebook shows the repair captured dashboard display and
+  missing schema entities, but did not directly retain the requested service
+  execution boundary. That is a semantic repair deficit, not just formatting.
+- Backer's candidate read gate passed all 16 ranges, resolving the preceding
+  missing-read failure. Its submission still omitted the required
+  `project_domain:messaging:messaging_conversation_creation_role_policy` check
+  after correction. It made three submission attempts: one schema-invalid and
+  two contract-invalid. Final audit `cmtq1lanv0053mksbi8essw2k` failed with 141,607
+  shared semantic tokens remaining; this was not a token or credit failure.
+- SoloPilot completed six investigation waves (262,424 semantic tokens), then
+  completed blind review (56,012). Candidate review passed all 15 required reads
+  but submitted a new `proposal_version_soft_delete` gap using lines 200–222
+  outside its visible source. The two submissions failed the source contract;
+  final audit `cmtq1nd2d007lwysbcxmlx1op` ended with 70,439 shared semantic tokens
+  remaining. It got past v28's blind-review budget failure, but that is execution
+  progress, not proof that its knowledge coverage is sufficient.
+
+Fresh direct checks of the pinned repository sources confirmed Backer's runtime
+DynamoDB investment-intent writes, SoloPilot's lint-assisted skeleton/TODO output
+and new milestone-directory context, and CircleFund's transaction authorization
+and stateless cookie boundaries. Frozen unit expectations were not changed.
+
+Next main-path work should address the actual review interface: let the host
+carry the identities of mandatory representative checks so the model supplies
+judgments rather than repeatedly transcribing long identifiers; route an
+unread new-gap citation to the already-existing source-inspection action using
+structured source diagnostics rather than a generic payload-contract failure.
+Do not weaken either source support or completeness checks. CircleFund also
+needs the investigator to repair the stated missing operation rather than only
+adjacent declarations/display surfaces. Do not launch another identical paid
+run or score provisional notebooks as saved knowledge.
