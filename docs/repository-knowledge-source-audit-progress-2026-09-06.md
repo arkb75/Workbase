@@ -1254,3 +1254,49 @@ reset near actual context pressure, and unchanged shared semantic allocation.
 Targeted tests: 138 passed; full suite: 2,201 passed, one skipped. Typecheck,
 changed-file lint, and diff checks passed. There is
 still no source-parity or broad cost-improvement claim.
+
+### v41: better continuity, but the repair checkpoint consumed the audit reserve
+
+`/tmp/workbase-source-audit-v27.YaErOL/solopilot-v41-live.json` ran against clean
+`ba12244297553fe6a5814d19c3195617eaab5bbd`, from 19:41:22.799Z to
+19:47:59.117Z on September 6. Refresh `cmtq7wbp0000282sbtmdfmbcf`, work item
+`cmtq7wb4s000082sbudc5wwnn`; elapsed 396,305 ms. Otto was not accessed.
+
+Initial investigation completed in three phases with 32 provisional findings,
+28 calls, 242,201 semantic tokens, and $0.8188036. The blind review and first
+candidate audit brought usage to 36 calls / 318,640 semantic tokens /
+$0.8524483. Candidate audit `cmtq81al1007c82sb3b70vxjq` retained nine gaps:
+conversation creation, pending-reply persistence, API authorization, reply-mode
+policy, current phase at approval, approval PDF configuration, pricing guard,
+wireframe retrieval, and development-provider integration/metrics.
+
+Repair phase four reached 40 findings and one unresolved authorization area.
+Phase five added no finding and ended with the same unresolved area. Final
+usage: 50 calls, 459,925 semantic tokens, 80 inspections, $1.2939585. Only 75
+semantic tokens remained; there was no final re-audit or synthesis. The run is
+ineligible for current saved-output scoring. It was faster but more expensive
+than v40 ($1.22610243); it does not establish a quality or efficiency win.
+
+The final phase started at 396,076 used semantic tokens, leaving 63,924 shared
+and 45,924 after reserving 18,000 for re-audit. Its first five model calls used
+41,223 semantic tokens. The forced checkpoint then reported 24,780 input,
+2,415 cached input, and 261 output: another 22,626 semantic tokens, leaving the
+phase at 63,849. This is a concrete reservation failure under a cache miss,
+not a claim that cached replay is free. The runtime checks semantic usage
+after the response and permits the sole terminal tool to persist progress;
+that does not prevent the already-paid request from consuming the reserve.
+The context-pressure scheduler's 7k semantic headroom is not enough to cover
+a fully uncached checkpoint of this size. Do not rerun unchanged or claim the
+shared allocation is an absolute pre-request spending guarantee.
+
+Independent pinned-source inspection also establishes the epistemic boundary:
+`src/agents/email_intake/api/api_gateway_config.yaml:16–23` declares a global
+API-key scheme, whereas `lambda_api.py:62–178` parses and dispatches requests
+without a handler-entry identity check in that range. Neither alone proves
+the actual deployed gateway configuration or tenant authorization. The last
+unresolved area was searching deployment/import evidence; a subsequent repair
+must preserve the distinction between source configuration and verified live
+deployment rather than infer either enforcement or global absence.
+
+No further paid run was started after v41. The source-parity goal remains
+incomplete across the retained CircleFund, Backer, and SoloPilot comparison.
