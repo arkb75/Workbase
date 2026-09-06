@@ -1228,3 +1228,29 @@ should distinguish actual working-context pressure from cumulative cached
 replay, which still causes early phase resets. No further paid run was started
 after this terminal result. The three-project source-parity goal remains
 incomplete, and Otto remains excluded.
+
+### v56: bound working context separately from cumulative replay
+
+[OpenCode's overflow check](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/overflow.ts)
+uses the current request's token footprint with reserved output room. A sum of
+all prior input replays is not the same quantity. The investigator now has an
+explicit per-request input ceiling (40k/60k/80k for the existing file-count
+tiers), checked before requests using the local estimator and after responses
+using reported input usage. Cached input is included in this context bound.
+
+For the investigator only, cumulative raw replay is bounded by the existing
+iteration limit times the working-input ceiling plus maximum output. This
+changes the medium tier's per-phase raw ceiling from 180,000 to 1,016,000; it
+does not increase the 460,000 refresh-wide semantic-token allowance, 103 calls,
+194 inspections, or output allowance. Verifier phase limits are unchanged.
+Cached tokens are not free, so a live cost reduction must still be measured.
+
+The pressure scheduler now considers the current input footprint separately.
+Shared phase allocation preserves the input ceiling and still reserves the
+critic budget. Tests cover rejection before an oversized first request,
+reported-input overflow despite cache hits, repeated cached calls above the
+single-request ceiling, continuation under replay without context pressure,
+reset near actual context pressure, and unchanged shared semantic allocation.
+Targeted tests: 138 passed; full suite: 2,201 passed, one skipped. Typecheck,
+changed-file lint, and diff checks passed. There is
+still no source-parity or broad cost-improvement claim.

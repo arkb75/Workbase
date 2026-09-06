@@ -99,6 +99,8 @@ export interface BedrockConverseAgentLimits {
   maxIterations: number;
   maxToolCalls: number;
   maxTotalTokens: number;
+  /** Optional limit on one request's working context, including cached input. */
+  maxInputTokens?: number;
   /**
    * Optional cap on newly processed semantic tokens. Cached input replay is
    * excluded, while output is always charged. maxTotalTokens remains the raw
@@ -759,6 +761,7 @@ function resolveLimits(
 ): BedrockConverseAgentLimits {
   const maxSemanticTokens =
     overrides?.maxSemanticTokens ?? defaults?.maxSemanticTokens;
+  const maxInputTokens = overrides?.maxInputTokens ?? defaults?.maxInputTokens;
   return {
     maxIterations: positiveInteger(
       overrides?.maxIterations ?? defaults?.maxIterations ?? DEFAULT_MAX_ITERATIONS,
@@ -777,6 +780,9 @@ function resolveLimits(
         maxSemanticTokens,
         "maxSemanticTokens",
       ),
+    }),
+    ...(maxInputTokens === undefined ? {} : {
+      maxInputTokens: positiveInteger(maxInputTokens, "maxInputTokens"),
     }),
   };
 }
@@ -1070,7 +1076,7 @@ export class BedrockConverseAgent {
         );
       }
 
-      if (iterations > 0) {
+      if (iterations > 0 || limits.maxInputTokens !== undefined) {
         const estimatedNextInputTokens = estimateBedrockConverseInputTokens({
           systemPrompt: input.systemPrompt,
           messages,
@@ -1078,7 +1084,16 @@ export class BedrockConverseAgent {
         });
         const projectedTotalTokens =
           aggregateUsage.totalTokens + estimatedNextInputTokens;
-        if (projectedTotalTokens > limits.maxTotalTokens) {
+        if (limits.maxInputTokens !== undefined && estimatedNextInputTokens > limits.maxInputTokens) {
+          throw new BedrockConverseLimitError(
+            `${this.providerLabel()} agent stopped before exceeding its ${limits.maxInputTokens}-token working-context limit.`,
+            "token_limit_exceeded",
+            limits.maxInputTokens,
+            estimatedNextInputTokens,
+            failureOptions({ iterations, toolCalls, usage: aggregateUsage }),
+          );
+        }
+        if (iterations > 0 && projectedTotalTokens > limits.maxTotalTokens) {
           throw new BedrockConverseLimitError(
             `${this.providerLabel()} agent stopped before an oversized follow-up model call would exceed its ${limits.maxTotalTokens}-token budget.`,
             "token_limit_exceeded",
@@ -1374,6 +1389,16 @@ export class BedrockConverseAgent {
           ? { profile: this.config.modelProfile }
           : {}),
       });
+
+      if (limits.maxInputTokens !== undefined && iterationUsage.inputTokens > limits.maxInputTokens) {
+        throw new BedrockConverseLimitError(
+          `${this.providerLabel()} reported input above the ${limits.maxInputTokens}-token working-context limit.`,
+          "token_limit_exceeded",
+          limits.maxInputTokens,
+          iterationUsage.inputTokens,
+          failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
+        );
+      }
 
       if (!stopReason) {
         throw new BedrockConverseProviderError(

@@ -57,6 +57,7 @@ import {
   repositoryInvestigationNotebookWithoutTransientCapacityAreas,
   repositoryInvestigationPhaseInspectionAction,
   repositoryInvestigationNeedsContextReset,
+  repositoryInvestigatorContinuationLimits,
   repositoryInvestigationNotebookUpdateIsTerminal,
   repositoryInspectionSegmentForModel,
   repositoryInspectionToolSchemas,
@@ -2152,6 +2153,31 @@ describe("repository knowledge investigator", () => {
       inspectionToolCalls: 3, inspectionToolCallsAtLastCheckpoint: 3,
       checkpointYieldRequested: false, contextResetNeeded: false,
     })).toBe("inspect");
+  });
+
+  it("separates a bounded working set from cumulative replay without increasing shared budgets", () => {
+    const limits = repositoryInvestigatorContinuationLimits(200);
+    expect(limits).toEqual({
+      maxIterations: 16, maxToolCalls: 14, maxInputTokens: 60_000,
+      maxTotalTokens: 1_016_000,
+    });
+    const phase = new RepositoryInvestigationSharedBudget({
+      maxModelTokens: 460_000, maxModelCalls: 103, maxInspectionOperations: 194,
+    }).phaseLimits(limits, 16_000, { modelTokens: 64_000, modelCalls: 12 }, {
+      preserveRawTokenLimit: true,
+    });
+    expect(phase?.maxInputTokens).toBe(60_000);
+    expect(phase?.maxSemanticTokens).toBe(396_000);
+    expect(repositoryInvestigationNeedsContextReset({
+      limits, iteration: 8, toolCalls: 7, lastInputTokens: 30_000,
+      lastOutputTokens: 1_000, totalTokens: 250_000, semanticTokens: 45_000,
+    })).toBe(false);
+    expect(repositoryInvestigationNeedsContextReset({
+      limits, iteration: 8, toolCalls: 7, lastInputTokens: 54_000,
+      lastOutputTokens: 1_000, totalTokens: 250_000, semanticTokens: 45_000,
+    })).toBe(true);
+    expect(repositoryInvestigatorContinuationLimits(20).maxInputTokens).toBe(40_000);
+    expect(repositoryInvestigatorContinuationLimits(600).maxInputTokens).toBe(80_000);
   });
 
   it("builds a bounded navigation map from analyzed files without claiming coverage", () => {

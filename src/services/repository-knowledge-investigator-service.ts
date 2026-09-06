@@ -56,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v55-continuous-checkpoints";
+  "repository-knowledge-investigator-v56-working-context-budget";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -389,6 +389,9 @@ export class RepositoryInvestigationSharedBudget {
     );
     return {
       maxIterations,
+      ...(preferred.maxInputTokens === undefined ? {} : {
+        maxInputTokens: preferred.maxInputTokens,
+      }),
       maxToolCalls: Math.max(1, Math.min(
         preferred.maxToolCalls,
         options?.acceptTerminalToolAtIterationLimit
@@ -707,6 +710,8 @@ export function repositoryInvestigationNeedsContextReset(input: {
     INVESTIGATOR_MAX_OUTPUT_TOKENS;
   return input.limits.maxIterations - input.iteration <= 2 ||
     input.limits.maxToolCalls - input.toolCalls <= 2 ||
+    (input.limits.maxInputTokens !== undefined &&
+      nextTurnEstimate + INVESTIGATOR_MAX_OUTPUT_TOKENS >= input.limits.maxInputTokens) ||
     input.limits.maxTotalTokens - input.totalTokens < 2 * nextTurnEstimate ||
     (input.limits.maxSemanticTokens !== undefined &&
       input.limits.maxSemanticTokens - input.semanticTokens <
@@ -2215,6 +2220,18 @@ function investigationLimits(fileCount: number) {
     return { maxIterations: 16, maxToolCalls: 14, maxTotalTokens: 180_000 };
   }
   return { maxIterations: 20, maxToolCalls: 18, maxTotalTokens: 240_000 };
+}
+
+export function repositoryInvestigatorContinuationLimits(fileCount: number): BedrockConverseAgentLimits {
+  const limits = investigationLimits(fileCount);
+  // Bound the working set, not how often cached context is replayed. These
+  // are application working-set ceilings, not inferred model capacities.
+  const maxInputTokens = fileCount <= 80 ? 40_000 : fileCount <= 250 ? 60_000 : 80_000;
+  return {
+    ...limits,
+    maxInputTokens,
+    maxTotalTokens: limits.maxIterations * (maxInputTokens + INVESTIGATOR_MAX_OUTPUT_TOKENS),
+  };
 }
 
 export function repositoryCoverageVerifierLimits(fileCount: number) {
@@ -4417,7 +4434,7 @@ async function runRepositoryInvestigator(input: {
       agentToolTrace: carriedAgentToolTrace,
     });
   }
-  const preferredLimits = investigationLimits(input.files.length);
+  const preferredLimits = repositoryInvestigatorContinuationLimits(input.files.length);
   const budgetPolicy = repositoryInvestigationPhaseBudget(
     input.verifierRepairCycle > 0 ? "verifier_repair" : "initial_investigator",
   );

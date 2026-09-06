@@ -814,6 +814,54 @@ describe("BedrockConverseAgent", () => {
     }
   });
 
+  it("checks working context before the first request", async () => {
+    const { agent, transport } = makeAgent([]);
+    await expect(agent.run({
+      messages: [userMessage("source ".repeat(2000))],
+      limits: { maxInputTokens: 100 },
+    })).rejects.toMatchObject({ code: "token_limit_exceeded", limit: 100, iterations: 0 });
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("does not subtract cache hits from the actual working-context limit", async () => {
+    const execute = vi.fn(() => ({ status: "ok" }));
+    const tool = defineBedrockConverseTool({
+      name: "inspect", description: "Inspect source.", inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} }, execute,
+    });
+    const { agent } = makeAgent([assistantResponse({
+      stopReason: "tool_use", content: [toolRequest({ id: "read", name: "inspect", input: {} })],
+      usage: { inputTokens: 12_000, outputTokens: 10, totalTokens: 12_010, cacheReadInputTokens: 11_000 },
+    })]);
+    await expect(agent.run({
+      messages: [userMessage()], tools: [tool], limits: { maxInputTokens: 10_000 },
+    })).rejects.toMatchObject({ code: "token_limit_exceeded", limit: 10_000, actual: 12_000 });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("allows cumulative cached replay above the per-request context ceiling", async () => {
+    const tool = defineBedrockConverseTool({
+      name: "inspect", description: "Inspect source.", inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} }, execute: () => ({ status: "ok" }),
+    });
+    const responses = [0, 1, 2, 3].map((index) => assistantResponse({
+      stopReason: index === 3 ? "end_turn" : "tool_use",
+      content: index === 3 ? [{ text: "Complete." }] : [toolRequest({
+        id: `read-${index}`, name: "inspect", input: {},
+      })],
+      usage: { inputTokens: 10_000, outputTokens: 100, totalTokens: 10_100,
+        cacheReadInputTokens: index === 0 ? 0 : 9_000 },
+    }));
+    const { agent, transport } = makeAgent(responses);
+    const result = await agent.run({
+      messages: [userMessage()], tools: [tool],
+      limits: { maxInputTokens: 15_000, maxTotalTokens: 100_000, maxSemanticTokens: 20_000 },
+    });
+    expect(result.text).toBe("Complete.");
+    expect(result.usage.totalTokens).toBe(40_400);
+    expect(transport.calls).toHaveLength(4);
+  });
+
   it("rejects parallel calls on a forced-tool turn", async () => {
     const execute = vi.fn(() => ({ status: "accepted" }));
     const submit = defineBedrockConverseTool({
