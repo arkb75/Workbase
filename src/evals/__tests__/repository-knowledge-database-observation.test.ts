@@ -6,6 +6,7 @@ import {
   observedRepositoryKnowledgeClaimState,
   repositoryGenerationModelCalls,
   repositoryGenerationRunsForRefresh,
+  repositoryGenerationUsageTotals,
   repositoryLimitationPersistenceIssues,
   semanticCoverageFromOrchestration,
 } from "@/src/evals/repository-knowledge-database-observation";
@@ -294,6 +295,51 @@ describe("repository limitation persistence integrity", () => {
 });
 
 describe("repository knowledge database performance telemetry", () => {
+  it("sums complete metering and keeps a genuinely empty run at zero", () => {
+    const generation = {
+      tokenUsage: attempt("request-1"),
+      resultRefs: { usageComplete: true },
+      estimatedCostUsd: 0.01,
+    };
+    expect(repositoryGenerationUsageTotals([generation, generation])).toEqual({
+      totalTokens: 240,
+      estimatedCostUsd: 0.02,
+    });
+    expect(repositoryGenerationUsageTotals([])).toEqual({
+      totalTokens: 0,
+      estimatedCostUsd: 0,
+    });
+  });
+
+  it("does not report known partial totals as the full cost of an unmetered retry", () => {
+    expect(repositoryGenerationUsageTotals([{
+      tokenUsage: { ...attempt("successful-request"), unknownUsageAttempts: 1 },
+      resultRefs: { usageComplete: false },
+      estimatedCostUsd: 0.01,
+    }])).toEqual({ totalTokens: null, estimatedCostUsd: null });
+    expect(repositoryGenerationUsageTotals([{
+      tokenUsage: null,
+      resultRefs: null,
+      estimatedCostUsd: null,
+    }])).toEqual({ totalTokens: null, estimatedCostUsd: null });
+  });
+
+  it("keeps known tokens when only the charge is missing, and accepts an explicit zero charge", () => {
+    const generation = {
+      tokenUsage: attempt("request-1"),
+      resultRefs: { usageComplete: true },
+      estimatedCostUsd: null,
+    };
+    expect(repositoryGenerationUsageTotals([generation])).toEqual({
+      totalTokens: 120,
+      estimatedCostUsd: null,
+    });
+    expect(repositoryGenerationUsageTotals([{ ...generation, estimatedCostUsd: 0 }])).toEqual({
+      totalTokens: 120,
+      estimatedCostUsd: 0,
+    });
+  });
+
   it("binds certification runs to the selected refresh instead of its time window", () => {
     const selected = repositoryGenerationRunsForRefresh([
       { id: "planner", inputSummary: { refreshRunId: "refresh-1" } },

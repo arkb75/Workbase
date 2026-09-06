@@ -65,6 +65,32 @@ function tokenCount(value: unknown): number {
   );
 }
 
+/** Missing provider metering is unknown, not a zero-cost/token attempt. */
+export function repositoryGenerationUsageTotals(generationRuns: ReadonlyArray<{
+  tokenUsage: unknown;
+  resultRefs: unknown;
+  estimatedCostUsd: number | null;
+}>) {
+  const tokensComplete = generationRuns.every((generation) =>
+    generation.tokenUsage !== null && generation.tokenUsage !== undefined &&
+    tokenCount(generation.tokenUsage) > 0 &&
+    record(generation.resultRefs)?.usageComplete !== false &&
+    collectUnknownModelUsageAttempts(generation.tokenUsage) === 0
+  );
+  const costsComplete = tokensComplete && generationRuns.every((generation) =>
+    generation.estimatedCostUsd !== null &&
+    Number.isFinite(generation.estimatedCostUsd) && generation.estimatedCostUsd >= 0
+  );
+  return {
+    totalTokens: tokensComplete
+      ? generationRuns.reduce((sum, generation) => sum + tokenCount(generation.tokenUsage), 0)
+      : null,
+    estimatedCostUsd: costsComplete
+      ? generationRuns.reduce((sum, generation) => sum + generation.estimatedCostUsd!, 0)
+      : null,
+  };
+}
+
 function maximumBudgetModelCalls(value: unknown) {
   let maximum = 0;
   const seen = new WeakSet<object>();
@@ -1258,14 +1284,7 @@ export async function repositoryKnowledgeObservationFromDatabase(
         generationRuns,
         snapshot.refreshRun?.budgetUsage,
       ),
-      totalTokens: generationRuns.reduce(
-        (sum, generation) => sum + tokenCount(generation.tokenUsage),
-        0,
-      ),
-      estimatedCostUsd: generationRuns.reduce(
-        (sum, generation) => sum + (generation.estimatedCostUsd ?? 0),
-        0,
-      ),
+      ...repositoryGenerationUsageTotals(generationRuns),
     },
     executionIntegrity: {
       passed: mainPathIntegrity.passed && observationIntegrityIssues.length === 0,
