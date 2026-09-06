@@ -1494,6 +1494,39 @@ describe("repository knowledge investigator", () => {
     });
   });
 
+  it("keeps repair context replay separate from its semantic allowance and re-audit reserve", () => {
+    const budget = new RepositoryInvestigationSharedBudget({
+      maxModelTokens: 280_000,
+      maxModelCalls: 71,
+      maxInspectionOperations: 110,
+    }, { modelTokens: 230_000, modelCalls: 43, inspectionOperations: 67 });
+    const policy = repositoryInvestigationPhaseBudget("verifier_repair");
+    const limits = budget.phaseLimits({
+      maxIterations: 12, maxToolCalls: 10, maxTotalTokens: 110_000,
+    }, policy.minimum.modelTokens, policy.reserve, {
+      preserveRawTokenLimit: true,
+      acceptTerminalToolAtIterationLimit: true,
+    });
+    expect(limits).toMatchObject({ maxTotalTokens: 110_000, maxSemanticTokens: 32_000 });
+    budget.consumeModelUsage({ usage: {
+      inputTokens: 70_000, outputTokens: 5_000, totalTokens: 75_000,
+      cacheReadInputTokens: 50_000, providerAttemptCount: 4,
+    } });
+    // A useful repair may replay more raw context than the remaining work
+    // allowance, but only its 25k uncached tokens consume that allowance.
+    expect(budget.snapshot().remaining.modelTokens).toBe(25_000);
+    const reaudit = repositoryInvestigationPhaseBudget("candidate_reaudit");
+    expect(budget.canStart({
+      minimumTokens: reaudit.minimum.modelTokens,
+      minimumModelCalls: reaudit.minimum.modelCalls,
+      minimumInspectionOperations: reaudit.minimum.inspectionOperations,
+    })).toBe(true);
+    budget.consumeModelUsage({ usage: { inputTokens: 10_000, outputTokens: 1_000, totalTokens: 11_000 } });
+    expect(budget.phaseLimits({
+      maxIterations: 12, maxToolCalls: 10, maxTotalTokens: 110_000,
+    }, policy.minimum.modelTokens, policy.reserve, { preserveRawTokenLimit: true })).toBeNull();
+  });
+
   it("accepts only a visible exact pinned production-source range", () => {
     const { state, evidence } = investigationState();
 

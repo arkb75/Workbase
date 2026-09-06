@@ -154,6 +154,34 @@ This follows the same [tool-design guidance](https://www.anthropic.com/engineeri
 which specifically recommends interpretable or indexed IDs over cryptic ones.
 It changes the interface, not the semantic success criteria or retry limits.
 
+### Live v22: review works, repair exhausts its allowance
+
+Live v22 on `8bcd370bf1e650572f158d283c89c308f376d561` ran from 03:44:29
+to 03:50:44 UTC (375,068 ms), with work item `cmtp9pqjv0000rnsbf61u903g`
+and refresh `cmtp9pr6h0002rnsbx0a3pafd`. Artifact:
+`/tmp/workbase-source-audit-v27.YaErOL/circlefund-v22-live.json`.
+Both candidate audits accepted their contracts. The first identified nine
+source-grounded omissions; after two short repair phases the last audit still
+identified eight. Neither repair phase saved a new finding. Their termination
+was `token_limit_exceeded`, after two and one model calls respectively. The
+final recorded shared usage was 50 calls, 284,283 semantic-accounting tokens,
+84 inspection operations, and $0.62090423. Finalization failed before synthesis;
+this is not an eligible saved-output comparison.
+
+Code inspection found that investigator phases, unlike both verifier phases,
+clipped their raw cumulative context-token limit to the remaining *uncached*
+semantic-work allowance. This creates premature phase boundaries when context
+is cached and can consume the remaining allowance restarting short phases.
+Version `repository-knowledge-investigator-v38-consistent-phase-accounting`
+uses the existing separate raw and semantic limits for the investigator too.
+The shared 280,000-token allowance, raw 110,000-token small-project ceiling,
+model-call/inspection limits, and reserved re-audit allowance are unchanged.
+A regression test covers cached repair work retaining the re-audit reserve and
+rejecting admission when that reserve cannot be protected. Live efficacy is
+not yet established; the change does not retroactively certify v22.
+Verification: 2,164 tests passed, one skipped; typecheck and changed-file lint
+passed. No source-audit fixture or historical baseline was changed.
+
 1. Complete a live run once the review endpoint can serve requests reliably;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.

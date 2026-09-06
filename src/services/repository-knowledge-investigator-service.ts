@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v37-short-review-references";
+  "repository-knowledge-investigator-v38-consistent-phase-accounting";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -4160,7 +4160,12 @@ async function runRepositoryInvestigator(input: {
       modelTokens: budgetPolicy.reserve.modelTokens,
       modelCalls: budgetPolicy.reserve.modelCalls,
     },
-    { acceptTerminalToolAtIterationLimit: true },
+    {
+      // Shared tokens measure uncached semantic work, not cumulative raw
+      // context replay. Keep both limits, as the verifier phases already do.
+      preserveRawTokenLimit: true,
+      acceptTerminalToolAtIterationLimit: true,
+    },
   );
   if (
     !limits ||
