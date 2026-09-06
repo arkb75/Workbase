@@ -1422,6 +1422,12 @@ function agentToolConfig(input: ConverseCommandInput, modelId: string) {
 }
 
 export class OpenRouterConverseTransport implements BedrockConverseTransport {
+  get supportsReasoningWithForcedTool() {
+    // Do not carry Anthropic's forced-tool thinking restriction into OpenAI
+    // checkpoint submissions. Other model families retain existing behavior.
+    return this.modelId.startsWith("openai/");
+  }
+
   constructor(
     private readonly config: OpenRouterTextConfig,
     private readonly modelId = config.modelId,
@@ -1553,6 +1559,10 @@ export class OpenRouterConverseTransport implements BedrockConverseTransport {
 export class RetryableSameModelConverseTransport
   implements BedrockConverseTransport
 {
+  get supportsReasoningWithForcedTool() {
+    return this.transport.supportsReasoningWithForcedTool === true;
+  }
+
   constructor(
     private readonly transport: BedrockConverseTransport,
     private readonly config: OpenRouterTextConfig,

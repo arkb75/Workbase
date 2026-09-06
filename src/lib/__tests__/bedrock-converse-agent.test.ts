@@ -776,6 +776,44 @@ describe("BedrockConverseAgent", () => {
     });
   });
 
+  it("retains configured reasoning on forced turns only for an opted-in transport", async () => {
+    const submit = defineBedrockConverseTool({
+      name: "submit_result",
+      description: "Submit the result.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute: () => ({ status: "accepted" }),
+      isTerminalResult: () => true,
+    });
+    for (const supported of [true, false]) {
+      const transport = Object.assign(new FakeTransport([
+        assistantResponse({
+          stopReason: "tool_use",
+          content: [toolRequest({ id: "submit", name: submit.name, input: {} })],
+        }),
+      ]), { supportsReasoningWithForcedTool: supported });
+      const agent = new BedrockConverseAgent(transport, { modelId: "test-model" });
+      const result = await agent.run({
+        messages: [userMessage()],
+        tools: [submit],
+        effort: "high",
+        temperature: 0.2,
+        forceTool: () => submit.name,
+      });
+      expect(result.terminalTool?.name).toBe(submit.name);
+      expect(transport.calls[0]?.toolConfig?.toolChoice).toEqual({
+        tool: { name: submit.name },
+      });
+      expect(transport.calls[0]?.additionalModelRequestFields).toEqual(
+        supported ? {
+          thinking: { type: "adaptive" },
+          output_config: { effort: "high" },
+        } : undefined,
+      );
+      expect(transport.calls[0]?.inferenceConfig?.temperature).toBe(supported ? 1 : 0.2);
+    }
+  });
+
   it("rejects parallel calls on a forced-tool turn", async () => {
     const execute = vi.fn(() => ({ status: "accepted" }));
     const submit = defineBedrockConverseTool({

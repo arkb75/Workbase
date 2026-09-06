@@ -1056,3 +1056,55 @@ establishes cacheability, not an observed cache hit or a measured cost saving.
 Verification: 2,191 tests passed, one skipped; typecheck, changed-file lint and
 diff whitespace checks passed. All spending limits and privacy controls remain
 unchanged. Live efficiency and complete source coverage are still unproven.
+
+### v37: repair exhausted the budget before a second audit
+
+The clean `75b4f2f531aae193e934e5ba664fb104bfba4451` run
+`/tmp/workbase-source-audit-v27.YaErOL/solopilot-v37-live.json` is terminal,
+not still running. Refresh `cmtq64m0z000298sbk4gt8e2c`, work item
+`cmtq64ktv000098sb17r89e3y`; elapsed 344,689 ms. The initial investigation
+finished with 18 provisional findings. Candidate audit
+`cmtq69k3s007l98sbl75ygkk6` submitted a valid gaps verdict with 12 missing
+operations, including conversation reads, attachment persistence, reply-mode
+updates, wireframe sharing, deployment tracking, and provider boundaries.
+
+Three repair waves raised the provisional notebook to 34 findings, but final
+usage was 49 model calls, 464,869 semantic tokens against a 460,000 allowance,
+76 inspections and $1.16989553 reported cost. The last in-flight call crossed
+the allowance; the host refused admission of the next independent verification
+phase. No final coverage verdict or eligible saved-output score exists. The
+repair's `done: true` is not independent verification of those findings.
+
+Only one candidate audit ran, so cross-audit prefix reuse was not exercised.
+Its first provider attempt reported 23,595 input tokens and zero cached input;
+its second reported 26,269 input and 23,462 cached input tokens. This shows
+within-phase reuse only, not an improvement over v36's already-working
+within-phase caching. Do not claim a measured efficiency gain from v37.
+
+The user reiterated that Otto must not be used. It remains explicitly excluded
+from the comparison, with no access attempt or pass/fail score. CircleFund,
+Backer and SoloPilot remain the retained scope; the source-parity goal is
+still incomplete.
+
+### v53: retain configured reasoning for OpenAI checkpoint submissions
+
+The shared Converse loop removed `effort` whenever it forced a terminal tool,
+including on OpenRouter/OpenAI. This copied the Bedrock/Anthropic restriction
+into a route that supports the combination. v37's repair-wave terminal calls
+also showed cache reuse dropping from preceding context-sized hits to about
+2,388 tokens. That correlation does not prove the reason for the cache miss.
+
+Following OpenRouter's [reasoning/tool continuity guidance](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
+and [tool-choice documentation](https://openrouter.ai/docs/guides/features/tool-calling),
+the OpenAI transport now opts into keeping the requested reasoning effort on
+forced tools. The same-model retry wrapper forwards that capability. Other
+transports retain existing behavior; no model switch, new retry path, spending
+increase, source-gate relaxation, or privacy change is introduced.
+
+Tests exercise the full loop-to-OpenRouter request body for both current model
+profiles and the unchanged Anthropic case. Live forced-tool capability checks
+passed on Azure for Terra (`gen-1788721416-Lkhsc9rEBCEaIsNAiKZC`, $0.000336)
+and Luna (`gen-1788721418-16UtAcr5EIr2f2RTJA7q`, $0.00003696). These tiny
+checks prove request compatibility, not repository coverage or cache savings.
+The full suite passed 2,195 tests with one skipped; typecheck passed. A
+same-budget repository run is still required to measure the effect.

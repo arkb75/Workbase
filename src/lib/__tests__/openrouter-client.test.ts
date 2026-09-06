@@ -1,4 +1,6 @@
 import type { ConverseTextRuntime } from "@/src/lib/bedrock-structured-llm-client";
+import { BedrockConverseAgent, defineBedrockConverseTool } from "@/src/lib/bedrock-converse-agent";
+import { z } from "zod";
 import type { OpenRouterTextConfig } from "@/src/lib/llm-config";
 import {
   OpenRouterChatCompletionsRuntime,
@@ -1513,6 +1515,42 @@ describe("RetryableSameModelConverseTransport", () => {
 });
 
 describe("OpenRouterConverseTransport", () => {
+  it.each(["openai/gpt-5.6-terra", "openai/gpt-5.6-luna", "anthropic/claude-sonnet-5"])(
+    "preserves forced-submission reasoning only for supported models through the retry wrapper: %s",
+    async (modelId) => {
+      const fetchMock = vi.fn().mockResolvedValue(response({
+        choices: [{
+          finish_reason: "tool_calls",
+          message: {
+            content: null,
+            tool_calls: [{ id: "submit-1", function: { name: "submit_result", arguments: "{}" } }],
+          },
+        }],
+      }));
+      const transport = new RetryableSameModelConverseTransport(
+        new OpenRouterConverseTransport(config(), modelId, fetchMock),
+        config(), modelId,
+      );
+      const agent = new BedrockConverseAgent(transport, { modelId });
+      await agent.run({
+        messages: [{ role: "user", content: [{ text: "Submit it." }] }],
+        tools: [defineBedrockConverseTool({
+          name: "submit_result",
+          description: "Submit the result.",
+          inputSchema: z.object({}),
+          jsonSchema: { type: "object", properties: {}, additionalProperties: false },
+          execute: () => ({ status: "accepted" }),
+          isTerminalResult: () => true,
+        })],
+        effort: "high",
+        forceTool: () => "submit_result",
+      });
+      const body = JSON.parse(String(fetchMock.mock.calls[0]![1].body));
+      expect(body.tool_choice).toEqual({ type: "function", function: { name: "submit_result" } });
+      expect(body.reasoning).toEqual(modelId.startsWith("openai/") ? { effort: "high" } : undefined);
+    },
+  );
+
   it("adapts Anthropic agent tools while retaining full OpenAI tool constraints", async () => {
     for (const { modelId, expectedSchema } of [
       {

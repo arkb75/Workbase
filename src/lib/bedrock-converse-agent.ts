@@ -56,6 +56,8 @@ export interface BedrockConverseTransportResponse {
 }
 
 export interface BedrockConverseTransport {
+  /** Opt in only when the selected provider/model supports both together. */
+  readonly supportsReasoningWithForcedTool?: boolean;
   converse(
     input: ConverseCommandInput,
     options?: { signal?: AbortSignal },
@@ -1108,6 +1110,10 @@ export class BedrockConverseAgent {
         );
       }
       iterations = nextIteration;
+      const reasoningEffort = !forcedToolName ||
+          this.transport.supportsReasoningWithForcedTool === true
+        ? input.effort
+        : undefined;
       await emit({
         type: "model_call_started",
         iteration: iterations,
@@ -1136,7 +1142,7 @@ export class BedrockConverseAgent {
             messages,
             inferenceConfig: {
               maxTokens,
-              temperature: input.effort && !forcedToolName ? 1 : temperature,
+              temperature: reasoningEffort ? 1 : temperature,
             },
             toolConfig: tools.length
               ? {
@@ -1158,10 +1164,10 @@ export class BedrockConverseAgent {
                     : {}),
                 }
               : undefined,
-            additionalModelRequestFields: input.effort && !forcedToolName
+            additionalModelRequestFields: reasoningEffort
               ? {
                   thinking: { type: "adaptive" },
-                  output_config: { effort: input.effort },
+                  output_config: { effort: reasoningEffort },
                 }
               : undefined,
           },
