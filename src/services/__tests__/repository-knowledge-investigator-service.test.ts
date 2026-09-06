@@ -2600,6 +2600,73 @@ describe("repository knowledge investigator", () => {
     );
   });
 
+  it("links a gap to its observation while allowing better evidence from a different file", () => {
+    const fixture = verifierFixture();
+    const gapSource = createProjectRepositoryRawEvidence({
+      sourceId: fixture.target.sourceId,
+      repository: fixture.target.repository,
+      commitSha,
+      args: ["show", "HEAD:src/session-consumer.ts"],
+      output: "export function useSession(session) {\n  return session.userId;\n}\n",
+      target: { kind: "blob", commitSha, path: "src/session-consumer.ts", blobSha: "d".repeat(40) },
+      exitCode: 0,
+    });
+    const sourceInspection = buildRepositorySourceInspectionAttestation({
+      evidence: [fixture.evidence, gapSource],
+      visibleRanges: [
+        { evidenceId: fixture.evidence.evidenceId, startLine: 1, endLine: 4 },
+        { evidenceId: gapSource.evidenceId, startLine: 1, endLine: 3 },
+      ],
+    });
+    const audit = {
+      status: "gaps" as const,
+      capabilityChecks: [],
+      independentObservationChecks: [{
+        observationDigest: repositoryVerifierIndependentObservationDigest(
+          fixture.checkpoint.independentObservations[0]!,
+        ),
+        verdict: "material_gap" as const,
+        reason: "Session creation is described but its consumer's validation boundary is missing.",
+        matchedFindingIds: [],
+        missingOperationId: "session_validation_boundary",
+        evidence: fixture.checkpoint.independentObservations[0]!.evidence,
+      }],
+      missingOperations: [{
+        id: "session_validation_boundary",
+        label: "Session validation boundary",
+        reason: "The consumer returns the session user ID without checking expiration.",
+        importance: "major" as const,
+        searchTerms: ["useSession"],
+        pathHints: ["src/session-consumer.ts"],
+        evidence: { evidenceId: gapSource.evidenceId, lineStart: 1, lineEnd: 3 },
+      }],
+      rationale: "Follow the created session into its consumer to retain the material boundary.",
+    };
+    const validate = (candidate = audit) => validateRepositoryCoverageAuditContract({
+      audit: candidate,
+      notebook: fixture.notebook,
+      sourceInspection,
+      targets: [],
+      requireDiscovery: false,
+      independentReview: fixture.checkpoint,
+    });
+    expect(validate()).toEqual({ accepted: true });
+    expect(validate({ ...audit, missingOperations: [] })).toMatchObject({
+      accepted: false,
+      errors: [expect.stringContaining("does not link a submitted missing operation")],
+    });
+    expect(validate({
+      ...audit,
+      missingOperations: [{
+        ...audit.missingOperations[0]!,
+        evidence: { evidenceId: "uninspected-source", lineStart: 1, lineEnd: 3 },
+      }],
+    })).toMatchObject({
+      accepted: false,
+      errors: [expect.stringContaining("not tied to a visible exact pinned verifier read")],
+    });
+  });
+
   it("keeps the blind checkpoint reusable while later notebook waves change", () => {
     const fixture = verifierFixture();
     const nextWaveNotebook: RepositoryInvestigationNotebook = {

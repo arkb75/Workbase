@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v34-explicit-git-tool-contract";
+  "repository-knowledge-investigator-v35-independent-gap-evidence";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -2714,11 +2714,11 @@ export function validateRepositoryCoverageAuditContract(input: {
         errors.push(
           `Independent observation ${check.observationDigest} does not link a submitted missing operation.`,
         );
-      } else if (hash(operation.evidence) !== hash(check.evidence)) {
-        errors.push(
-          `Independent observation ${check.observationDigest} and missing operation ${operation.id} must share the same fresh exact citation.`,
-        );
       }
+      // An observation can start at a declaration while the gap is established
+      // by its consumer, or several observations can identify the same gap.
+      // The ID records that relationship. Validate each citation against the
+      // fresh read set independently instead of requiring duplicate ranges.
     }
   }
   for (const digest of expectedIndependentObservations.keys()) {
@@ -3468,6 +3468,7 @@ export function candidateCoverageAuditRequest(input: {
       "Compare those observations with the candidate, investigate concrete discrepancies, and re-read the exact pinned source range for every required representative capability check in this fresh phase.",
       "Disposition every independent observation exactly once by its digest as covered_by_candidate, material_gap, or not_material. Re-read its cited path and range in this phase; link covered observations to candidate finding IDs and material gaps to a submitted missing-operation ID.",
       "Every capability check and every newly discovered missing operation must cite one exact visible git show HEAD:path range read in this phase. Unsupported means you re-read the investigator's exact claim range and found the statement unsupported.",
+      "A missing operation may cite a different freshly read range or file from the observation that led to it. Choose the source that directly establishes the gap; link related observations to that operation by missingOperationId.",
       repositoryInvestigationBoundaryReviewGuidance,
       "Do not infer repository-wide absence from a single snippet. Express a source-bounded positive constraint.",
       `Use up to ${REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS} normal inspect_repository_snapshot calls. Batch the required exact reads and any concrete independent-review lead, then call submit_repository_coverage_audit. If the host reports that a required reread is still missing, it may require one final reread-only repair call before submission.`,
