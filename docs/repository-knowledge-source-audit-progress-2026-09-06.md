@@ -495,3 +495,62 @@ skipped; typecheck and changed-file lint passed. Tests cover bounded/deduplicate
 read planning, fresh snapshot/source identity, failed reads, expansion limits,
 and explicit scope exclusion without weakening retained evaluation. Live
 validation remains required before claiming efficiency or quality improvement.
+
+### Live v29: fewer calls, still no certified saved output
+
+Clean implementation `2f983d1c72d6c7677e3cf46d03294ab988402ba3`; artifacts:
+`/tmp/workbase-source-audit-v27.YaErOL/circlefund-v29-live.json` and
+`/tmp/workbase-source-audit-v27.YaErOL/backer-v29-live.json`.
+
+- CircleFund: work item `cmtpxw67u00003wsbjmz4frdk`, refresh
+  `cmtpxw6xg00023wsb7wtkj50i`, 268,837 ms. Both candidate audits used three
+  host-prefetch calls and passed all 16 required reads. First review reported
+  six gaps; after repair, re-review reported ordinary browser logout and the
+  contribution input constraints as two supporting omissions. Final usage:
+  24 model calls, 255,618 semantic tokens, 57 inspections, $0.44553732. It still
+  failed the one-repair ceiling; 24,382 semantic tokens remained, insufficient
+  for the existing minimum repair-plus-re-audit reservation anyway.
+- Backer: work item `cmtpxx2mz0000fasbosu7chis`, refresh
+  `cmtpxx3xu0002fasbfoiimle2`, 229,695 ms. Candidate review prefetched three
+  batches but had only 19/20 required ranges visible. The unresolved observation
+  required `prisma/schema.prisma:84–105`. The model submitted twice; the host
+  treated missing source as a payload-contract failure rather than requiring
+  inspection before submission. Final usage: 21 model calls, 200,120 semantic
+  tokens, 41 inspections, $0.33210080. Remaining shared budget was 259,880
+  semantic tokens, so this was a protocol defect, not a capacity/credit failure.
+
+These are independent stochastic runs, not paired proofs of quality-equivalent
+savings. No saved-output source-audit score or non-regression claim is available.
+SoloPilot was not rerun on v44, which did not address its pre-candidate failure.
+
+### v45: actionable source requirements, lean map, budget-bounded repair
+
+`repository-knowledge-investigator-v45-actionable-source-gates` exposes the exact
+missing pinned paths/ranges in the candidate's initial request and subsequent
+inspection instructions. When the source gate is incomplete, tool choice now
+requires inspection before submission even before the last normal call; blind
+review likewise cannot submit before its existing provenance gate is met.
+Known-range binding errors identify the required path and line numbers. No
+missing source is accepted and no inspection allowance is increased.
+
+The navigation map omits database row IDs and only the mechanically generated
+`Defines …` description that exactly repeats the displayed symbols. It retains
+paths, those symbols, dependency descriptions, unique responsibilities, and
+capability hints, with unchanged scoring and byte ceiling. A read-only projection
+of SoloPilot's 243 analyzed paths measured 37,165 bytes before its header versus
+59,975 bytes for the old complete map (approximately 38% smaller). This is a
+payload measurement, not a token/cost or quality guarantee.
+
+The separate exactly-one-repair policy is removed. The existing shared
+call/token/inspection limits, minimum repair-plus-re-audit admission, phase
+capacity stops, and repeated-convergence-signature stop remain. This lets
+productive follow-up repairs use remaining budget without resetting allowances
+or accepting incomplete knowledge. It follows the simple feedback loop in
+[Anthropic's evaluator–optimizer guidance](https://www.anthropic.com/engineering/building-effective-agents).
+Tests cover multiple repairs consuming the original allowance, source readiness
+forcing inspection, exact missing-range reporting, and preservation of map
+content and input data while removing duplication. Live validation on all three
+retained repositories remains necessary.
+
+Verification for v45: all 2,177 tests passed, one skipped; typecheck,
+changed-file lint, and diff whitespace checks passed.

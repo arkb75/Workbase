@@ -25,7 +25,6 @@ import {
   independentCoverageReviewRequest,
   mergeRepositorySourceInspectionAttestations,
   prioritizedRepositoryInvestigationGaps,
-  MAX_REPOSITORY_VERIFIER_REPAIR_CYCLES,
   REPOSITORY_INVESTIGATION_CHECKPOINT_VERSION,
   REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
   REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
@@ -58,11 +57,11 @@ import {
   repositoryInvestigationNotebookUpdateIsTerminal,
   repositoryInspectionSegmentForModel,
   repositoryInvestigationPhaseBudget,
+  repositoryInvestigationBudgetCanStartPhase,
   repositoryInvestigationSemanticModelTokenCount,
   repositoryInvestigationSharedBudgetLimits,
   repositorySourceInspectionAttestationFromNotebook,
   repositoryUnsupportedFindingRepairGaps,
-  repositoryVerifierRepairDecision,
   repositoryVerifierIndependentDiscoveryGate,
   repositoryVerifierIndependentNextAction,
   repositoryVerifierIndependentObservationDigest,
@@ -591,6 +590,7 @@ describe("repository knowledge investigator", () => {
       requiredReadCount: 0,
       completedReadCount: 0,
       missingReadCount: 0,
+      missingRanges: [],
     });
     expect(repositoryVerifierRequiredExactReadGate({
       sourceInspection: emptyInspection,
@@ -601,6 +601,7 @@ describe("repository knowledge investigator", () => {
       requiredReadCount: 2,
       completedReadCount: 0,
       missingReadCount: 2,
+      missingRanges: [firstTarget, secondTarget],
     });
     expect(repositoryVerifierRequiredExactReadGate({
       sourceInspection: { ...sourceInspection, readSet: [firstRead] },
@@ -611,6 +612,7 @@ describe("repository knowledge investigator", () => {
       requiredReadCount: 2,
       completedReadCount: 1,
       missingReadCount: 1,
+      missingRanges: [secondTarget],
     });
     expect(repositoryVerifierRequiredExactReadGate({
       sourceInspection: {
@@ -624,6 +626,7 @@ describe("repository knowledge investigator", () => {
       requiredReadCount: 2,
       completedReadCount: 2,
       missingReadCount: 0,
+      missingRanges: [],
     });
 
     for (const mismatchedIdentity of [
@@ -643,6 +646,7 @@ describe("repository knowledge investigator", () => {
         requiredReadCount: 1,
         completedReadCount: 0,
         missingReadCount: 1,
+        missingRanges: [firstTarget],
       });
     }
   });
@@ -721,13 +725,24 @@ describe("repository knowledge investigator", () => {
     expect(policies.candidate_audit.minimum.modelCalls).toBe(
       REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS + 2,
     );
-    expect(repositoryVerifierRepairDecision(0)).toEqual({ action: "repair" });
-    expect(repositoryVerifierRepairDecision(
-      MAX_REPOSITORY_VERIFIER_REPAIR_CYCLES,
-    )).toEqual({
-      action: "stop",
-      terminationReason: "verifier_gaps_after_bounded_repair",
+  });
+
+  it("admits multiple repairs only from the original shared allowance with re-audit reserved", () => {
+    const policy = repositoryInvestigationPhaseBudget("verifier_repair");
+    const cycleTokens = policy.minimum.modelTokens + policy.reserve.modelTokens;
+    const cycleCalls = policy.minimum.modelCalls + policy.reserve.modelCalls;
+    const cycleInspections = policy.minimum.inspectionOperations + policy.reserve.inspectionOperations;
+    const budget = new RepositoryInvestigationSharedBudget({
+      maxModelTokens: cycleTokens * 2, maxModelCalls: cycleCalls * 2,
+      maxInspectionOperations: cycleInspections * 2,
     });
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      expect(repositoryInvestigationBudgetCanStartPhase(budget, policy)).toBe(true);
+      expect(budget.reserveInspectionOperations(cycleInspections)).toBe(true);
+      budget.consumeModelUsage({ usage: { inputTokens: cycleTokens - 100, outputTokens: 100, totalTokens: cycleTokens }, fallbackModelCalls: cycleCalls });
+    }
+    expect(repositoryInvestigationBudgetCanStartPhase(budget, policy)).toBe(false);
+    expect(budget.snapshot().remaining).toMatchObject({ modelTokens: 0, modelCalls: 0, inspectionOperations: 0 });
   });
 
   it("forces only the tool allowed by the blind-review provenance state", () => {
@@ -752,7 +767,7 @@ describe("repository knowledge investigator", () => {
       inspectionToolCalls:
         REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS - 1,
       readyToSubmit: false,
-    })).toBeNull();
+    })).toBe("inspect_repository_snapshot");
     expect(forcedTool({
       inspectionToolCalls: REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
       readyToSubmit: false,
@@ -881,7 +896,7 @@ describe("repository knowledge investigator", () => {
     expect(forcedTool({
       inspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS - 1,
       readyToSubmit: false,
-    })).toBeNull();
+    })).toBe("inspect_repository_snapshot");
     expect(forcedTool({
       inspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
       readyToSubmit: false,
@@ -2078,6 +2093,25 @@ describe("repository knowledge investigator", () => {
     expect(map).toContain("src/session.ts");
     expect(map).not.toContain("src/unread.ts");
     expect(map).toContain("navigation hints only");
+  });
+
+  it("removes only redundant navigation descriptions and opaque IDs while preserving navigation hints", () => {
+    const files = ["api/entry.py", "worker/index.ts", "firmware/main.c"].map((path, index) => ({
+      id: `database-row-${index}`, path, blobSha, sizeBytes: 100,
+      disposition: "analyzed" as const,
+      analysis: { path, facts: [], symbols: ["run", "stop"],
+        responsibilities: ["Defines run, stop.", "Connects to storage.", "Persists work before returning."],
+        userFacingCapabilities: ["Starts a job"],
+      },
+    }));
+    const original = structuredClone(files);
+    const map = buildCompactRepositoryInvestigationMap({ files });
+    for (const file of files) expect(map).toContain(file.path);
+    expect(map).toContain("run; stop; Connects to storage.; Persists work before returning.; Starts a job");
+    expect(map).not.toContain("Defines run, stop.");
+    expect(map).not.toContain("database-row-");
+    expect(map).toEqual(buildCompactRepositoryInvestigationMap({ files: files.map(file => ({ ...file, id: `new-${file.id}` })) }));
+    expect(files).toEqual(original);
   });
 
   it("keeps continuation state compact without embedding retained excerpts", () => {
