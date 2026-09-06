@@ -151,6 +151,7 @@ export function resolveOpenRouterConfig(
       0,
     ),
     providerOrder: commaSeparatedValues(
+      process.env[`WORKBASE_OPENROUTER_PROVIDER_ORDER_${profileEnvironmentSuffix[profile]}`]?.trim() ||
       process.env.WORKBASE_OPENROUTER_PROVIDER_ORDER,
     ),
     siteUrl:

@@ -70,6 +70,36 @@ Outcome verification and cost/latency diagnostics are distinct dimensions in
 
 ## Remaining work
 
+### Same-model routing diagnosis, 03:20–03:22 UTC
+
+A single no-retry request on the default review route reproduced an embedded
+429 error in an HTTP 200 response (`gen-1788664822-FXDoKqbMbtfLU9ukD0hy`). The
+provider explicitly described the model as rate-limited upstream. Model-wide
+availability did not imply that an endpoint eligible for this request was healthy.
+
+Changing `max_completion_tokens` to `max_tokens` was tested and rejected: the
+result had no endpoint matching the existing zero-data-retention policy. The
+client's current parameter spelling is deliberate and remains unchanged.
+
+Explicitly selecting `azure/eu` for the **same** `openai/gpt-5.6-luna` model did
+work with ZDR and strict parameter support still enabled. Both a plain response
+(`gen-1788664902-PhCjGeSMgIPBlbmAlV3N`) and strict tool submission
+(`gen-1788664933-ePCh782NYi5QBSxBwMYs`) succeeded. Reported costs were $0.00000858
+and $0.00003344 respectively. This validates availability/tool protocol, not
+repository coverage. The endpoint's listed per-token price was 10% above the
+default Azure endpoint at inspection time.
+
+The local configuration now sets
+`WORKBASE_OPENROUTER_PROVIDER_ORDER_VERIFICATION="azure/eu"`. A new optional
+per-profile routing preference allows this without changing the primary or
+synthesis route, models, or privacy policy. Blank profile preferences inherit
+the existing global preference. No application-wide default endpoint is hardcoded.
+Documentation used: OpenRouter's [provider preferences schema](https://github.com/openrouterteam/docs/blob/main/openapi/openapi.yaml),
+retrieved through Context7, and the live per-model endpoint metadata.
+
+The next full evaluation must still establish saved-output quality. The v19
+failure above remains a failure; these probes do not retroactively certify it.
+
 1. Complete a live run once the review endpoint can serve requests reliably;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.

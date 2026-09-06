@@ -50,6 +50,24 @@ describe("OpenRouter model configuration", () => {
     expect(resolveOpenRouterConfig("routing").minRequestIntervalMs).toBe(750);
   });
 
+  it("scopes endpoint preferences to a profile without changing models or privacy", () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    vi.stubEnv("WORKBASE_OPENROUTER_PROVIDER_ORDER", "azure");
+    vi.stubEnv("WORKBASE_OPENROUTER_PROVIDER_ORDER_VERIFICATION", " azure/eu, azure ");
+    const verification = resolveOpenRouterConfig("verification");
+    expect(verification).toMatchObject({
+      providerOrder: ["azure/eu", "azure"],
+      zeroDataRetention: true,
+      requireParameters: true,
+    });
+    expect(verification.fallbackModelId).toBeUndefined();
+    expect(resolveOpenRouterConfig("primary_answer").providerOrder).toEqual(["azure"]);
+    vi.stubEnv("WORKBASE_OPENROUTER_PROVIDER_ORDER_VERIFICATION", " ");
+    expect(resolveOpenRouterConfig("verification").providerOrder).toEqual(["azure"]);
+    vi.stubEnv("WORKBASE_OPENROUTER_PROVIDER_ORDER", "");
+    expect(resolveOpenRouterConfig("verification").providerOrder).toEqual([]);
+  });
+
   it("uses the shared OpenRouter application URL for attribution headers", () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-key");
     vi.stubEnv(
