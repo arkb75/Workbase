@@ -598,10 +598,41 @@ and stateless cookie boundaries. Frozen unit expectations were not changed.
 
 Next main-path work should address the actual review interface: let the host
 carry the identities of mandatory representative checks so the model supplies
-judgments rather than repeatedly transcribing long identifiers; route an
-unread new-gap citation to the already-existing source-inspection action using
-structured source diagnostics rather than a generic payload-contract failure.
+judgments rather than repeatedly transcribing long identifiers. Investigation
+of SoloPilot's source-repair admission is still needed: the code already routes
+typed citation diagnostics to source inspection, so adding that routing is not
+the missing fix. The final attestation retains `evidence_range_not_visible`
+alongside `coverage_contract_invalid`, zero source-repair inspections, and
+`submissionNeedsSourceRepair: false`; it does not retain the earlier rejection
+sequence needed to establish why the repair was not taken.
 Do not weaken either source support or completeness checks. CircleFund also
 needs the investigator to repair the stated missing operation rather than only
 adjacent declarations/display surfaces. Do not launch another identical paid
 run or score provisional notebooks as saved knowledge.
+
+### v46: mandatory host-bound representative judgments
+
+`repository-knowledge-investigator-v46-host-bound-review-checks` gives the
+candidate reviewer a required `representativeChecks` object with `check_1`,
+`check_2`, etc. for the host-selected claims. Each requires an explicit verdict
+and reason; omitted checks are invalid tool input, not an audit that gets as far
+as the semantic contract. The host supplies the already-known capability and
+finding identities. Optional extra judgments remain a separately bounded array.
+The persisted audit shape, source-read gates, exact citation resolution, and
+unsupported-claim rejection are unchanged. No judgment is synthesized.
+
+This follows the narrow tool-interface principle in
+[Anthropic's tool-design guidance](https://www.anthropic.com/engineering/writing-tools-for-agents):
+avoid making an agent repeat known identifier bookkeeping. Required object
+properties also use the existing strict function-tool schema mechanism described
+in [OpenRouter's tool-calling documentation](https://github.com/openrouterteam/docs/blob/main/guides/features/tool-calling.mdx).
+No new framework, model, provider, budget, or evaluator threshold is introduced.
+
+Tests exercise three generic API/worker/firmware claims, missing and unknown
+keys, unsupported judgments, additional checks, input immutability, and the full
+binding-to-fresh-citation validation path (including stale or absent reads).
+Backer is the targeted next live diagnostic because its preceding run failed on
+an omitted mandatory judgment. It is not yet evidence of saved-output parity.
+
+Verification: 2,178 tests passed, one skipped; typecheck, changed-file lint, and
+diff whitespace checks passed.

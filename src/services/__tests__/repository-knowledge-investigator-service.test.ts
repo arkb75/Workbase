@@ -37,6 +37,7 @@ import {
   repositoryCoverageAuditPhaseLimits,
   repositoryCoverageAuditSubmissionSchema,
   repositoryCoverageAuditSubmissionJsonSchema,
+  repositoryCoverageReviewToolSchemas,
   resolveRepositoryCoverageAuditSubmission,
   repositoryCandidateAuditIdempotencyKey,
   repositoryCoverageCandidatePacket,
@@ -2975,17 +2976,58 @@ describe("repository knowledge investigator", () => {
     });
   });
 
+  it("requires every host-selected judgment and binds identities without inventing verdicts", () => {
+    const fixture = verifierFixture();
+    const keys = ["project_domain:api", "project_domain:worker", "project_domain:firmware"];
+    const notebook = {
+      ...fixture.notebook,
+      capabilities: keys.map(key => ({ ...fixture.notebook.capabilities[0]!, key })),
+      findings: keys.map((key, index) => ({ ...fixture.notebook.findings[0]!, id: `operation_${index}`, capabilityKeys: [key] })),
+    };
+    const original = structuredClone(notebook);
+    const targets = repositoryCoverageVerificationTargets(notebook);
+    expect(targets).toHaveLength(3);
+    const schemas = repositoryCoverageReviewToolSchemas(notebook);
+    const judgments = Object.fromEntries(targets.map((_, index) => [`check_${index + 1}`, {
+      verdict: index === 1 ? "unsupported" : "supported",
+      reason: `Independent source assessment for representative ${index + 1}.`,
+    }]));
+    const value = {
+      status: "gaps", representativeChecks: judgments, additionalCapabilityChecks: [],
+      independentObservationChecks: [], missingOperations: [], rationale: "One claim is unsupported by the inspected source.",
+    };
+    const bound = schemas.bind(schemas.inputSchema.parse(value));
+    expect(bound.capabilityChecks).toEqual(targets.map((target, index) => ({
+      capabilityKey: target.capabilityKey, findingId: target.findingId, ...judgments[`check_${index + 1}`],
+    })));
+    const json = schemas.jsonSchema as { properties: { representativeChecks: { required: string[]; additionalProperties: boolean } } };
+    expect(json.properties.representativeChecks.required).toEqual(Object.keys(judgments));
+    expect(json.properties.representativeChecks.additionalProperties).toBe(false);
+    for (const key of Object.keys(judgments)) {
+      const incomplete = { ...judgments };
+      delete incomplete[key];
+      expect(schemas.inputSchema.safeParse({ ...value, representativeChecks: incomplete }).success).toBe(false);
+    }
+    expect(schemas.inputSchema.safeParse({ ...value, representativeChecks: { ...judgments, check_99: judgments.check_1 } }).success).toBe(false);
+    expect(schemas.inputSchema.safeParse({ ...value, representativeChecks: { ...judgments, check_1: { verdict: "supported", reason: "" } } }).success).toBe(false);
+    expect(schemas.inputSchema.safeParse({ ...value, capabilityChecks: [] }).success).toBe(false);
+    const extra = { capabilityKey: keys[0]!, findingId: "additional_claim", verdict: "unsupported" as const, reason: "An additional inspected claim is not supported." };
+    expect(schemas.bind(schemas.inputSchema.parse({ ...value, additionalCapabilityChecks: [extra] })).capabilityChecks.at(-1)).toEqual(extra);
+    expect(notebook).toEqual(original);
+    expect(repositoryCoverageCandidatePacket(notebook).requiredRepresentativeChecks.map(check => check.checkId)).toEqual(Object.keys(judgments));
+  });
+
   it("binds known review decisions to fresh exact citations without asking the model to copy ranges", () => {
     const fixture = verifierFixture();
     const finding = fixture.notebook.findings[0]!;
-    const submission = repositoryCoverageAuditSubmissionSchema.parse({
+    const toolSchemas = repositoryCoverageReviewToolSchemas(fixture.notebook);
+    const submission = toolSchemas.bind(toolSchemas.inputSchema.parse({
       status: "satisfied",
-      capabilityChecks: [{
-        capabilityKey: finding.capabilityKeys[0],
-        findingId: finding.id,
+      representativeChecks: { check_1: {
         verdict: "supported",
         reason: "The exact implementation range supports this session operation.",
-      }],
+      } },
+      additionalCapabilityChecks: [],
       independentObservationChecks: [{
         observationId: "obs_1",
         verdict: "covered_by_candidate",
@@ -2995,7 +3037,7 @@ describe("repository knowledge investigator", () => {
       }],
       missingOperations: [],
       rationale: "The independently observed operation is supported by fresh source reads.",
-    });
+    }));
     const sourceInspection = {
       ...fixture.sourceInspection,
       readSet: fixture.sourceInspection.readSet.map((read) => ({
