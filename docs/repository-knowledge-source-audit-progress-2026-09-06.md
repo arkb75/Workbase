@@ -1128,3 +1128,38 @@ test covers checkpoint restoration, refusal to verify the empty candidate,
 rejection of false completion, and later exact-source finding creation.
 Targeted investigator tests: 89 passed; typecheck passed. No saved-output
 coverage score or cache-efficiency claim is supported by v38.
+
+### v39: cache continuity improved locally; end-to-end coverage still fails
+
+The clean `3ac78faf64913e8d45255410d70cf46512ad0252` run
+`/tmp/workbase-source-audit-v27.YaErOL/solopilot-v39-live.json` is terminal.
+Refresh `cmtq6pwq50002xvsbp8nlwh4n`, work item
+`cmtq6pw9c0000xvsbw4iqvirf`; elapsed 455,700 ms. Full tests on this version:
+2,196 passed, one skipped; typecheck and changed-file lint passed.
+
+Investigation reached 29 provisional findings and independent verification.
+The valid candidate audit `cmtq6x0gm007oxvsbdbzyyx1y` found 13 material gaps
+and a dispatch claim whose cited range did not cover its whole statement.
+Repair reached 32 findings with 11 unresolved areas, including attachment
+references, reply-mode validation, moderation reads/amendment, deployment
+record/link behavior, and wireframe retrieval/export. No second audit or
+synthesis completed. Final usage: 59 calls, 442,496 semantic tokens, 91
+inspections, $1.30326773; 17,504 semantic tokens remained, below candidate
+verification admission. These provisional counts are not coverage scores.
+
+Within repair wave 8, cached input progressed from 2,516 on the initial
+18,695-token request to 18,692, 20,588, 24,072, 25,916 and 27,590 on subsequent
+requests. Thus context-sized cache hits persisted through this wave's
+submission sequence. But total run time/cost did not improve versus v37, and
+there was no re-audit to test v52 cross-audit reuse. Do not infer overall
+efficiency or source parity from the local cache signal.
+
+The final wave spent 17,820 semantic tokens without increasing findings or
+inspection count. Its requests had 19,501/19,873 input tokens with
+2,516/19,498 cached input. The fixed minimum phase admission is smaller than
+the cost of entering this late notebook context, leaving almost no useful
+work capacity. The next investigation should examine repeated context and
+checkpoint overhead, not rerun this version unchanged or weaken the source
+checks. All paid run handles from this turn are terminal. The comparison
+against all three retained source audits and matched-main controls remains
+incomplete; this experimental branch is not a verified replacement for main.
