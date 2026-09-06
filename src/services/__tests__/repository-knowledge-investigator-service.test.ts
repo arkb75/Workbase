@@ -2709,8 +2709,36 @@ describe("repository knowledge investigator", () => {
     expect(projected.evidenceId).toBe(evidence.evidenceId);
     expect(projected.startLine).toBe(2);
     expect(projected.endLine).toBe(5);
+    expect(projected.totalLines).toBe(segment.totalLines);
+    expect(projected.truncated).toBe(segment.truncated);
+    expect(projected.target).toEqual(segment.target);
+    expect(Object.keys(projected).sort()).toEqual([
+      "citationByteLimit", "endLine", "evidenceId", "excerpt", "startLine",
+      "target", "totalLines", "truncated",
+    ]);
+    expect(JSON.stringify(projected).length).toBeLessThan(JSON.stringify(segment).length);
     expect(segment).toEqual(original);
     expect(evidence.output).not.toContain("2: export");
+  });
+
+  it("keeps partial-source expansion handles and every visible source byte in concise results", () => {
+    const { evidence } = investigationState({
+      output: Array.from({ length: 60 }, (_, i) => `line ${i + 1}: δ café`).join("\n"),
+    });
+    const segment = expandProjectRepositoryEvidence({
+      evidence, startLine: 7, maximumLines: 8, maximumBytes: 8192,
+    })!;
+    const projected = repositoryInspectionSegmentForModel(segment);
+    expect(projected.truncated).toBe(true);
+    expect(projected.totalLines).toBe(60);
+    expect(projected.excerpt.split("\n").map((line) => line.slice(line.indexOf(": ") + 2)).join("\n"))
+      .toBe(segment.excerpt);
+    const next = expandProjectRepositoryEvidence({
+      evidence, startLine: projected.endLine + 1, maximumLines: 8, maximumBytes: 8192,
+    })!;
+    expect(next.evidenceId).toBe(projected.evidenceId);
+    expect(next.startLine).toBe(15);
+    expect(next.target).toEqual(projected.target);
   });
 
   it("plans fresh required source reads once, within batch limits and without trusting another snapshot", () => {

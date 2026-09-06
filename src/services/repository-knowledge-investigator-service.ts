@@ -56,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v47-lossless-source-attestations";
+  "repository-knowledge-investigator-v48-concise-source-results";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -3879,10 +3879,15 @@ function parseTargets(value: unknown) {
   return parsed as RepositoryTargetHead[];
 }
 
-/** Add line addresses only to the model-facing copy; durable evidence is unchanged. */
+/** Keep source and usable citation/expansion handles, not host audit bookkeeping. */
 export function repositoryInspectionSegmentForModel(segment: ProjectRepositoryEvidenceSegment) {
   return {
-    ...segment,
+    evidenceId: segment.evidenceId,
+    target: segment.target,
+    startLine: segment.startLine,
+    endLine: segment.endLine,
+    totalLines: segment.totalLines,
+    truncated: segment.truncated,
     excerpt: segment.excerpt.split("\n")
       .map((line, index) => `${segment.startLine + index}: ${line}`).join("\n"),
     citationByteLimit: REPOSITORY_SEMANTIC_MAX_CITATION_BYTES,

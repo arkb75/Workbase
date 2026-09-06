@@ -732,3 +732,46 @@ does not purport to solve them through formatting alone.
 
 Verification: full suite 2,181 passed, one skipped; focused synthesis/audit
 tests, typecheck, changed-file lint, and diff whitespace checks passed.
+
+### Live v32 Backer: review capacity exhausted, before synthesis
+
+Implementation `d7b7d576be3c555dd03e29a8b1ab025862548cb9`;
+artifact `/tmp/workbase-source-audit-v27.YaErOL/backer-v32-live.json`;
+work item `cmtq34pfx0000tcsbpaw336vr`, refresh
+`cmtq34qrc0002tcsblsevpj70`. The process ended with exit 1 after
+399,301 ms. No current coverage score is eligible from this run.
+
+Initial investigation produced 35 provisional findings and consumed 321,962
+semantic tokens. Blind review completed. First candidate review
+`cmtq3bufv005ftcsbun6enjsr` completed all 16 required reads with no submission
+errors, identifying investment lifecycle and non-atomic-write boundaries.
+Repair added two findings. Re-review `cmtq3d5ac005jtcsb7p36p1mq` stopped with
+`verifier_phase_budget_exhausted`, 15 of 16 required reads completed; the
+remaining range was `lib/db/types.ts:1–22`. Final usage was 55 calls, 464,540
+semantic tokens, 95 inspections and $1.18693701 reported text-model cost. The
+last in-flight response crossed the 460,000-token allowance. This was not a
+funding error or a rejected review payload.
+
+Read-set records beyond 20 entries remained intact, exercising the v47 fix.
+The run never reached synthesis, so it supplies no live evidence for v78 claim
+repair. Provisional findings are not saved, reviewed output and are not scored.
+CircleFund and SoloPilot were not rerun unchanged. Otto remains excluded.
+
+### v48: concise source results, unchanged durable proof
+
+The model-facing exact-source segment now retains its citation/expansion
+evidence ID, pinned target, original line bounds, total line count, truncation
+flag, complete visible source with line addresses, and citation byte limit.
+It omits repeated host-only hashes, IDs, command strings, and version metadata.
+Raw evidence, visible-range tracking, durable attestations and all source gates
+are unchanged. This follows the high-signal tool-response guidance in
+[Anthropic's tool engineering article](https://www.anthropic.com/engineering/writing-tools-for-agents).
+
+Tests preserve Unicode, blank lines, partial-range expansion and input
+immutability, and verify that the projected payload is smaller. This is a
+bounded efficiency change, not a claim that review capacity or independent
+coverage parity has been achieved. No budget, output-count target, model,
+fallback or project-specific rule was added.
+
+Verification: 2,182 tests passed, one skipped; typecheck, changed-file lint and
+diff whitespace checks passed. Live effectiveness remains to be measured.
