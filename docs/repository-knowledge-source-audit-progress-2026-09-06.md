@@ -131,6 +131,29 @@ This is an application of reducing unnecessary agent-side tool bookkeeping,
 consistent with [Anthropic's tool-design guidance](https://www.anthropic.com/engineering/writing-tools-for-agents).
 It does not retroactively certify v20; a fresh live result is still required.
 
+### Live v21 and short review references
+
+Live v21 on `fa06ff44b77bb734df496ed89572a4ec6440fcbe` ran for 209,978 ms
+with work item `cmtp9exsv00006dsb688ghojc` and refresh
+`cmtp9eyih00026dsbn9f4bw4p`. Artifact:
+`/tmp/workbase-source-audit-v27.YaErOL/circlefund-v21-live.json`.
+Investigation retained 20 provisional findings; independent review succeeded.
+The candidate verifier completed all 20 required exact reads but failed before
+saved synthesis. It copied one observation digest with `...93a9...` instead of
+`...93c9...`. This unknown ID was misleadingly reported as a missing exact read.
+The recorded investigation usage was 31 calls, 155,789 semantic-accounting
+tokens, 48 inspection operations, and $0.33871648 with complete usage evidence.
+
+Version `repository-knowledge-investigator-v37-short-review-references` exposes
+short packet-local observation IDs (`obs_1`, `obs_2`, etc.) instead of requiring
+the model to transcribe SHA-256 hashes. The host resolves each known ID to the
+unchanged full persisted digest and binds its fresh citation as before. Unknown
+references are rejected explicitly; duplicate/omitted observations and source,
+verdict, and link checks remain enforced by the existing final contract.
+This follows the same [tool-design guidance](https://www.anthropic.com/engineering/writing-tools-for-agents),
+which specifically recommends interpretable or indexed IDs over cryptic ones.
+It changes the interface, not the semantic success criteria or retry limits.
+
 1. Complete a live run once the review endpoint can serve requests reliably;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.

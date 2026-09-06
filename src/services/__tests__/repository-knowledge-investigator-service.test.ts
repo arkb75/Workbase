@@ -2682,9 +2682,7 @@ describe("repository knowledge investigator", () => {
         reason: "The exact implementation range supports this session operation.",
       }],
       independentObservationChecks: [{
-        observationDigest: repositoryVerifierIndependentObservationDigest(
-          fixture.checkpoint.independentObservations[0]!,
-        ),
+        observationId: "obs_1",
         verdict: "covered_by_candidate",
         reason: "The candidate captures the independently observed session operation.",
         matchedFindingIds: [finding.id],
@@ -2721,6 +2719,10 @@ describe("repository knowledge investigator", () => {
       lineStart: 1,
       lineEnd: 4,
     });
+    expect(resolved.audit.independentObservationChecks[0]?.observationDigest).toBe(
+      repositoryVerifierIndependentObservationDigest(fixture.checkpoint.independentObservations[0]!),
+    );
+    expect(resolved.audit.independentObservationChecks[0]).not.toHaveProperty("observationId");
     expect(validateRepositoryCoverageAuditContract({
       audit: resolved.audit,
       notebook: fixture.notebook,
@@ -2747,9 +2749,9 @@ describe("repository knowledge investigator", () => {
     expect(resolve({ submission: {
       ...submission,
       independentObservationChecks: [{
-        ...submission.independentObservationChecks[0]!, observationDigest: "e".repeat(64),
+        ...submission.independentObservationChecks[0]!, observationId: "obs_999",
       }],
-    } })).toMatchObject({ accepted: false });
+    } })).toMatchObject({ accepted: false, errors: [expect.stringContaining("Unknown independent observation obs_999")] });
     // Host enrichment must not lose the existing cross-field verdict rules.
     expect(resolve({ submission: {
       ...submission,
@@ -2768,6 +2770,40 @@ describe("repository knowledge investigator", () => {
       expect(properties[name]!.items.properties).not.toHaveProperty("evidence");
     }
     expect(properties.missingOperations!.items.required).toContain("evidence");
+    expect(properties.independentObservationChecks!.items.required).toContain("observationId");
+    expect(properties.independentObservationChecks!.items.properties).not.toHaveProperty("observationDigest");
+    const secondObservation = {
+      ...fixture.checkpoint.independentObservations[0]!,
+      statement: "The operation returns the newly persisted session to its caller.",
+    };
+    const secondResolved = resolve({
+      independentReview: {
+        ...fixture.checkpoint,
+        independentObservations: [...fixture.checkpoint.independentObservations, secondObservation],
+      },
+      submission: {
+        ...submission,
+        independentObservationChecks: [{ ...submission.independentObservationChecks[0]!, observationId: "obs_2" }],
+      },
+    });
+    expect(secondResolved.accepted).toBe(true);
+    if (!secondResolved.accepted) throw new Error(secondResolved.errors.join("; "));
+    expect(secondResolved.audit.independentObservationChecks[0]?.observationDigest).toBe(
+      repositoryVerifierIndependentObservationDigest(secondObservation),
+    );
+    const packet = JSON.parse(candidateCoverageAuditRequest({
+      projectTitle: "Project",
+      notebook: fixture.notebook,
+      independentReview: fixture.checkpoint,
+    }).userPrompt);
+    expect(packet.independentObservations[0]).toMatchObject({ observationId: "obs_1" });
+    expect(packet.independentObservations[0]).not.toHaveProperty("observationDigest");
+    for (const observationId of ["obs_0", "obs_01", "obs_-1", "obs_1.5", "e".repeat(64)]) {
+      expect(repositoryCoverageAuditSubmissionSchema.safeParse({
+        ...submission,
+        independentObservationChecks: [{ ...submission.independentObservationChecks[0], observationId }],
+      }).success).toBe(false);
+    }
   });
 
   it("keeps the blind checkpoint reusable while later notebook waves change", () => {
