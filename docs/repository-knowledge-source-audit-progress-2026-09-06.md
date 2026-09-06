@@ -1108,3 +1108,23 @@ and Luna (`gen-1788721418-16UtAcr5EIr2f2RTJA7q`, $0.00003696). These tiny
 checks prove request compatibility, not repository coverage or cache savings.
 The full suite passed 2,195 tests with one skipped; typecheck passed. A
 same-budget repository run is still required to measure the effect.
+
+### v38 / v54: do not mistake an early discovery checkpoint for final output
+
+`solopilot-v38-live.json` on clean `7520f83aaf37dca27f01b7060005ad9bb52730e6`
+stopped after 39,069 ms. Refresh `cmtq6ksnl0002hzsbqxlykhgl`, work item
+`cmtq6ks2c0000hzsbc46vtnyg`. Its first wave performed three discovery searches
+and durably saved three unresolved workflow leads, `done: false`, with no
+findings yet. The post-phase guard then threw “no source-grounded knowledge”
+despite the successful incomplete checkpoint. This is a harness lifecycle
+error, not proof that the repository lacks knowledge. Recorded budget usage
+was two calls, 26,007 semantic tokens, three inspections, $0.0729397.
+
+v54 permits this existing `investigator_checkpoint_yield` state to continue.
+The completed-notebook schema still requires source-grounded capabilities and
+findings; candidate admission still rejects empty notebooks. The no-progress
+guard and all shared budgets remain unchanged. A generic session-lifecycle
+test covers checkpoint restoration, refusal to verify the empty candidate,
+rejection of false completion, and later exact-source finding creation.
+Targeted investigator tests: 89 passed; typecheck passed. No saved-output
+coverage score or cache-efficiency claim is supported by v38.

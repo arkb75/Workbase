@@ -56,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v53-reasoned-checkpoint";
+  "repository-knowledge-investigator-v54-discovery-checkpoint";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -4856,6 +4856,9 @@ async function runRepositoryInvestigator(input: {
         }
         if (
           (!state.notebook.capabilities.length || !state.notebook.findings.length) &&
+          // Discovery may legitimately occupy the first bounded slice. It is
+          // not a completed candidate; continue from its persisted leads.
+          terminationReason !== "investigator_checkpoint_yield" &&
           !capacityLimitation
         ) {
           throw new Error("Repository investigator returned no source-grounded knowledge.");

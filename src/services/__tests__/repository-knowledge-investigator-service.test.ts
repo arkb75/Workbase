@@ -2024,6 +2024,46 @@ describe("repository knowledge investigator", () => {
     },
   );
 
+  it("restores a discovery-only checkpoint without treating it as verified knowledge", async () => {
+    const { state, evidence } = investigationState();
+    const context = {
+      refreshRunId: "refresh-discovery", snapshotId: "snapshot-discovery",
+      target: { sourceId: "source-1", repository: "owner/project", commitSha, treeSha: "c".repeat(40) },
+      files: Array.from(state.filesByPath.values()), wave: 1,
+      investigationInputDigest: "d".repeat(64), seedNotebookDigest: null,
+    };
+    const notebook = {
+      ...state.notebook,
+      unresolvedAreas: [{
+        id: "session_lifecycle", label: "Session lifecycle",
+        reason: "Discovery located createSession; read its persistence and authorization boundaries.",
+        importance: "major" as const, pathHints: ["src/session.ts"], searchTerms: ["createSession"],
+      }],
+    };
+    const checkpoint = buildRepositoryInvestigationCheckpoint({
+      context, notebook, checkpointKind: "final", generationRunId: "discovery-generation",
+      terminationReason: "investigator_checkpoint_yield", capacityLimitation: null,
+      sourceInspection: { readSet: [], sourceSearchTrace: [] }, agentToolTrace: [],
+    });
+    const restored = restoreRepositoryInvestigationCheckpoint({ value: checkpoint, context });
+    expect(restored.notebook.findings).toEqual([]);
+    expect(restored.notebook.unresolvedAreas).toEqual(notebook.unresolvedAreas);
+    const verify = vi.fn();
+    expect(await runRepositoryVerificationIfCandidate({ notebook: restored.notebook, verify })).toBeNull();
+    expect(verify).not.toHaveBeenCalled();
+    expect(() => buildRepositoryInvestigationCheckpoint({
+      context, notebook: { ...notebook, done: true, unresolvedAreas: [] },
+      generationRunId: "false-completion", terminationReason: "investigator_done",
+      capacityLimitation: null, sourceInspection: checkpoint.sourceInspection, agentToolTrace: [],
+    })).toThrow();
+    state.notebook = restored.notebook;
+    const continued = applyRepositoryInvestigationNotebookUpdate({
+      state, update: notebookUpdate(evidence.evidenceId),
+    });
+    expect(continued.accepted).toBe(true);
+    expect(state.notebook.findings).toHaveLength(1);
+  });
+
   it("selects the durable checkpoint tool after three inspections and ends on persistence", async () => {
     let inspections = 0;
     const inspect = defineBedrockConverseTool({
