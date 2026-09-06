@@ -236,6 +236,44 @@ The regression test exercises all six invalid combinations. Full suite:
 frozen source anchors across the four repositories still match their digests.
 No source-audit expectations or historical controls were changed.
 
+### Live v25: accepted review, insufficient repair headroom
+
+Live v25 on `b5d387a770d494cc0a4f850bc3319c17b7891174` ran from
+04:14:10 to 04:40:10 UTC (1,560,285 ms). Work item:
+`cmtparwy20000gdsbdcdrf7b6`; refresh: `cmtparxi00002gdsbznsxs5tl`;
+artifact: `/tmp/workbase-source-audit-v27.YaErOL/circlefund-v25-live.json`.
+The investigator retained 23 provisional findings. Independent review completed.
+Candidate comparison encountered provider errors, then resumed on the same
+refresh and ultimately accepted a `gaps` submission. Its correction diagnostics
+concerned duplicate/omitted checks, not the exclusive-link rejection in v24.
+This is a successful protocol submission in one run, not proof of reliability.
+
+The reviewer reported four omissions: server-side session expiry/state checks,
+dashboard approval/voting/reserve transition boundaries, contribution payment
+side-effect boundaries, and contribution relation deletion semantics. These are
+reviewer findings, not an independent saved-output adjudication. The retained
+candidate must still be inspected for overlap and actual source support.
+
+Recorded shared usage reached 46 calls, 249,361 semantic tokens, and 77
+inspections. The 30,639 remaining semantic tokens were below the existing
+16,000 repair admission plus 18,000 reserved re-audit allowance. No repair
+could start; finalization failed before saved-output certification. Reported
+known cost was $0.54496936, **not a complete bill**, because failed attempts
+had unknown usage. No budget ceiling or success threshold was changed.
+
+Read-only OpenRouter metadata queries for the two available generation IDs
+(`gen-1788668282-JxpmhWipDhM7XWLCFLAH` and
+`gen-1788668899-2SZrbTzuHfcwmIQc4f9V`) showed successful Azure tool calls.
+They do not identify the failed attempts, whose request IDs were absent.
+The stored error has no HTTP status, so neither credit exhaustion nor a rate
+limit is established. The lookup used the documented [generation metadata
+endpoint](https://github.com/openrouterteam/docs/blob/main/openapi/openapi.yaml),
+retrieved through Context7; no extra model generation was used for diagnosis.
+
+The next work should address main-path investigation/review efficiency and
+inspect the remaining semantic gaps before another full replay. Repeatedly
+rerunning the same expensive path is not evidence of progress toward parity.
+
 1. Complete a live run with a valid source-grounded review;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.
