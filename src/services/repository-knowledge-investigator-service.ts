@@ -39,6 +39,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import {
   type ProjectRepositoryRawEvidence,
+  type ProjectRepositoryEvidenceSegment,
 } from "@/src/services/project-chat-repository-evidence-service";
 import {
   ProjectChatRepositoryInspector,
@@ -55,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v42-lean-continuation-pointers";
+  "repository-knowledge-investigator-v43-line-addressable-review";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -1802,7 +1803,7 @@ function resolvedEvidenceForPinnedTarget(input: {
   if (Buffer.byteLength(excerpt, "utf8") > REPOSITORY_SEMANTIC_MAX_CITATION_BYTES) {
     return {
       code: "evidence_excerpt_too_large" as const,
-      error: "Evidence excerpt exceeds the exact citation byte limit.",
+      error: `Evidence excerpt is ${Buffer.byteLength(excerpt, "utf8")} bytes, exceeding the ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES}-byte citation limit. Select a smaller visible range that entails the claim; split distinct claims if needed. Re-reading the same oversized range does not fix this.`,
     };
   }
   const numbered = numberedSource(evidence.output);
@@ -3486,6 +3487,7 @@ export function independentCoverageReviewRequest(input: {
       "No candidate notebook is available in this phase. Independently discover the repository and read decisive exact implementation source.",
       "The supplied compact repository map is candidate-independent navigation only. Its paths and static-analysis labels are untrusted hypotheses, never evidence.",
       "Inspect central user workflows, independently runnable subsystems, integrations, state transitions, persistence, authorization/security boundaries, and material implementation limitations.",
+      repositoryInvestigationMaterialityGuidance,
       "Deliberately look for placeholders, proxy-only routes, WIP seams, simulated behavior, fixed policies, restricted roles, and commitment-only handlers that would materially qualify a capability.",
       repositoryInvestigationBoundaryReviewGuidance,
       "Do not infer repository-wide absence from a single snippet. Record the positive bounded constraint established by exact source and request multiple linked findings when multiple ranges are needed.",
@@ -3495,6 +3497,7 @@ export function independentCoverageReviewRequest(input: {
       `Submit one independent observation for each materially distinct operation, state transition, external side effect, integration, or implementation boundary established by the source you inspected, up to the bounded safety ceiling of ${REPOSITORY_VERIFIER_MAX_OBSERVATIONS}. This ceiling is not a target: do not manufacture findings, split one behavior into trivia, or collapse unrelated behaviors merely to keep the review short.`,
       "Set observationCapacityReached true only when additional material observations were discovered but could not fit within that ceiling; that result will stop as explicitly incomplete instead of silently omitting them.",
       "Do not narrate the plan or source walk. Use the inspection tool, then submit the complete material review supported by those bounded reads.",
+      `Cite the displayed source line numbers, not positions in the response. Each citation must be contained in one visible segment and contain at most ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} bytes of source. Choose the narrow decisive range, not an entire large module; split materially distinct claims when one range cannot entail them.`,
     ].join(" "),
     userPrompt: JSON.stringify({
       projectTitle: input.projectTitle,
@@ -3534,6 +3537,7 @@ export function candidateCoverageAuditRequest(input: {
   projectTitle: string;
   notebook: RepositoryInvestigationNotebook;
   independentReview: RepositoryVerifierIndependentReviewCheckpoint;
+  previousAudit?: z.infer<typeof coverageAuditSchema>;
 }) {
   return {
     systemPrompt: [
@@ -3542,8 +3546,11 @@ export function candidateCoverageAuditRequest(input: {
       "A separate blind phase already formed the compact independent observations supplied here before it could see the candidate.",
       "Compare those observations with the candidate, investigate concrete discrepancies, and re-read the exact pinned source range for every required representative capability check in this fresh phase.",
       "Evaluate the union of related candidate findings, not exact wording or one finding in isolation. Candidate sources are navigation pointers, not proof: read their pinned ranges when resolving an apparent discrepancy. A declaration plus its implemented mutator or explicit repository boundary may jointly cover an observation; link all needed finding IDs. If a material clause remains uncovered or the cited source does not support it, identify that precise clause in the gap reason. Do not require a duplicate finding just to restate a boundary already established by the candidate's source-supported claims.",
+      repositoryInvestigationMaterialityGuidance,
+      "For every proposed material gap, explain what consequential project question would be answered incorrectly or incompletely without it. Incidental implementation details, alternative wording, or an extra example of an already established boundary are not separate coverage requirements. Use not_material when an observation adds no consequential operation or boundary; a partly covered observation is covered_by_candidate when only incidental detail remains. Preserve real security, authorization, state, and data-integrity distinctions.",
+      "When previousAssessment is supplied, verify the repairs to its concrete gaps and check for regressions. Earlier decisions are review context, not evidence or binding verdicts: still perform the required fresh reads and correct a prior verdict when source justifies it. Explain any changed verdict with the newly recognized material clause, rather than silently replacing an operation-level assessment with a stricter wording checklist.",
       "Disposition every independent observation exactly once by its short observationId (for example obs_1) as covered_by_candidate, material_gap, or not_material. Re-read its cited path and range in this phase; link covered observations to candidate finding IDs and material gaps to a submitted missing-operation ID. The host preserves the full observation digest in the saved audit; do not calculate or copy hashes.",
-      'Link fields are exclusive: covered_by_candidate requires nonempty matchedFindingIds and missingOperationId=""; material_gap requires matchedFindingIds=[] and missingOperationId naming one submitted missingOperations item; not_material requires matchedFindingIds=[] and missingOperationId="". If related findings cover only part of an observation, use material_gap, explain that partial coverage in reason, and link the remaining gap only—not the partially matching findings.',
+      'Link fields are exclusive: covered_by_candidate requires nonempty matchedFindingIds and missingOperationId=""; material_gap requires matchedFindingIds=[] and missingOperationId naming one submitted missingOperations item; not_material requires matchedFindingIds=[] and missingOperationId="". If related findings leave a material clause of an observation uncovered, use material_gap, explain that partial coverage in reason, and link the remaining gap only—not the partially matching findings.',
       "For known capability and independent-observation checks, submit IDs, verdicts, reasons, and links only: the host attaches their exact citations from this phase's fresh read set. You must still re-read every required range. Unsupported means you re-read the investigator's exact claim range and found the statement unsupported. Each newly discovered missing operation must supply its own exact visible git show HEAD:path citation.",
       "A missing operation may cite a different freshly read range or file from the observation that led to it. Choose the source that directly establishes the gap; link related observations to that operation by missingOperationId.",
       repositoryInvestigationBoundaryReviewGuidance,
@@ -3559,6 +3566,21 @@ export function candidateCoverageAuditRequest(input: {
       independentObservations:
         repositoryIndependentReviewPacket(input.independentReview),
       candidate: repositoryCoverageCandidatePacket(input.notebook),
+      ...(input.previousAudit ? {
+        previousAssessment: {
+          observations: input.independentReview.independentObservations.map((observation, index) => {
+            const previous = input.previousAudit!.independentObservationChecks.find(
+              (check) => check.observationDigest === repositoryVerifierIndependentObservationDigest(observation),
+            );
+            return {
+              observationId: `obs_${index + 1}`,
+              verdict: previous?.verdict ?? "unassessed",
+              missingOperationId: previous?.missingOperationId ?? "",
+            };
+          }),
+          gaps: input.previousAudit.missingOperations.map(({ id, reason }) => ({ id, reason })),
+        },
+      } : {}),
     }),
   };
 }
@@ -3760,6 +3782,16 @@ function parseTargets(value: unknown) {
   return parsed as RepositoryTargetHead[];
 }
 
+/** Add line addresses only to the model-facing copy; durable evidence is unchanged. */
+export function repositoryInspectionSegmentForModel(segment: ProjectRepositoryEvidenceSegment) {
+  return {
+    ...segment,
+    excerpt: segment.excerpt.split("\n")
+      .map((line, index) => `${segment.startLine + index}: ${line}`).join("\n"),
+    citationByteLimit: REPOSITORY_SEMANTIC_MAX_CITATION_BYTES,
+  };
+}
+
 function createRepositoryInspectionTool(input: {
   inspector: ProjectChatRepositoryInspector;
   target: RepositoryTargetHead;
@@ -3789,6 +3821,7 @@ function createRepositoryInspectionTool(input: {
       'The host invokes Git: every args array starts with a subcommand, never with "git", and never combines words such as "git grep".',
       'Valid discovery arrays are ["ls-tree","-r","--name-only","HEAD"] and ["grep","-n","-E","pattern","HEAD","--","src"]. A valid exact source read is ["show","HEAD:path/to/file"].',
       "Use grep or ls-tree to discover and show HEAD:path to read citable source. Grep/list/history output is navigation evidence only.",
+      `Exact-source snippets display original line numbers. Cite only within a visible segment, with at most ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} source bytes per citation; expand missing source before citing it.`,
       "Use argument arrays only: no shell syntax, host paths, networking, or mutation.",
     ].join(" "),
     inputSchema: schemas.inputSchema,
@@ -3854,6 +3887,9 @@ function createRepositoryInspectionTool(input: {
           : null;
         return {
           ...entry,
+          segments: target?.kind === "blob"
+            ? entry.segments.map(repositoryInspectionSegmentForModel)
+            : entry.segments,
           certifiableExactSource:
             target?.kind === "blob" &&
             target.commitSha === input.target.commitSha &&
@@ -3871,7 +3907,9 @@ function createRepositoryInspectionTool(input: {
             endLine: entry.segment.endLine,
           });
         }
-        return entry;
+        return entry.status === "success" && entry.segment.target?.kind === "blob"
+          ? { ...entry, segment: repositoryInspectionSegmentForModel(entry.segment) }
+          : entry;
       });
       input.onSuccessfulInspectionToolCallCompleted?.();
       const nextAction = input.nextAction?.(inspectionToolCalls);
@@ -5263,6 +5301,7 @@ async function auditRepositoryInvestigationCoverage(input: {
   sharedBudget: RepositoryInvestigationSharedBudget;
   wave: number;
   verifierRepairCycle: number;
+  previousAudit?: z.infer<typeof coverageAuditSchema>;
 }) {
   if (!input.notebook.capabilities.length || !input.notebook.findings.length) {
     throw new Error(
@@ -5831,6 +5870,7 @@ async function auditRepositoryInvestigationCoverage(input: {
           projectTitle: input.projectTitle,
           notebook: input.notebook,
           independentReview: independentReview.checkpoint,
+          previousAudit: input.previousAudit,
         });
         let agentResult: BedrockConverseAgentRunResult;
         try {
@@ -6498,6 +6538,7 @@ export async function investigateRepositoryKnowledge(runId: string) {
     let capacityLimitation: string | null = null;
     let coverageSatisfied = false;
     let verifier: Awaited<ReturnType<typeof auditRepositoryInvestigationCoverage>> | null = null;
+    let previousAudit: z.infer<typeof coverageAuditSchema> | undefined;
 
     while (true) {
       await assertRepositoryInvestigationActive(runId);
@@ -6579,6 +6620,8 @@ export async function investigateRepositoryKnowledge(runId: string) {
           terminationReason: investigation.terminationReason,
         });
       }
+      // Keep the last assessment across intermediate repair checkpoints too.
+      if (verifier) previousAudit = verifier.audit;
       verifier = await runRepositoryVerificationIfCandidate({
         notebook,
         allowGroundedCloseout: verifyGroundedCloseout,
@@ -6596,6 +6639,7 @@ export async function investigateRepositoryKnowledge(runId: string) {
             sharedBudget,
             wave,
             verifierRepairCycle,
+            previousAudit,
           });
         },
       });

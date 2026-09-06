@@ -11,6 +11,7 @@ import {
 } from "@/src/lib/bedrock-converse-agent";
 import {
   createProjectRepositoryRawEvidence,
+  expandProjectRepositoryEvidence,
 } from "@/src/services/project-chat-repository-evidence-service";
 import {
   applyRepositoryInvestigationNotebookUpdate,
@@ -55,6 +56,7 @@ import {
   repositoryInvestigationNotebookWithoutTransientCapacityAreas,
   repositoryInvestigationPhaseInspectionAction,
   repositoryInvestigationNotebookUpdateIsTerminal,
+  repositoryInspectionSegmentForModel,
   repositoryInvestigationPhaseBudget,
   repositoryInvestigationSemanticModelTokenCount,
   repositoryInvestigationSharedBudgetLimits,
@@ -2520,6 +2522,8 @@ describe("repository knowledge investigator", () => {
       "repositoryMap",
     ]);
     expect(request.systemPrompt).toContain("No candidate notebook is available");
+    expect(request.systemPrompt).toContain(repositoryInvestigationMaterialityGuidance);
+    expect(request.systemPrompt).toContain("8192 bytes of source");
     expect(request.systemPrompt).toContain(
       `bounded safety ceiling of ${REPOSITORY_VERIFIER_MAX_OBSERVATIONS}`,
     );
@@ -2643,6 +2647,67 @@ describe("repository knowledge investigator", () => {
     );
     expect(request.systemPrompt).toContain("Evaluate the union of related candidate findings");
     expect(request.systemPrompt).toContain("navigation pointers, not proof");
+    expect(request.systemPrompt).toContain(repositoryInvestigationMaterialityGuidance);
+    expect(request.systemPrompt).toContain("only incidental detail remains");
+    expect(request.systemPrompt).toContain("Preserve real security, authorization, state, and data-integrity distinctions");
+  });
+
+  it("numbers source snippets at their original offsets without changing durable evidence", () => {
+    const { evidence } = investigationState({
+      output: ["// context", "export function run() {", "", "  return 'café';", "}"].join("\n"),
+    });
+    const segment = expandProjectRepositoryEvidence({
+      evidence, startLine: 2, maximumLines: 4, maximumBytes: 8192,
+    })!;
+    const original = structuredClone(segment);
+    const projected = repositoryInspectionSegmentForModel(segment);
+    expect(projected.excerpt).toBe("2: export function run() {\n3: \n4:   return 'café';\n5: }");
+    expect(projected.citationByteLimit).toBe(8192);
+    expect(projected.evidenceId).toBe(evidence.evidenceId);
+    expect(projected.startLine).toBe(2);
+    expect(projected.endLine).toBe(5);
+    expect(segment).toEqual(original);
+    expect(evidence.output).not.toContain("2: export");
+  });
+
+  it("explains oversized citations without admitting or silently shortening them", () => {
+    const { state, evidence } = investigationState({ output: "x".repeat(9000) });
+    const diagnostics = repositoryVerifierIndependentSubmissionDiagnostics({
+      ...state,
+      target: state.notebook,
+      independentObservations: [{
+        kind: "operation", statement: "A claimed operation in an oversized source line.",
+        evidence: { evidenceId: evidence.evidenceId, lineStart: 1, lineEnd: 1 },
+      }],
+    });
+    expect(diagnostics).toEqual([expect.objectContaining({
+      code: "evidence_excerpt_too_large",
+      instruction: expect.stringContaining("9000 bytes, exceeding the 8192-byte citation limit"),
+    })]);
+    expect(diagnostics[0]?.instruction).toContain("Re-reading the same oversized range does not fix this");
+  });
+
+  it("carries compact previous decisions into re-audit without turning them into source evidence", () => {
+    const fixture = verifierFixture();
+    const request = candidateCoverageAuditRequest({
+      projectTitle: "Project", notebook: fixture.notebook, independentReview: fixture.checkpoint,
+      previousAudit: {
+        status: "satisfied", rationale: "Prior assessment", capabilityChecks: [], missingOperations: [],
+        independentObservationChecks: [{
+          observationDigest: repositoryVerifierIndependentObservationDigest(fixture.independentObservations[0]!),
+          verdict: "covered_by_candidate", matchedFindingIds: ["creates_persisted_sessions"], missingOperationId: "",
+          reason: "Previous source check", evidence: { evidenceId: fixture.evidence.evidenceId, lineStart: 1, lineEnd: 4 },
+        }],
+      },
+    });
+    const previous = JSON.parse(request.userPrompt).previousAssessment;
+    expect(previous.observations[0]).toEqual({ observationId: "obs_1", verdict: "covered_by_candidate", missingOperationId: "" });
+    expect(previous.gaps).toEqual([]);
+    expect(JSON.stringify(previous)).not.toContain("evidenceId");
+    expect(JSON.stringify(previous)).not.toContain("observationDigest");
+    expect(request.systemPrompt).toContain("not evidence or binding verdicts");
+    expect(request.systemPrompt).toContain("still perform the required fresh reads");
+    expect(request.systemPrompt).toContain("correct a prior verdict when source justifies it");
   });
 
   it("requires fresh exact representative reads in the candidate-comparison phase", () => {
@@ -2955,7 +3020,7 @@ describe("repository knowledge investigator", () => {
       projectTitle: "Generic session service",
       notebook: fixture.notebook,
       independentReview: fixture.checkpoint,
-    }).systemPrompt).toContain("If related findings cover only part of an observation, use material_gap");
+    }).systemPrompt).toContain("If related findings leave a material clause of an observation uncovered, use material_gap");
 
     const properties = repositoryCoverageAuditSubmissionJsonSchema.properties as Record<string, {
       items: { required: string[]; properties: Record<string, unknown> };

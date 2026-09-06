@@ -355,6 +355,72 @@ investigator suite passed after final test cleanup, and typecheck and
 changed-file lint passed. Live validation of this revision remains pending
 available credits; the four-repository comparison remains incomplete.
 
+### Live v27: funded runs expose review-interface failures
+
+Read-only OpenRouter credit queries confirmed the user's top-up increased the
+available balance from $0.611294705 to $10.611294705 before these attempts.
+Both used clean implementation `c9cb2a45c43334ece41b786e4acf266eb6f56fb7`.
+
+- CircleFund: work item `cmtpwsf810000q1sb5fqklo92`, refresh
+  `cmtpwsgtf0002q1sb584daik7`; artifact
+  `/tmp/workbase-source-audit-v27.YaErOL/circlefund-v27-live.json`.
+  Ran 14:30:25–14:35:14 UTC (289,039 ms). Initial investigation retained
+  25 provisional findings in 15 calls, 78,103 semantic tokens, and $0.281183.
+  The first audit reported six gaps; repair retained 30 findings. Re-audit
+  considered the original gap observations covered except for the remaining
+  recording-user deletion constraint, but newly rejected two observations it
+  had previously accepted: the production-only Secure cookie attribute and
+  invite-code normalization. Final usage: 34 calls, 271,432 semantic tokens,
+  64 inspections, $0.49430205. It stopped at the bounded repair ceiling and
+  is not eligible for saved-output certification.
+- Backer's simultaneous first setup hit `TransactionWriteConflict` before
+  creating a refresh or doing model work; its failed artifact is retained as
+  `backer-v27-live.json`. A staggered fresh attempt succeeded in setup:
+  work item `cmtpwt7g600004psbhohp56m3`, refresh
+  `cmtpwt87800024psb2850rtxs`, artifact `backer-v27-retry-live.json` in the same
+  directory. It ran 14:31:02–14:34:52 UTC (229,797 ms). Investigation retained
+  21 findings. Independent review failed before its correction submission:
+  it cited 1–20 when the visible segment ended at 19, and a separate citation
+  exceeded the 8,192-byte limit. After one source-repair call, cumulative raw
+  replay admission hit the 270,000-token phase limit. Final shared usage was
+  36 calls, 316,950 semantic tokens, 56 inspections, $0.69864250, with complete
+  reported usage. No candidate audit or saved-output certification followed.
+
+Neither failure is a credit error. Lower initial CircleFund cost is a diagnostic,
+not proof of quality-equivalent savings or parity with the frozen source audit.
+
+### Main-path review ergonomics and assessment continuity
+
+Version `repository-knowledge-investigator-v43-line-addressable-review` adds
+original line numbers to model-facing exact source snippets, including expanded
+ranges. Previously the model had only segment start/end metadata and had to
+count unnumbered source lines. The underlying evidence, hashes, visible ranges,
+and source-validation rules remain unchanged. Tool and review instructions now
+state the existing 8,192-byte citation limit; oversized-citation diagnostics
+report actual and allowed bytes and explain that repeating the read cannot fix
+an oversized citation. The host does not shorten or accept invalid citations.
+
+Both review stages now receive the same materiality guidance as the investigator.
+The candidate reviewer must explain which consequential project question an
+omission would impair, distinguish incidental wording/detail from material
+security, state, authorization, and data-integrity boundaries, and consider the
+union of source-supported findings. A re-audit receives compact prior decisions
+and gap reasons, retained across intermediate repair checkpoints. These are
+explicitly context, not evidence or binding verdicts: fresh reads remain required
+and the reviewer may correct its earlier judgment with a source-backed reason.
+No independent-review source data is replaced with candidate data, and no source
+audit expectations, retry ceiling, model, or budget was changed.
+
+The changes follow [Anthropic's tool-design guidance](https://www.anthropic.com/engineering/writing-tools-for-agents)
+on actionable source presentation and errors, and its [agent-evaluation guidance](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)
+on inspecting failed transcripts and calibrating model graders rather than
+treating every rejection as reliable. They are small changes at existing seams,
+not a new harness or a fallback. Verification: 2,173 tests passed, one skipped;
+typecheck and changed-file lint passed. New tests cover numbered offset/blank-line/
+Unicode projection without evidence mutation, unchanged oversized-citation
+rejection, and compact non-authoritative prior assessment context. Live validation
+and the four-repository saved-output comparison remain required.
+
 1. Complete a live run with a valid source-grounded review;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.
