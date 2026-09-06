@@ -1163,3 +1163,28 @@ checkpoint overhead, not rerun this version unchanged or weaken the source
 checks. All paid run handles from this turn are terminal. The comparison
 against all three retained source audits and matched-main controls remains
 incomplete; this experimental branch is not a verified replacement for main.
+
+### v55: separate durable checkpoints from conversation resets
+
+[Anthropic's context-engineering guidance](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
+distinguishes regular external note-taking from compaction near context limits.
+[OpenCode's compaction implementation](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/compaction.ts)
+similarly checks token pressure and retains recent context. The applicable
+pattern here is continuity, not adopting another harness or its infrastructure.
+
+Previously every third inspection forced a notebook update that also ended
+the conversation. v55 still durably checkpoints after at most three inspection
+calls but continues in the same transcript while capacity allows. A host
+pressure check uses observed input/output usage, cumulative raw and semantic
+usage, and remaining iteration/tool slots to leave room for inspection and
+another checkpoint. Only a completed notebook or pressure-triggered checkpoint
+ends the phase. This is a scheduling estimate, not a new spending allowance;
+all runtime hard limits, shared reservations, source gates, snapshot binding,
+and no-progress checks remain unchanged.
+
+The production helper is exercised in a tool-loop test that performs six
+inspections and two durable checkpoints in one growing transcript before
+yielding. Separate tests cover raw-token, semantic-token, iteration, and tool
+pressure, as well as continuing after an ordinary checkpoint. Full suite:
+2,197 passed, one skipped; typecheck passed. Live coverage and relative
+efficiency remain to be established on the same pinned repositories.

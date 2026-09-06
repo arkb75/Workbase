@@ -56,6 +56,7 @@ import {
   repositoryInvestigationMaterialityGuidance,
   repositoryInvestigationNotebookWithoutTransientCapacityAreas,
   repositoryInvestigationPhaseInspectionAction,
+  repositoryInvestigationNeedsContextReset,
   repositoryInvestigationNotebookUpdateIsTerminal,
   repositoryInspectionSegmentForModel,
   repositoryInspectionToolSchemas,
@@ -2064,8 +2065,14 @@ describe("repository knowledge investigator", () => {
     expect(state.notebook.findings).toHaveLength(1);
   });
 
-  it("selects the durable checkpoint tool after three inspections and ends on persistence", async () => {
+  it("checkpoints every three inspections but retains the conversation until capacity pressure", async () => {
     let inspections = 0;
+    let lastCheckpoint = 0;
+    let contextResetNeeded = false;
+    let toolCalls = 0;
+    const saved: number[] = [];
+    const messageCounts: number[] = [];
+    const limits = { maxIterations: 10, maxToolCalls: 10, maxTotalTokens: 100_000 };
     const inspect = defineBedrockConverseTool({
       name: "inspect_repository_snapshot", description: "Inspect pinned source.",
       inputSchema: z.object({}), jsonSchema: { type: "object", properties: {} },
@@ -2075,32 +2082,76 @@ describe("repository knowledge investigator", () => {
       name: "update_repository_notebook", description: "Persist notebook.",
       inputSchema: z.object({}), jsonSchema: { type: "object", properties: {} },
       isTerminalResult: repositoryInvestigationNotebookUpdateIsTerminal,
-      execute: () => ({ status: "accepted", done: false, phaseComplete: true }),
+      execute: () => {
+        saved.push(inspections);
+        lastCheckpoint = inspections;
+        return { status: "accepted", done: false, phaseComplete: contextResetNeeded };
+      },
     });
     const transport = { converse: vi.fn(async (input: ConverseCommandInput) => {
+      messageCounts.push(input.messages?.length ?? 0);
       const forced = input.toolConfig?.toolChoice?.tool?.name;
-      if (inspections === 3) expect(forced).toBe(checkpoint.name);
+      if (inspections - lastCheckpoint === 3) expect(forced).toBe(checkpoint.name);
       else expect(forced).toBeUndefined();
       return {
         message: { role: "assistant" as const, content: [{ toolUse: {
-          toolUseId: `step-${inspections}`, name: forced ?? inspect.name, input: {},
+          toolUseId: `step-${toolCalls}`, name: forced ?? inspect.name, input: {},
         } }] },
         stopReason: "tool_use",
-        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        usage: { inputTokens: 1000, outputTokens: 100, totalTokens: 1100 },
         requestId: `inspection-request-${inspections}`,
       };
     }) };
     const result = await new BedrockConverseAgent(transport, { modelId: "test-investigator" }).run({
       messages: [{ role: "user", content: [{ text: "Investigate pinned source." }] }],
       tools: [inspect, checkpoint],
+      limits,
+      onEvent: (event) => {
+        if (event.type === "tool_call_completed") toolCalls = event.toolCall;
+        if (event.type === "model_call_completed") {
+          contextResetNeeded = repositoryInvestigationNeedsContextReset({
+            limits, iteration: event.iteration, toolCalls,
+            lastInputTokens: event.usage.inputTokens,
+            lastOutputTokens: event.usage.outputTokens,
+            totalTokens: event.aggregateUsage.totalTokens,
+            semanticTokens: event.aggregateUsage.totalTokens,
+          });
+        }
+      },
       forceTool: () => repositoryInvestigationPhaseInspectionAction({
-        inspectionToolCalls: inspections, inspectionToolCallsAtLastCheckpoint: 0,
-        checkpointYieldRequested: false,
+        inspectionToolCalls: inspections, inspectionToolCallsAtLastCheckpoint: lastCheckpoint,
+        checkpointYieldRequested: false, contextResetNeeded,
       }) === "checkpoint" ? checkpoint.name : undefined,
     });
-    expect(inspections).toBe(3);
-    expect(transport.converse).toHaveBeenCalledTimes(4);
+    expect(inspections).toBe(6);
+    expect(saved).toEqual([3, 6]);
+    expect(transport.converse).toHaveBeenCalledTimes(8);
     expect(result.terminalTool?.name).toBe(checkpoint.name);
+    // Both checkpoints used the same growing transcript, not a reconstructed wave.
+    expect(messageCounts).toEqual([1, 3, 5, 7, 9, 11, 13, 15]);
+  });
+
+  it("requests a context reset for pressure, not merely a checkpoint cadence", () => {
+    const room = {
+      limits: { maxIterations: 16, maxToolCalls: 14, maxTotalTokens: 180_000, maxSemanticTokens: 100_000 },
+      iteration: 4, toolCalls: 4, lastInputTokens: 20_000, lastOutputTokens: 1_000,
+      totalTokens: 60_000, semanticTokens: 25_000,
+    };
+    expect(repositoryInvestigationNeedsContextReset(room)).toBe(false);
+    for (const pressure of [
+      { iteration: 14 }, { toolCalls: 12 }, { totalTokens: 140_000 },
+      { semanticTokens: 94_000 },
+    ]) {
+      expect(repositoryInvestigationNeedsContextReset({ ...room, ...pressure })).toBe(true);
+    }
+    expect(repositoryInvestigationPhaseInspectionAction({
+      inspectionToolCalls: 1, inspectionToolCallsAtLastCheckpoint: 0,
+      checkpointYieldRequested: false, contextResetNeeded: true,
+    })).toBe("checkpoint");
+    expect(repositoryInvestigationPhaseInspectionAction({
+      inspectionToolCalls: 3, inspectionToolCallsAtLastCheckpoint: 3,
+      checkpointYieldRequested: false, contextResetNeeded: false,
+    })).toBe("inspect");
   });
 
   it("builds a bounded navigation map from analyzed files without claiming coverage", () => {

@@ -56,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v54-discovery-checkpoint";
+  "repository-knowledge-investigator-v55-continuous-checkpoints";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -110,7 +110,8 @@ const explicitPlannedImplementationPattern =
 const MAX_INVESTIGATION_CAPABILITIES = 64;
 const MAX_INVESTIGATION_FINDINGS = 160;
 const MAX_INVESTIGATION_UNRESOLVED_AREAS = 32;
-const INVESTIGATOR_INSPECTION_CALLS_PER_DURABLE_PHASE = 3;
+const INVESTIGATOR_INSPECTION_CALLS_PER_CHECKPOINT = 3;
+const INVESTIGATOR_MAX_OUTPUT_TOKENS = 3_500;
 export const REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS = 3;
 export const REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS =
   REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 1;
@@ -123,7 +124,7 @@ const MIN_INVESTIGATOR_PHASE_TOKENS = 16_000;
 const MIN_VERIFIER_REVIEW_PHASE_TOKENS = 12_000;
 const MIN_VERIFIER_AUDIT_PHASE_TOKENS = 18_000;
 const MIN_INVESTIGATOR_PHASE_MODEL_CALLS =
-  INVESTIGATOR_INSPECTION_CALLS_PER_DURABLE_PHASE +
+  INVESTIGATOR_INSPECTION_CALLS_PER_CHECKPOINT +
   MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION;
 const MIN_VERIFIER_REVIEW_PHASE_MODEL_CALLS =
   REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS +
@@ -680,12 +681,36 @@ export function repositoryInvestigationPhaseInspectionAction(input: {
   inspectionToolCalls: number;
   inspectionToolCallsAtLastCheckpoint: number;
   checkpointYieldRequested: boolean;
+  contextResetNeeded?: boolean;
 }): "inspect" | "checkpoint" | "yield" {
   if (input.checkpointYieldRequested) return "yield";
+  if (input.contextResetNeeded) return "checkpoint";
   return input.inspectionToolCalls - input.inspectionToolCallsAtLastCheckpoint >=
-      INVESTIGATOR_INSPECTION_CALLS_PER_DURABLE_PHASE
+      INVESTIGATOR_INSPECTION_CALLS_PER_CHECKPOINT
     ? "checkpoint"
     : "inspect";
+}
+
+/** A checkpoint saves progress; only capacity pressure should reset context. */
+export function repositoryInvestigationNeedsContextReset(input: {
+  limits: BedrockConverseAgentLimits;
+  iteration: number;
+  toolCalls: number;
+  lastInputTokens: number;
+  lastOutputTokens: number;
+  totalTokens: number;
+  semanticTokens: number;
+}) {
+  // Leave room for an inspection response and another notebook submission.
+  // This is a scheduling estimate; the runtime's actual hard limits still apply.
+  const nextTurnEstimate = input.lastInputTokens + input.lastOutputTokens +
+    INVESTIGATOR_MAX_OUTPUT_TOKENS;
+  return input.limits.maxIterations - input.iteration <= 2 ||
+    input.limits.maxToolCalls - input.toolCalls <= 2 ||
+    input.limits.maxTotalTokens - input.totalTokens < 2 * nextTurnEstimate ||
+    (input.limits.maxSemanticTokens !== undefined &&
+      input.limits.maxSemanticTokens - input.semanticTokens <
+        2 * INVESTIGATOR_MAX_OUTPUT_TOKENS);
 }
 
 export function repositoryInvestigationNotebookUpdateIsTerminal(result: unknown) {
@@ -4468,6 +4493,8 @@ async function runRepositoryInvestigator(input: {
   let phaseInspectionToolCalls = 0;
   let inspectionToolCallsAtLastCheckpoint = 0;
   let phaseCheckpointYieldRequested = false;
+  let contextResetNeeded = false;
+  let completedPhaseToolCalls = 0;
   const inspectTool = createRepositoryInspectionTool({
     inspector,
     target: input.target,
@@ -4480,6 +4507,7 @@ async function runRepositoryInvestigator(input: {
         inspectionToolCalls: phaseInspectionToolCalls,
         inspectionToolCallsAtLastCheckpoint,
         checkpointYieldRequested: phaseCheckpointYieldRequested,
+        contextResetNeeded,
       });
       if (action === "yield") {
         return "This phase is already durably checkpointed and complete.";
@@ -4521,7 +4549,7 @@ async function runRepositoryInvestigator(input: {
       repositoryInvestigationMaterialityGuidance,
       repositoryInvestigationBoundaryReviewGuidance,
       "Set done true when central implemented operations and material limitations are evidenced and no material unresolved area remains.",
-      "Call this tool alone, not alongside inspection tools. A completed notebook or durable phase checkpoint ends this agent phase automatically; no handoff message is needed.",
+      "Call this tool alone, not alongside inspection tools. Saving progress normally continues the same conversation. Only a completed notebook or host-reported capacity checkpoint ends the phase; follow the returned instruction.",
     ].join(" "),
     inputSchema: notebookUpdateSchema,
     jsonSchema: notebookUpdateJsonSchema,
@@ -4545,8 +4573,7 @@ async function runRepositoryInvestigator(input: {
         previous: seedNotebook,
         next: applied.notebook,
       });
-      const shouldYieldAfterCheckpoint = !applied.notebook.done &&
-        phaseInspectionToolCalls >= INVESTIGATOR_INSPECTION_CALLS_PER_DURABLE_PHASE;
+      const shouldYieldAfterCheckpoint = !applied.notebook.done && contextResetNeeded;
       const acceptedResult = {
         status: "accepted",
         capabilityCount: applied.notebook.capabilities.length,
@@ -4561,7 +4588,7 @@ async function runRepositoryInvestigator(input: {
             ? materiallyProgressed
               ? "Material progress is durably checkpointed; the host will continue from this compact notebook."
               : "This inspection slice is durably checkpointed without structural progress; the host will evaluate whether to continue."
-            : "Continue only for material unsupported operations or limitations.",
+            : "Progress is saved. Continue investigating material unsupported operations or limitations in this same context; the source you have read remains available. Do not stop or hand off yet.",
       };
       try {
         if (!workerAgentRunId) {
@@ -4761,12 +4788,12 @@ async function runRepositoryInvestigator(input: {
             "Assign one stable, domain-qualified lower_snake operationKey to every material operation (for example contribution_recording, not generic create or update) and reuse it across its atomic entrypoint, transition, persistence, side_effect, boundary, and architecture findings. Record implemented, partial, planned, and bounded_absence states explicitly; only implemented findings represent Highlight-compatible behavior.",
             repositorySemanticSensitivityGuidance,
             "Use git grep or ls-tree for discovery and git show HEAD:path for citable exact source. Never cite grep/list/history output as a durable fact.",
-            "Checkpoint the notebook after at most three inspection calls; do not begin a fourth inspection call without first recording supported findings and the complete current unresolved set. This keeps later investigation waves compact and resumable.",
+            "Checkpoint the notebook after at most three inspection calls; do not begin a fourth inspection call without first recording supported findings and the complete current unresolved set. A checkpoint saves progress without discarding this conversation or its source reads. Continue investigating unless the host reports phaseComplete or you have completed the notebook.",
             "Update the notebook as evidence accumulates. Do not target a predetermined number of capabilities or Highlights.",
             "Repository unresolved areas are source questions only. Never record token, tool, rate, or phase capacity as a repository gap; the harness records runtime boundaries separately.",
             repositoryInvestigationMaterialityGuidance,
             repositoryInvestigationBoundaryReviewGuidance,
-            "An unresolved area means more material work is required. Set done when central operations and limitations are evidenced and unresolvedAreas is empty. Call update_repository_notebook alone, never batched with inspection. The host ends this phase after a completed notebook or durable phase checkpoint; no handoff message is needed.",
+            "An unresolved area means more material work is required. Set done when central operations and limitations are evidenced and unresolvedAreas is empty. Call update_repository_notebook alone, never batched with inspection. The host ends this phase only after a completed notebook or a capacity-triggered checkpoint; otherwise continue using tools.",
           ].join(" "),
           messages: [{
             role: "user",
@@ -4790,15 +4817,32 @@ async function runRepositoryInvestigator(input: {
             }],
           }],
           tools: [inspectTool, updateTool],
-          maxTokens: 3_500,
+          maxTokens: INVESTIGATOR_MAX_OUTPUT_TOKENS,
           temperature: 0,
           effort: "high",
           enablePromptCaching: true,
           limits,
+          onEvent: (event) => {
+            if (event.type === "tool_call_completed") {
+              completedPhaseToolCalls = event.toolCall;
+            }
+            if (event.type === "model_call_completed") {
+              contextResetNeeded = repositoryInvestigationNeedsContextReset({
+                limits,
+                iteration: event.iteration,
+                toolCalls: completedPhaseToolCalls,
+                lastInputTokens: event.usage.inputTokens,
+                lastOutputTokens: event.usage.outputTokens,
+                totalTokens: event.aggregateUsage.totalTokens,
+                semanticTokens: repositoryInvestigationSemanticModelTokenCount(event.aggregateUsage),
+              });
+            }
+          },
           forceTool: () => repositoryInvestigationPhaseInspectionAction({
             inspectionToolCalls: phaseInspectionToolCalls,
             inspectionToolCallsAtLastCheckpoint,
             checkpointYieldRequested: phaseCheckpointYieldRequested,
+            contextResetNeeded,
           }) === "checkpoint" ? "update_repository_notebook" : undefined,
         });
           if (!state.notebook.done && phaseCheckpointYieldRequested) {
