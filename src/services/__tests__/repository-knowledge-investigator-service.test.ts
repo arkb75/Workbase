@@ -57,6 +57,7 @@ import {
   repositoryInvestigationPhaseInspectionAction,
   repositoryInvestigationNotebookUpdateIsTerminal,
   repositoryInspectionSegmentForModel,
+  repositoryInspectionToolSchemas,
   repositoryInvestigationPhaseBudget,
   repositoryInvestigationBudgetCanStartPhase,
   repositoryInvestigationSemanticModelTokenCount,
@@ -2235,6 +2236,31 @@ describe("repository knowledge investigator", () => {
     })).toThrow();
   });
 
+  it("attests the last wave's validated narrow citation as well as its enclosing visible read", () => {
+    const { state, evidence } = investigationState();
+    const update = notebookUpdate(evidence.evidenceId);
+    update.findings[0]!.evidence = [{ evidenceId: evidence.evidenceId, lineStart: 2, lineEnd: 3 }];
+    const result = applyRepositoryInvestigationNotebookUpdate({ state, update });
+    if (!result.accepted) throw new Error("expected a visible exact-source citation");
+    const visible = buildRepositorySourceInspectionAttestation({
+      evidence: [evidence], visibleRanges: state.visibleEvidenceRanges,
+    });
+    expect(visible.readSet).not.toContainEqual(expect.objectContaining({ lineStart: 2, lineEnd: 3 }));
+    const attestation = mergeRepositorySourceInspectionAttestations(visible,
+      repositorySourceInspectionAttestationFromNotebook(result.notebook));
+    const citation = result.notebook.findings[0]!.evidence[0]!;
+    expect(attestation.readSet).toContainEqual(expect.objectContaining({
+      evidenceId: evidence.evidenceId, lineStart: 2, lineEnd: 3,
+      excerptHash: createHash("sha256").update(citation.excerpt).digest("hex"),
+      outputHash: evidence.outputHash,
+    }));
+    expect(attestation.readSet).toContainEqual(expect.objectContaining({ lineStart: 1, lineEnd: 4 }));
+    const unseen = investigationState();
+    unseen.state.visibleEvidenceRanges = [{ evidenceId: unseen.evidence.evidenceId, startLine: 1, endLine: 1 }];
+    const rejected = applyRepositoryInvestigationNotebookUpdate({ state: unseen.state, update });
+    expect(rejected.accepted).toBe(false);
+  });
+
   it("distinguishes resumable partial checkpoints from terminal replay", () => {
     const { state, evidence } = investigationState();
     const result = applyRepositoryInvestigationNotebookUpdate({
@@ -2695,6 +2721,19 @@ describe("repository knowledge investigator", () => {
     expect(request.systemPrompt).toContain("Preserve real security, authorization, state, and data-integrity distinctions");
   });
 
+  it("offers bounded direct source ranges in the strict model tool schema", () => {
+    const { inputSchema, jsonSchema } = repositoryInspectionToolSchemas();
+    const query = { args: ["show", "HEAD:src/controller.ts"], range: { startLine: 20, maxLines: 30 } };
+    expect(inputSchema.parse({ repositoryQueries: [query], repositoryExpansions: [] }).repositoryQueries).toEqual([query]);
+    expect(jsonSchema).toMatchObject({ properties: { repositoryQueries: { items: {
+      required: ["args", "range"],
+      properties: { range: { anyOf: expect.arrayContaining([{ type: "null" }]) } },
+    } } } });
+    for (const range of [{ startLine: 0, maxLines: 10 }, { startLine: 1, maxLines: 0 }, { startLine: 1, maxLines: 241 }]) {
+      expect(inputSchema.safeParse({ repositoryQueries: [{ ...query, range }], repositoryExpansions: [] }).success).toBe(false);
+    }
+  });
+
   it("numbers source snippets at their original offsets without changing durable evidence", () => {
     const { evidence } = investigationState({
       output: ["// context", "export function run() {", "", "  return 'café';", "}"].join("\n"),
@@ -2750,10 +2789,10 @@ describe("repository knowledge investigator", () => {
       evidence: [], sourceInspection: empty, attemptedRequests: new Set<string>(), maxQueries: 1, maxExpansions: 1,
     };
     const batch = repositoryVerifierRequiredReadBatch(input);
-    expect(batch.repositoryQueries).toEqual([{ args: ["show", "HEAD:src/session.ts"] }]);
+    expect(batch.repositoryQueries).toEqual([{ args: ["show", "HEAD:src/session.ts"], range: { startLine: 1, maxLines: 4 } }]);
     expect(batch.repositoryExpansions).toEqual([]);
     expect(repositoryVerifierRequiredReadBatch({ ...input, attemptedRequests: new Set(batch.requestKeys) }).repositoryQueries)
-      .toEqual([{ args: ["show", "HEAD:src/other.ts"] }]);
+      .toEqual([{ args: ["show", "HEAD:src/other.ts"], range: { startLine: 1, maxLines: 4 } }]);
     const original = structuredClone(evidence);
     const expansion = repositoryVerifierRequiredReadBatch({ ...input, targets: [target, target], evidence: [evidence] });
     expect(expansion.repositoryQueries).toEqual([]);

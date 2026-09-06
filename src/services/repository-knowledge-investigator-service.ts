@@ -56,7 +56,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v48-concise-source-results";
+  "repository-knowledge-investigator-v49-directed-source-ranges";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -694,7 +694,7 @@ export function repositoryInvestigationNotebookUpdateIsTerminal(result: unknown)
     (value.done === true || value.phaseComplete === true);
 }
 
-function repositoryInspectionToolSchemas(input?: {
+export function repositoryInspectionToolSchemas(input?: {
   maxQueriesPerCall?: number;
   maxExpansionRequestsPerCall?: number;
 }) {
@@ -704,6 +704,10 @@ function repositoryInspectionToolSchemas(input?: {
   const inputSchema = z.object({
     repositoryQueries: z.array(z.object({
       args: z.array(z.string().min(1).max(1_000)).min(1).max(40),
+      range: z.object({
+        startLine: z.number().int().positive(),
+        maxLines: z.number().int().min(1).max(240),
+      }).nullable().optional(),
     })).max(maxQueriesPerCall),
     repositoryExpansions: z.array(z.object({
       evidenceId: z.string().trim().min(16).max(128),
@@ -729,8 +733,17 @@ function repositoryInspectionToolSchemas(input?: {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["args"],
+          required: ["args", "range"],
           properties: {
+            range: {
+              description: "For show HEAD:path, read this exact line window instead of automatic snippets. Use null for discovery or an initial overview.",
+              anyOf: [
+                { type: "null" },
+                { type: "object", additionalProperties: false, required: ["startLine", "maxLines"],
+                  properties: { startLine: { type: "integer", minimum: 1 },
+                    maxLines: { type: "integer", minimum: 1, maximum: 240 } } },
+              ],
+            },
             args: {
               type: "array",
               minItems: 1,
@@ -3653,7 +3666,7 @@ export function repositoryVerifierRequiredReadBatch(input: {
   maxQueries: number;
   maxExpansions: number;
 }) {
-  const repositoryQueries: { args: string[] }[] = [];
+  const repositoryQueries: { args: string[]; range?: { startLine: number; maxLines: number } }[] = [];
   const repositoryExpansions: { evidenceId: string; startLine: number; maxLines: number }[] = [];
   const requestKeys: string[] = [];
   const add = (key: string) => {
@@ -3673,7 +3686,9 @@ export function repositoryVerifierRequiredReadBatch(input: {
     );
     if (!evidence) {
       if (repositoryQueries.length < input.maxQueries && add(`show:${target.path}`)) {
-        repositoryQueries.push({ args: ["show", `HEAD:${target.path}`] });
+        const maxLines = target.lineEnd - target.lineStart + 1;
+        repositoryQueries.push({ args: ["show", `HEAD:${target.path}`],
+          ...(maxLines <= 240 ? { range: { startLine: target.lineStart, maxLines } } : {}) });
       }
     } else if (repositoryExpansions.length < input.maxExpansions) {
       const maxLines = target.lineEnd - target.lineStart + 1;
@@ -3923,6 +3938,7 @@ function createRepositoryInspectionTool(input: {
       'The host invokes Git: every args array starts with a subcommand, never with "git", and never combines words such as "git grep".',
       'Valid discovery arrays are ["ls-tree","-r","--name-only","HEAD"] and ["grep","-n","-E","pattern","HEAD","--","src"]. A valid exact source read is ["show","HEAD:path/to/file"].',
       "Use grep or ls-tree to discover and show HEAD:path to read citable source. Grep/list/history output is navigation evidence only.",
+      "Once discovery identifies a relevant line, set that query's range to {startLine, maxLines}; use range:null for an overview. Repeating an overview returns the same snippets, not the rest of the file.",
       `Exact-source snippets display original line numbers. Cite only within a visible segment, with at most ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} source bytes per citation; expand missing source before citing it.`,
       "Use argument arrays only: no shell syntax, host paths, networking, or mutation.",
     ].join(" "),
@@ -4364,6 +4380,16 @@ async function runRepositoryInvestigator(input: {
     visibleEvidenceRanges,
     filesByPath: new Map(input.files.map((file) => [file.path, file])),
   };
+  // Notebook citations were resolved against visible pinned source by the
+  // update tool. Attest their exact subranges in this wave, not only when a
+  // later wave happens to carry them forward.
+  const currentSourceInspection = () => mergeRepositorySourceInspectionAttestations(
+    carriedSourceInspection,
+    buildRepositorySourceInspectionAttestation({
+      evidence: rawEvidence.values(), visibleRanges: state.visibleEvidenceRanges,
+    }),
+    repositorySourceInspectionAttestationFromNotebook(state.notebook),
+  );
   let workerAgentRunId: string | null = priorWorker?.id ?? null;
   let partialAgentToolTrace = [...carriedAgentToolTrace];
   let sharedInspectionBudgetExhausted = false;
@@ -4471,13 +4497,7 @@ async function runRepositoryInvestigator(input: {
             "Repository investigator cannot persist progress before its worker run exists.",
           );
         }
-        const sourceInspection = mergeRepositorySourceInspectionAttestations(
-          carriedSourceInspection,
-          buildRepositorySourceInspectionAttestation({
-            evidence: rawEvidence.values(),
-            visibleRanges: state.visibleEvidenceRanges,
-          }),
-        );
+        const sourceInspection = currentSourceInspection();
         partialAgentToolTrace = checkpointAgentToolTraceSchema.parse([
           ...partialAgentToolTrace,
           {
@@ -4618,13 +4638,7 @@ async function runRepositoryInvestigator(input: {
       // cumulative list destroys the provenance of later investigation waves.
       preserveResultAttestationExactly: true,
       resultAttestation: () => {
-        const sourceAttestation = mergeRepositorySourceInspectionAttestations(
-          carriedSourceInspection,
-          buildRepositorySourceInspectionAttestation({
-            evidence: rawEvidence.values(),
-            visibleRanges: state.visibleEvidenceRanges,
-          }),
-        );
+        const sourceAttestation = currentSourceInspection();
         return {
           executionMode: "agentic_investigator",
           fallbackUsed: false,
@@ -4791,13 +4805,7 @@ async function runRepositoryInvestigator(input: {
     if (!audited.generationRunId) {
       throw new Error("Repository investigator did not persist its audited generation run.");
     }
-    const sourceAttestation = mergeRepositorySourceInspectionAttestations(
-      carriedSourceInspection,
-      buildRepositorySourceInspectionAttestation({
-        evidence: rawEvidence.values(),
-        visibleRanges: state.visibleEvidenceRanges,
-      }),
-    );
+    const sourceAttestation = currentSourceInspection();
     const agentToolTrace = checkpointAgentToolTraceSchema.parse([
       ...carriedAgentToolTrace,
       ...toolTrace(audited.data.result.events),

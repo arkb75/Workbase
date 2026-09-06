@@ -868,3 +868,36 @@ smaller tool output nor a completed Backer refresh establishes source parity.
 Verification after JSONB hashing correction: 2,183 tests passed, one skipped;
 132 focused synthesis/attestation tests, typecheck, changed-file lint and diff
 whitespace checks passed. No further paid run was started on this correction.
+
+### v49: directed reads and same-wave atomic citation attestation
+
+The existing inspection tool now accepts `range: { startLine, maxLines }` on a
+pinned `show HEAD:path` query. `range: null` retains overview/discovery behavior.
+This follows the small offset/line-limit interface used by
+[OpenCode's source reader](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/tool/read.ts),
+without adopting another harness or adding a new retrieval service. The host
+still fetches and redacts the immutable blob, retains raw evidence, and applies
+existing query, per-result byte and per-phase byte limits. Ranges on discovery
+or another commit, nonpositive bounds, and empty ranges fail explicitly.
+Canonical source hashes and line offsets are unchanged. Required verifier
+prefetches also request their known source ranges directly.
+
+The investigator now merges its validated atomic notebook citation ranges
+into partial checkpoint, final checkpoint and generation attestations in the
+same wave. Previously, the larger inspected window was attested immediately,
+but a narrow final claim range could appear only in the next wave's carried
+notebook attestation. The producer now records both. Citation resolution still
+requires visible pinned source before notebook acceptance; no source check was
+replaced by containment-only verification.
+
+Verification: 2,187 tests passed, one skipped; typecheck, changed-file lint and
+diff whitespace checks passed. Generic Git fixtures exercise direct line
+selection, raw-source preservation, query/byte bounds, and rejection of
+non-pinned or invalid requests. Notebook tests cover a narrow last-wave
+citation and reject unobserved source.
+
+Sensitivity policy is unchanged. The user has been asked whether verified
+security limitations should be usable for private project Q&A while remaining
+blocked from public outputs pending review. Until answered, quarantined
+findings remain excluded from active-output coverage; no score is inflated by
+counting them as available knowledge.

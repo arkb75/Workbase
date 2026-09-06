@@ -337,6 +337,53 @@ describe("project chat repository inspection", () => {
     });
   });
 
+  it("reads a requested pinned line range directly without losing raw evidence or relaxing budgets", async () => {
+    const lines = Array.from({ length: 180 }, (_, index) => `// source line ${index + 1}`);
+    lines[21] = "export const access = 'authenticated';";
+    writeFileSync(join(repository, "src", "controller.ts"), lines.join("\n"));
+    git(repository, ["add", "."]);
+    git(repository, ["commit", "-m", "add a larger control module"]);
+    head = git(repository, ["rev-parse", "HEAD"]);
+    git(bare, ["fetch", repository, "main:main"]);
+    const archived: string[] = [];
+    const reader = inspector({ onEvidence: (evidence) => { archived.push(evidence.output); },
+      limits: { maxEvidenceBytesPerQuery: 1024, maxVisibleBytesPerTurn: 1024, maxQueriesPerTurn: 2 } });
+    const result = await reader.inspect({ sourceId: "source-robot", queries: [{
+      args: ["show", "HEAD:src/controller.ts"], range: { startLine: 20, maxLines: 5 },
+    }] });
+    expect(result).toMatchObject({ status: "completed", usage: { queries: 1, expansions: 0 },
+      results: [{ status: "success", target: { kind: "blob", commitSha: head },
+        segments: [{ startLine: 20, endLine: 24, totalLines: 180,
+          excerpt: lines.slice(19, 24).join("\n"), truncated: true }] }] });
+    expect(archived).toEqual([lines.join("\n")]);
+    const limited = await reader.inspect({ sourceId: "source-robot", queries: [{
+      args: ["show", "HEAD:src/controller.ts"], range: { startLine: 30, maxLines: 240 },
+    }] });
+    if (limited.status !== "completed") throw new Error("inspection rejected");
+    expect(limited.usage.visibleBytes).toBeLessThanOrEqual(1024);
+    expect(limited.results[0]).toMatchObject({ status: "success", segments: [{ startLine: 30, truncated: true }] });
+    await expect(reader.inspect({ sourceId: "source-robot", queries: [{ args: ["show", "HEAD:README.md"] }] }))
+      .resolves.toMatchObject({ status: "rejected", code: "query_budget_exhausted" });
+  });
+
+  it("rejects invalid, missing, discovery and non-pinned direct ranges", async () => {
+    for (const query of [
+      { args: ["show", "HEAD:src/controller.ts"], range: { startLine: 0, maxLines: 2 } },
+      { args: ["show", "HEAD:src/controller.ts"], range: { startLine: 1, maxLines: 0 } },
+    ]) {
+      await expect(inspector().inspect({ sourceId: "source-robot", queries: [query] }))
+        .resolves.toMatchObject({ results: [{ status: "rejected", code: "invalid_source_range" }] });
+    }
+    for (const args of [["grep", "-n", "route", "HEAD", "--", "src"],
+      ["show", `${initialHead}:src/controller.ts`]]) {
+      await expect(inspector().inspect({ sourceId: "source-robot", queries: [{ args, range: { startLine: 1, maxLines: 2 } }] }))
+        .resolves.toMatchObject({ results: [{ status: "rejected", code: "source_range_requires_pinned_blob" }] });
+    }
+    await expect(inspector().inspect({ sourceId: "source-robot", queries: [{
+      args: ["show", "HEAD:src/controller.ts"], range: { startLine: 500, maxLines: 2 },
+    }] })).resolves.toMatchObject({ results: [{ status: "rejected", code: "empty_source_range" }] });
+  });
+
   it("keeps failed grep diagnostics out of exact citable segments", async () => {
     const archived = new Map<string, { exitCode?: number }>();
     const repositoryInspector = inspector({

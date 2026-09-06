@@ -882,7 +882,7 @@ export class ProjectChatRepositoryInspector {
   async inspect(input: {
     sourceId: string;
     objective?: string;
-    queries: Array<{ args: string[] }>;
+    queries: Array<{ args: string[]; range?: { startLine: number; maxLines: number } | null }>;
     expansions?: Array<{ evidenceId: string; startLine: number; maxLines: number }>;
   }) {
     const expansions = input.expansions ?? [];
@@ -916,6 +916,14 @@ export class ProjectChatRepositoryInspector {
     for (const query of input.queries) {
       this.#queryCount += 1;
       const submittedArgs = query.args;
+      if (query.range && (
+        !Number.isSafeInteger(query.range.startLine) || query.range.startLine < 1 ||
+        !Number.isSafeInteger(query.range.maxLines) || query.range.maxLines < 1
+      )) {
+        results.push({ args: submittedArgs, status: "rejected" as const,
+          code: "invalid_source_range", instruction: "Use positive integer startLine and maxLines values." });
+        continue;
+      }
       const queryArgs = normalizeLeadingGitExecutable(submittedArgs);
       const validation = validateProjectRepositoryGitArgs(queryArgs, this.limits);
       if (!validation.valid) {
@@ -976,6 +984,11 @@ export class ProjectChatRepositoryInspector {
       const canonicalBlobRead = target?.kind === "blob" &&
         args.length === 2 &&
         args[0] === "show";
+      if (query.range && (!canonicalBlobRead || target.commitSha !== repository.snapshot.commitSha)) {
+        results.push({ args, status: "rejected" as const, code: "source_range_requires_pinned_blob",
+          instruction: 'Use a range only with ["show", "HEAD:path/to/file"] at the pinned snapshot.' });
+        continue;
+      }
       // Exact blob evidence must preserve source line coordinates. Git stderr
       // is reported separately so a warning can never become line-addressable
       // source or shift a citation range.
@@ -1000,14 +1013,23 @@ export class ProjectChatRepositoryInspector {
         this.limits.maxVisibleBytesPerTurn -
           this.#visibleBytes,
       );
-      const segments = executed.exitCode === 0
+      const maximumBytes = Math.min(remaining, this.limits.maxEvidenceBytesPerQuery);
+      const rangedSegment = query.range ? expandProjectRepositoryEvidence({
+        evidence,
+        startLine: query.range.startLine,
+        maximumLines: Math.min(query.range.maxLines, this.limits.maxExpansionLines),
+        maximumBytes,
+      }) : null;
+      if (query.range && !rangedSegment) {
+        results.push({ args, status: "rejected" as const, code: "empty_source_range",
+          instruction: `No visible source at that range within the byte budget. The file has ${evidence.totalLines} lines.` });
+        continue;
+      }
+      const segments = rangedSegment ? [rangedSegment] : executed.exitCode === 0
         ? compactProjectRepositoryEvidence({
             evidence,
             objective: input.objective ?? "",
-            maximumBytes: Math.min(
-              remaining,
-              this.limits.maxEvidenceBytesPerQuery,
-            ),
+            maximumBytes,
             maximumSegments:
               this.limits.maxEvidenceSegmentsPerQuery,
           })
