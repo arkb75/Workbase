@@ -565,8 +565,8 @@ No run is eligible for a certified saved-output score. No live process remains.
 | Repository | Work item / refresh | Duration | Final semantic tokens | Calls | Inspections | Reported cost |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | CircleFund | `cmtq1fwhc0000c2sbmndd07dd` / `cmtq1fxky0002c2sbk5jn030g` | 241,754 ms | 267,922 | 29 | 63 | $0.43403044 |
-| Backer | `cmtq1gycn0000mksbnqqbvx3u` / `cmtq1gz6a0002mksbwco38fky` | 279,088 ms | 318,393 | 34 | 57 | $0.66819068 |
-| SoloPilot | `cmtq1hcsd0000wysbrxymnhl7` / `cmtq1he540002wysbnqjp6knf` | 339,418 ms | 389,561 | 44 | 66 | $0.92335275 |
+| Backer | `cmtq1gycn0000mksbnqqbvx3u` / `cmtq1gz6a0002mksbwco38fky` | 279,075 ms | 318,393 | 34 | 57 | $0.66819068 |
+| SoloPilot | `cmtq1hcsd0000wysbrxymnhl7` / `cmtq1he540002wysbnqjp6knf` | 339,403 ms | 389,561 | 44 | 66 | $0.92335275 |
 
 - CircleFund's first candidate audit passed 20/20 required reads and reported
   four gaps. It corrected one omitted representative-check submission. Repair
