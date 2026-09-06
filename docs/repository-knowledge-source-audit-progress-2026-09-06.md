@@ -274,6 +274,33 @@ The next work should address main-path investigation/review efficiency and
 inspect the remaining semantic gaps before another full replay. Repeatedly
 rerunning the same expensive path is not evidence of progress toward parity.
 
+### Main-path efficiency: terminal durable checkpoints
+
+Inspection of the v25 worker traces showed redundant post-checkpoint work.
+Wave 1 saved nine findings at iteration 6, then requested another inspection
+at iteration 7 and ended at a phase budget boundary. Other waves required
+an additional model turn for a textual handoff after a saved checkpoint.
+The host already had the continuation state; these calls were not needed to
+transfer findings or source attestations.
+
+Version `repository-knowledge-investigator-v41-terminal-durable-checkpoints`
+uses the harness's existing terminal-tool mechanism for a successfully
+persisted completed notebook or phase checkpoint. Rejected updates and failed
+persistence remain nonterminal. The host also selects the notebook tool at
+the existing three-inspection checkpoint boundary instead of asking the model
+to choose it through a rejected inspection call. This does not change the
+investigation scope, phase size, shared budget, source gates, or review criteria.
+Six regression cases exercise terminal and nonterminal outcomes and the
+inspection-to-checkpoint transition through the actual agent loop.
+
+This follows [Anthropic's context-engineering guidance](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
+on durable notes and removing redundant interaction history, using existing
+harness functionality rather than introducing another orchestration layer.
+The live savings and saved-output quality still require verification.
+Verification: 2,170 tests passed, one skipped with four workers; typecheck and
+changed-file lint passed. An earlier concurrent-check run hit two unrelated
+test timeouts; no timeout or assertion was weakened for the successful rerun.
+
 1. Complete a live run with a valid source-grounded review;
    retain the existing checkpoints and failed artifacts for diagnosis.
 2. Export and inspect only its automatically applied, active Facts/Highlights.

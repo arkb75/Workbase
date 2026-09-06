@@ -54,6 +54,7 @@ import {
   repositoryInvestigationMaterialityGuidance,
   repositoryInvestigationNotebookWithoutTransientCapacityAreas,
   repositoryInvestigationPhaseInspectionAction,
+  repositoryInvestigationNotebookUpdateIsTerminal,
   repositoryInvestigationPhaseBudget,
   repositoryInvestigationSemanticModelTokenCount,
   repositoryInvestigationSharedBudgetLimits,
@@ -1931,6 +1932,114 @@ describe("repository knowledge investigator", () => {
       inspectionToolCallsAtLastCheckpoint: 3,
       checkpointYieldRequested: true,
     })).toBe("yield");
+  });
+
+  it.each([
+    { done: true, phaseComplete: false },
+    { done: false, phaseComplete: true },
+  ])("ends a persisted notebook update without a handoff model call: %j", async (completion) => {
+    const persist = vi.fn(async () => ({ status: "accepted", ...completion }));
+    const tool = defineBedrockConverseTool({
+      name: "update_repository_notebook",
+      description: "Persist the notebook before completing its phase.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      isTerminalResult: repositoryInvestigationNotebookUpdateIsTerminal,
+      execute: persist,
+    });
+    const transport = { converse: vi.fn(async () => ({
+      message: { role: "assistant" as const, content: [{ toolUse: {
+        toolUseId: "checkpoint", name: tool.name, input: {},
+      } }] },
+      stopReason: "tool_use",
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      requestId: "persisted-checkpoint-request",
+    })) };
+    const agent = new BedrockConverseAgent(transport, { modelId: "test-investigator" });
+    const result = await agent.run({
+      messages: [{ role: "user", content: [{ text: "Save the investigation." }] }],
+      tools: [tool],
+      limits: { maxIterations: 1, maxToolCalls: 1, maxTotalTokens: 10_000 },
+    });
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(transport.converse).toHaveBeenCalledTimes(1);
+    expect(result.terminalTool?.name).toBe(tool.name);
+    expect(result.usage.totalTokens).toBe(15);
+  });
+
+  it.each(["intermediate", "rejected", "persistence_failure"])(
+    "does not complete a phase after an %s update",
+    async (firstOutcome) => {
+      const persist = vi.fn(async () => {
+        if (persist.mock.calls.length === 1) {
+          if (firstOutcome === "persistence_failure") throw new Error("Persistence failed.");
+          return { status: firstOutcome === "rejected" ? "rejected" : "accepted", done: false, phaseComplete: false };
+        }
+        return { status: "accepted", done: true, phaseComplete: false };
+      });
+      const tool = defineBedrockConverseTool({
+        name: "update_repository_notebook",
+        description: "Persist a validated notebook.",
+        inputSchema: z.object({}),
+        jsonSchema: { type: "object", properties: {} },
+        isTerminalResult: repositoryInvestigationNotebookUpdateIsTerminal,
+        execute: persist,
+      });
+      const transport = { converse: vi.fn(async () => ({
+        message: { role: "assistant" as const, content: [{ toolUse: {
+          toolUseId: `checkpoint-${persist.mock.calls.length}`, name: tool.name, input: {},
+        } }] },
+        stopReason: "tool_use",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        requestId: `checkpoint-request-${persist.mock.calls.length}`,
+      })) };
+      const result = await new BedrockConverseAgent(transport, { modelId: "test-investigator" }).run({
+        messages: [{ role: "user", content: [{ text: "Save the investigation." }] }],
+        tools: [tool],
+      });
+      expect(persist).toHaveBeenCalledTimes(2);
+      expect(transport.converse).toHaveBeenCalledTimes(2);
+      expect(result.terminalTool?.name).toBe(tool.name);
+    },
+  );
+
+  it("selects the durable checkpoint tool after three inspections and ends on persistence", async () => {
+    let inspections = 0;
+    const inspect = defineBedrockConverseTool({
+      name: "inspect_repository_snapshot", description: "Inspect pinned source.",
+      inputSchema: z.object({}), jsonSchema: { type: "object", properties: {} },
+      execute: () => { inspections += 1; return { status: "inspected" }; },
+    });
+    const checkpoint = defineBedrockConverseTool({
+      name: "update_repository_notebook", description: "Persist notebook.",
+      inputSchema: z.object({}), jsonSchema: { type: "object", properties: {} },
+      isTerminalResult: repositoryInvestigationNotebookUpdateIsTerminal,
+      execute: () => ({ status: "accepted", done: false, phaseComplete: true }),
+    });
+    const transport = { converse: vi.fn(async (input: ConverseCommandInput) => {
+      const forced = input.toolConfig?.toolChoice?.tool?.name;
+      if (inspections === 3) expect(forced).toBe(checkpoint.name);
+      else expect(forced).toBeUndefined();
+      return {
+        message: { role: "assistant" as const, content: [{ toolUse: {
+          toolUseId: `step-${inspections}`, name: forced ?? inspect.name, input: {},
+        } }] },
+        stopReason: "tool_use",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        requestId: `inspection-request-${inspections}`,
+      };
+    }) };
+    const result = await new BedrockConverseAgent(transport, { modelId: "test-investigator" }).run({
+      messages: [{ role: "user", content: [{ text: "Investigate pinned source." }] }],
+      tools: [inspect, checkpoint],
+      forceTool: () => repositoryInvestigationPhaseInspectionAction({
+        inspectionToolCalls: inspections, inspectionToolCallsAtLastCheckpoint: 0,
+        checkpointYieldRequested: false,
+      }) === "checkpoint" ? checkpoint.name : undefined,
+    });
+    expect(inspections).toBe(3);
+    expect(transport.converse).toHaveBeenCalledTimes(4);
+    expect(result.terminalTool?.name).toBe(checkpoint.name);
   });
 
   it("builds a bounded navigation map from analyzed files without claiming coverage", () => {

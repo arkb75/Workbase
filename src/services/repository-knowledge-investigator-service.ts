@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v40-explicit-review-link-contract";
+  "repository-knowledge-investigator-v41-terminal-durable-checkpoints";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -699,6 +699,12 @@ export function repositoryInvestigationPhaseInspectionAction(input: {
       INVESTIGATOR_INSPECTION_CALLS_PER_DURABLE_PHASE
     ? "checkpoint"
     : "inspect";
+}
+
+export function repositoryInvestigationNotebookUpdateIsTerminal(result: unknown) {
+  const value = record(result);
+  return value.status === "accepted" &&
+    (value.done === true || value.phaseComplete === true);
 }
 
 function repositoryInspectionToolSchemas(input?: {
@@ -4244,7 +4250,7 @@ async function runRepositoryInvestigator(input: {
         checkpointYieldRequested: phaseCheckpointYieldRequested,
       });
       if (action === "yield") {
-        return "Material progress is durably checkpointed for this phase. End with a one-sentence handoff so the next phase can continue with a fresh compact context.";
+        return "This phase is already durably checkpointed and complete.";
       }
       return action === "checkpoint"
         ? "Checkpoint the supported findings and complete current unresolved set now. Do not inspect again before updating the notebook."
@@ -4283,10 +4289,12 @@ async function runRepositoryInvestigator(input: {
       repositoryInvestigationMaterialityGuidance,
       repositoryInvestigationBoundaryReviewGuidance,
       "Set done true when central implemented operations and material limitations are evidenced and no material unresolved area remains.",
+      "Call this tool alone, not alongside inspection tools. A completed notebook or durable phase checkpoint ends this agent phase automatically; no handoff message is needed.",
     ].join(" "),
     inputSchema: notebookUpdateSchema,
     jsonSchema: notebookUpdateJsonSchema,
     strict: true,
+    isTerminalResult: repositoryInvestigationNotebookUpdateIsTerminal,
     execute: async (update, toolContext) => {
       const previousNotebook = state.notebook;
       const previousPartialAgentToolTrace = partialAgentToolTrace;
@@ -4313,13 +4321,14 @@ async function runRepositoryInvestigator(input: {
         findingCount: applied.notebook.findings.length,
         unresolvedAreaCount: applied.notebook.unresolvedAreas.length,
         done: applied.notebook.done,
+        phaseComplete: shouldYieldAfterCheckpoint,
         materiallyProgressed,
         instruction: applied.notebook.done
-          ? "The notebook is marked complete. End the investigation with a one-sentence handoff."
+          ? "The notebook is complete; the host will proceed to independent review."
           : shouldYieldAfterCheckpoint
             ? materiallyProgressed
-              ? "Material progress is durably checkpointed. End this phase with a one-sentence handoff; the next phase will continue from this compact notebook."
-              : "The bounded inspection slice is durably checkpointed without structural progress. End this phase now so the controller can stop or continue without growing this context."
+              ? "Material progress is durably checkpointed; the host will continue from this compact notebook."
+              : "This inspection slice is durably checkpointed without structural progress; the host will evaluate whether to continue."
             : "Continue only for material unsupported operations or limitations.",
       };
       try {
@@ -4534,7 +4543,7 @@ async function runRepositoryInvestigator(input: {
             "Repository unresolved areas are source questions only. Never record token, tool, rate, or phase capacity as a repository gap; the harness records runtime boundaries separately.",
             repositoryInvestigationMaterialityGuidance,
             repositoryInvestigationBoundaryReviewGuidance,
-            "An unresolved area means more material work is required. Set done when central operations and limitations are evidenced and unresolvedAreas is empty. End with a one-sentence handoff after the final notebook update.",
+            "An unresolved area means more material work is required. Set done when central operations and limitations are evidenced and unresolvedAreas is empty. Call update_repository_notebook alone, never batched with inspection. The host ends this phase after a completed notebook or durable phase checkpoint; no handoff message is needed.",
           ].join(" "),
           messages: [{
             role: "user",
@@ -4560,6 +4569,11 @@ async function runRepositoryInvestigator(input: {
           effort: "high",
           enablePromptCaching: true,
           limits,
+          forceTool: () => repositoryInvestigationPhaseInspectionAction({
+            inspectionToolCalls: phaseInspectionToolCalls,
+            inspectionToolCallsAtLastCheckpoint,
+            checkpointYieldRequested: phaseCheckpointYieldRequested,
+          }) === "checkpoint" ? "update_repository_notebook" : undefined,
         });
           if (!state.notebook.done && phaseCheckpointYieldRequested) {
             terminationReason = "investigator_checkpoint_yield";
