@@ -606,8 +606,21 @@ export function compareRepositorySourceAuditScores(input: {
   currentScores: readonly unknown[];
   historicalScores?: readonly unknown[];
   requiredHistoricalFixtureIds?: readonly string[];
+  excludedFixtures?: readonly { fixtureId: string; reason: string }[];
 }) {
   const manifest = parseRepositorySourceAuditManifest(input.manifest);
+  const excludedFixtures = z.array(z.object({
+    fixtureId: nonEmptyString,
+    reason: nonEmptyString,
+  }).strict()).parse(input.excludedFixtures ?? []);
+  const excludedIds = new Set(excludedFixtures.map(({ fixtureId }) => fixtureId));
+  if (excludedIds.size !== excludedFixtures.length || excludedFixtures.some(({ fixtureId }) =>
+    !manifest.repositories.some((repository) => repository.fixtureId === fixtureId)
+  )) {
+    throw new Error("Excluded fixtures must be distinct members of the frozen audit.");
+  }
+  const includedRepositories = manifest.repositories.filter(({ fixtureId }) => !excludedIds.has(fixtureId));
+  if (!includedRepositories.length) throw new Error("At least one audited repository must remain in scope.");
   const currentScores = input.currentScores.map((score) =>
     sourceAuditScoreSchema.parse(score)
   );
@@ -617,7 +630,7 @@ export function compareRepositorySourceAuditScores(input: {
   const currentByFixture = indexScores(currentScores, "current");
   const historicalByFixture = indexScores(historicalScores, "historical");
   exactStringSet(
-    manifest.repositories.map((repository) => repository.fixtureId),
+    includedRepositories.map((repository) => repository.fixtureId),
     Array.from(currentByFixture.keys()),
     "Current score fixture set",
   );
@@ -829,6 +842,7 @@ export function compareRepositorySourceAuditScores(input: {
       manifestDigest: repositorySourceAuditManifestDigest(manifest),
       auditDate: manifest.auditDate,
       currentFixtureIds: fixtureIds,
+      excludedFixtures: [...excludedFixtures].sort((a, b) => a.fixtureId.localeCompare(b.fixtureId)),
       matchedHistoricalFixtureIds: matchedFixtureIds,
       currentOnlyHoldoutFixtureIds: currentOnlyHoldouts,
       requiredHistoricalFixtureIds,
@@ -882,6 +896,7 @@ type Options = {
   manifestPath: string | null;
   outputPath: string | null;
   requiredHistoricalFixtureIds: string[];
+  excludedFixtures: { fixtureId: string; reason: string }[];
 };
 
 function usage() {
@@ -896,7 +911,9 @@ Usage:
     [--output <new-comparison.json>] [--compact]
 
 Every repository in the frozen manifest must have exactly one verified current
-score. Historical controls are matched by fixture id; unmatched current runs are
+score unless explicitly excluded with --exclude-fixture <fixture-id=reason>.
+Exclusions are recorded in comparison provenance; the frozen manifest and its
+digest remain unchanged. Historical controls are matched by fixture id; unmatched current runs are
 reported separately as holdouts. Repeat --require-historical for every fixture
 that must have a baseline. Semantic metrics and exact unit/question regressions
 determine acceptance. --output refuses to overwrite a file. Highlight, Fact,
@@ -924,6 +941,7 @@ export function parseRepositorySourceAuditComparisonOptions(args: readonly strin
     manifestPath: null,
     outputPath: null,
     requiredHistoricalFixtureIds: [],
+    excludedFixtures: [],
   };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!;
@@ -933,6 +951,18 @@ export function parseRepositorySourceAuditComparisonOptions(args: readonly strin
     }
     if (argument === "--compact") {
       options.compact = true;
+      continue;
+    }
+    if (argument === "--exclude-fixture" || argument.startsWith("--exclude-fixture=")) {
+      const parsed = optionValue(args, index, "--exclude-fixture");
+      const separator = parsed.value.indexOf("=");
+      const fixtureId = parsed.value.slice(0, separator).trim();
+      const reason = parsed.value.slice(separator + 1).trim();
+      if (separator < 1 || !fixtureId || !reason) {
+        throw new Error("--exclude-fixture requires fixture-id=reason.");
+      }
+      options.excludedFixtures.push({ fixtureId, reason });
+      index += parsed.consumed;
       continue;
     }
     const definitions = [
@@ -993,6 +1023,7 @@ async function main() {
     currentScores,
     historicalScores,
     requiredHistoricalFixtureIds: options.requiredHistoricalFixtureIds,
+    excludedFixtures: options.excludedFixtures,
   });
   const serialized = `${JSON.stringify(
     comparison,

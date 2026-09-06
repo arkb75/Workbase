@@ -220,6 +220,29 @@ function score(input: {
 }
 
 describe("repository source-audit score comparison", () => {
+  it("records explicit exclusions without changing the frozen audit or relaxing retained scores", () => {
+    const audit = manifest();
+    const original = structuredClone(audit);
+    const currentScores = fixtureIds.slice(0, 3).map((fixtureId) => score({
+      manifest: audit, fixtureId, grade: "full",
+    }));
+    const excludedFixtures = [{ fixtureId: "holdout", reason: "User excluded inaccessible repository" }];
+    const comparison = compareRepositorySourceAuditScores({ manifest: audit, currentScores, excludedFixtures });
+    expect(comparison.provenance.excludedFixtures).toEqual(excludedFixtures);
+    expect(comparison.provenance.currentFixtureIds).toEqual(["alpha", "beta", "gamma"]);
+    expect(comparison.acceptance.passed).toBe(true);
+    expect(audit).toEqual(original);
+    expect(() => compareRepositorySourceAuditScores({ manifest: audit, currentScores })).toThrow("Current score fixture set");
+    expect(() => compareRepositorySourceAuditScores({ manifest: audit, currentScores: currentScores.slice(1), excludedFixtures })).toThrow("Current score fixture set");
+    expect(() => compareRepositorySourceAuditScores({ manifest: audit, currentScores, excludedFixtures: [{ fixtureId: "unknown", reason: "Unavailable" }] })).toThrow("distinct members");
+    expect(() => compareRepositorySourceAuditScores({ manifest: audit, currentScores, excludedFixtures: [...excludedFixtures, ...excludedFixtures] })).toThrow("distinct members");
+    expect(() => compareRepositorySourceAuditScores({ manifest: audit, currentScores, excludedFixtures: fixtureIds.map((fixtureId) => ({ fixtureId, reason: "Unavailable" })) })).toThrow("remain in scope");
+    const degraded = [score({ manifest: audit, fixtureId: "alpha", grade: "partial" }), ...currentScores.slice(1)];
+    expect(compareRepositorySourceAuditScores({ manifest: audit, currentScores: degraded, excludedFixtures }).acceptance.passed).toBe(false);
+    expect(parseRepositorySourceAuditComparisonOptions(["--exclude-fixture", "holdout=User excluded inaccessible repository"]).excludedFixtures).toEqual(excludedFixtures);
+    expect(() => parseRepositorySourceAuditComparisonOptions(["--exclude-fixture", "holdout="])).toThrow("fixture-id=reason");
+  });
+
   it("compares the complete current suite to source truth and matched controls", () => {
     const audit = manifest();
     const currentScores = fixtureIds.map((fixtureId) => score({
@@ -428,6 +451,7 @@ describe("repository source-audit score comparison", () => {
       manifestPath: resolve("manifest.json"),
       outputPath: resolve("comparison.json"),
       requiredHistoricalFixtureIds: ["alpha"],
+      excludedFixtures: [],
     });
   });
 

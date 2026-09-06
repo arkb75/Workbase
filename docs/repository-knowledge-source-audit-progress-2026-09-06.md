@@ -426,7 +426,72 @@ and the four-repository saved-output comparison remain required.
 2. Export and inspect only its automatically applied, active Facts/Highlights.
 3. Adjudicate against the frozen source units and questions, including material
    negative boundaries and evidence support.
-4. Complete SoloPilot, Backer, and Otto on a consistently recorded implementation;
+4. Complete SoloPilot and Backer on a consistently recorded implementation;
    compare the three matched projects against main's frozen historical controls.
 5. Fix generalized semantic deficits that the saved-output comparison actually
    reveals. Do not declare success from item counts, a verifier pass, or tests alone.
+
+### Explicit scope change: Otto excluded by the user
+
+The user instructed us not to use Otto because repository access is unavailable.
+No further access attempts or live runs will target it. It is neither a pass nor
+a failure. The original four-repository frozen source audit remains unchanged;
+the current comparison scope is CircleFund, Backer, and SoloPilot: 60 knowledge
+units, 211 source anchors, and 35 questions. The comparator now accepts explicit
+`--exclude-fixture fixture-id=reason` entries and records them in provenance while
+preserving the full frozen-manifest digest. Missing retained fixtures, excluded
+fixtures supplied as scores/required controls, unknown/duplicate exclusions, and
+an empty retained scope are rejected. Per-unit and historical regression gates
+for retained repositories are unchanged.
+
+### Live v28: terminal results, no certified saved-output comparison
+
+All three runs used clean implementation
+`7c5539aed2d8117a4052e97c37d52601a99bb640`. Artifacts are retained under
+`/tmp/workbase-source-audit-v27.YaErOL/{circlefund,backer,solopilot}-v28-live.json`.
+
+- CircleFund: work item `cmtpx83yn00000psb7d90k5mk`, refresh
+  `cmtpx84tp00020psb2fj9pw6g`, 288,312 ms. Repaired seven initial gaps, but final
+  review introduced the omitted PostgreSQL persistence-provider boundary.
+  Its exact-read gate passed all 23 required ranges. Final usage: 34 calls,
+  275,494 semantic tokens, 68 inspections, $0.51888642. Repair ceiling reached;
+  no eligible saved-output packet.
+- Backer: work item `cmtpx8olf0000cmsb98op52m0`, refresh
+  `cmtpx8p2v0002cmsbt4gs4szh`, 376,195 ms. First candidate review reported the
+  declared investment-status lifecycle as a supporting gap. Re-audit exhausted
+  its 30,070-token phase allowance at 46,658 reported semantic tokens, with
+  19/21 required reads complete. Final shared usage: 53 calls, 476,588 semantic
+  tokens, 93 inspections, $1.08694137. The shared limit was 460,000; an admitted
+  in-flight response can overshoot it before reported usage is available.
+  Host status is incomplete, not a satisfied audit with zero gaps.
+- SoloPilot: work item `cmtpx96xb0000rgsbjgoualnx`, refresh
+  `cmtpx980f0002rgsb4xog5785`, 229,080 ms. Seven investigation waves consumed
+  368,880 semantic tokens before blind review; blind review then exceeded its
+  remaining phase allocation. Final shared usage: 39 calls, 440,767 semantic
+  tokens, 55 inspections, $1.14274291. No candidate audit or saved certification.
+
+These are main-path capacity/coverage failures, not funding failures. None proves
+parity with independently inspected source or non-regression against main.
+
+### v44: fetch known candidate-review ranges without model bookkeeping
+
+`repository-knowledge-investigator-v44-prefetched-candidate-source` batches known
+representative and blind-observation read targets through the existing pinned
+source inspection tool before the candidate model starts. The same raw evidence,
+visible-range callbacks, per-phase and shared inspection budgets, redaction,
+source attestation, and submission gates apply. The fetched source is presented
+in the candidate's first request; no previous source evidence or judgment is
+treated as a fresh read. Host calls are separately recorded and never counted as
+model calls. At least one normal inspection call plus the existing repair
+allowance remains available for reviewer-directed investigation. Failed or
+unusually long reads stay unresolved, not accepted. The blind phase is unchanged.
+
+This implements [Anthropic's tool-design guidance](https://www.anthropic.com/engineering/writing-tools-for-agents)
+on consolidating known multi-step retrieval at the tool boundary. It does not
+raise budgets, relax materiality or coverage gates, or add a fallback. It targets
+candidate-review overhead; SoloPilot's pre-review investigation cost remains a
+separate unresolved main-path problem. Verification: 2,175 tests passed, one
+skipped; typecheck and changed-file lint passed. Tests cover bounded/deduplicated
+read planning, fresh snapshot/source identity, failed reads, expansion limits,
+and explicit scope exclusion without weakening retained evaluation. Live
+validation remains required before claiming efficiency or quality improvement.

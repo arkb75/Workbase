@@ -70,6 +70,7 @@ import {
   repositoryVerifierNextAction,
   repositoryVerifierForcedSubmissionTool,
   repositoryVerifierRequiredExactReadGate,
+  repositoryVerifierRequiredReadBatch,
   repositoryVerifierSubmissionAttemptDiagnostics,
   repositoryVerifierSubmissionNeedsSourceRepair,
   restoreRepositoryInvestigationCheckpoint,
@@ -2639,6 +2640,13 @@ describe("repository knowledge investigator", () => {
     expect(serialized).not.toContain("evidenceId");
     expect(serialized).not.toContain("ls-tree");
     expect(serialized.length).toBeLessThan(8_000);
+    const freshSourceReads = [{ status: "completed", source: "1: freshly fetched source" }];
+    const freshRequest = candidateCoverageAuditRequest({
+      projectTitle: "Project", notebook, independentReview: fixture.checkpoint, freshSourceReads,
+    });
+    expect(JSON.parse(freshRequest.userPrompt).freshSourceReads).toEqual(freshSourceReads);
+    expect(freshRequest.userPrompt).not.toContain(sourceExcerptCanary);
+    expect(freshRequest.systemPrompt).toContain("do not request an identical range again");
     const candidate = repositoryCoverageCandidatePacket(notebook);
     expect(candidate.candidateClaims[0]?.sources).toEqual(
       notebook.findings[0]!.evidence.map(({ path, blobSha, lineStart, lineEnd }) => ({
@@ -2668,6 +2676,33 @@ describe("repository knowledge investigator", () => {
     expect(projected.endLine).toBe(5);
     expect(segment).toEqual(original);
     expect(evidence.output).not.toContain("2: export");
+  });
+
+  it("plans fresh required source reads once, within batch limits and without trusting another snapshot", () => {
+    const { state, evidence } = investigationState();
+    const target = { path: "src/session.ts", blobSha, lineStart: 1, lineEnd: 4 };
+    const empty = buildRepositorySourceInspectionAttestation({ evidence: [], visibleRanges: [] });
+    const input = {
+      target: state.notebook, targets: [target, target, { ...target, path: "src/other.ts" }],
+      evidence: [], sourceInspection: empty, attemptedRequests: new Set<string>(), maxQueries: 1, maxExpansions: 1,
+    };
+    const batch = repositoryVerifierRequiredReadBatch(input);
+    expect(batch.repositoryQueries).toEqual([{ args: ["show", "HEAD:src/session.ts"] }]);
+    expect(batch.repositoryExpansions).toEqual([]);
+    expect(repositoryVerifierRequiredReadBatch({ ...input, attemptedRequests: new Set(batch.requestKeys) }).repositoryQueries)
+      .toEqual([{ args: ["show", "HEAD:src/other.ts"] }]);
+    const original = structuredClone(evidence);
+    const expansion = repositoryVerifierRequiredReadBatch({ ...input, targets: [target, target], evidence: [evidence] });
+    expect(expansion.repositoryQueries).toEqual([]);
+    expect(expansion.repositoryExpansions).toEqual([{ evidenceId: evidence.evidenceId, startLine: 1, maxLines: 4 }]);
+    expect(repositoryVerifierRequiredReadBatch({ ...input, evidence: [evidence], targets: [target], attemptedRequests: new Set(expansion.requestKeys) }).requestKeys).toEqual([]);
+    const inspected = buildRepositorySourceInspectionAttestation({ evidence: [evidence], visibleRanges: state.visibleEvidenceRanges });
+    expect(repositoryVerifierRequiredReadBatch({ ...input, targets: [target], evidence: [evidence], sourceInspection: inspected }).requestKeys).toEqual([]);
+    for (const mismatched of [{ ...evidence, commitSha: "c".repeat(40) }, { ...evidence, sourceId: "other-source" }, { ...evidence, exitCode: 128 }]) {
+      expect(repositoryVerifierRequiredReadBatch({ ...input, evidence: [mismatched] }).repositoryQueries).toEqual(batch.repositoryQueries);
+    }
+    expect(evidence).toEqual(original);
+    expect(repositoryVerifierRequiredReadBatch({ ...input, evidence: [evidence], targets: [{ ...target, lineEnd: 241 }] }).requestKeys).toEqual([]);
   });
 
   it("explains oversized citations without admitting or silently shortening them", () => {
