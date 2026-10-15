@@ -1,8 +1,27 @@
 # Workbase
 
-Workbase is an internal MVP for early-career CS students and engineers who want to turn real technical work into verified career content.
+An evidence-backed career workspace that turns technical project work into reviewed resume bullets, project summaries, and professional updates.
 
-The prototype is built around one hard rule: public Artifacts are generated from approved, visibility-compatible Highlights only. Raw notes and repository files never go straight into public output generation.
+Import a GitHub repository or add private notes, ask questions with traceable citations, review the resulting highlights, then generate public-facing content from approved highlights. Workbase is an MVP built around a clear publication boundary: raw notes and repository files do not feed public artifact generation directly.
+
+**Built with:** TypeScript · Next.js · React · PostgreSQL/Neon · Prisma · OpenRouter · AWS Bedrock · Vitest
+
+## What it demonstrates
+
+- **Grounded AI workflows:** commit-pinned repository research, cited project chat, and bounded model/tool execution.
+- **Durable application state:** background import, refresh, chat, and review workflows with cancellation and idempotency controls.
+- **Privacy-aware publishing:** review, sensitivity, and visibility checks before project evidence becomes public content.
+- **Evaluation infrastructure:** provider comparisons, retrieval checks, lifecycle gates, and regression tests for grounding and failure recovery.
+
+## Explore the implementation
+
+| Area | Start here |
+| --- | --- |
+| Project chat and orchestration | [Chat service](src/services/project-chat-agent-service.ts) · [durable workflow](workflows/project-chat.ts) |
+| Bounded repository inspection | [Inspector](src/services/project-chat-repository-inspection-service.ts) · [tests](src/services/__tests__/project-chat-repository-inspection-service.test.ts) |
+| Publication and provenance | [Publication policy](src/services/artifact-publication-policy.ts) · [tests](src/services/__tests__/artifact-publication-policy.test.ts) |
+| GitHub integration | [Webhook service](src/services/github-webhook-service.ts) · [signature/deduplication tests](src/services/__tests__/github-webhook-service.test.ts) |
+| Quality and release gates | [Provider comparison tests](src/evals/__tests__/provider-quality-noninferiority.test.ts) · [live lifecycle runbook](tests/e2e/README.md) |
 
 ## Stack
 
