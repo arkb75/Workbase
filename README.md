@@ -1,14 +1,25 @@
 # Workbase
 
-An evidence-backed career workspace that turns technical project work into reviewed resume bullets, project summaries, and professional updates.
+An AI-assisted repository knowledge platform for building, exploring, and reviewing source-backed knowledge about technical projects.
 
-Import a GitHub repository or add private notes, ask questions with traceable citations, review the resulting highlights, then generate public-facing content from approved highlights. Workbase is an MVP built around a clear publication boundary: raw notes and repository files do not feed public artifact generation directly.
+Import GitHub repositories and private notes, ask source-cited questions, connect evidence to project findings, and track changes as repositories evolve. The focus is understanding the work: what was built, how it fits together, and which evidence supports each finding.
+
+Career-content generation is one downstream use of that knowledge. Workbase remains a prototype, and public-facing artifacts use approved, visibility-compatible highlights rather than raw repository files or notes.
 
 **Built with:** TypeScript · Next.js · React · PostgreSQL/Neon · Prisma · OpenRouter · AWS Bedrock · Vitest
 
+## Knowledge exploration
+
+- **Cited project chat:** investigate implementation details with repository excerpts and persisted project knowledge.
+- **Reviewable findings:** inspect sources, status, sensitivity, and changes before approving highlights.
+- **Atlas:** explore findings grouped by theme, with connections based on shared source evidence and semantic tags.
+- **Coverage:** compare the same findings across narrative, contribution, and value lenses; search, filter, inspect, and approve them in one workspace.
+
+The Atlas/Coverage workspace is implemented on the public [`feature/highlights-atlas-coverage` branch](https://github.com/arkb75/Workbase/tree/feature/highlights-atlas-coverage). It is not included in the current `main` snapshot. These views help inspect the available evidence; they do not establish that repository knowledge is complete.
+
 ## What it demonstrates
 
-- **Grounded AI workflows:** commit-pinned repository research, cited project chat, and bounded model/tool execution.
+- **Repository knowledge engineering:** commit-pinned research, cited chat, source lineage, freshness checks, and bounded model/tool execution.
 - **Durable application state:** background import, refresh, chat, and review workflows with cancellation and idempotency controls.
 - **Privacy-aware publishing:** review, sensitivity, and visibility checks before project evidence becomes public content.
 - **Evaluation infrastructure:** provider comparisons, retrieval checks, lifecycle gates, and regression tests for grounding and failure recovery.
@@ -17,6 +28,7 @@ Import a GitHub repository or add private notes, ask questions with traceable ci
 
 | Area | Start here |
 | --- | --- |
+| Atlas/Coverage visualization | [Workspace UI](https://github.com/arkb75/Workbase/blob/feature/highlights-atlas-coverage/components/highlights/highlight-workspace.tsx) · [graph and matrix transforms](https://github.com/arkb75/Workbase/blob/feature/highlights-atlas-coverage/src/lib/highlight-workspace.ts) · [tests](https://github.com/arkb75/Workbase/blob/feature/highlights-atlas-coverage/components/highlights/highlight-workspace.test.tsx) |
 | Project chat and orchestration | [Chat service](src/services/project-chat-agent-service.ts) · [durable workflow](workflows/project-chat.ts) |
 | Bounded repository inspection | [Inspector](src/services/project-chat-repository-inspection-service.ts) · [tests](src/services/__tests__/project-chat-repository-inspection-service.test.ts) |
 | Publication and provenance | [Publication policy](src/services/artifact-publication-policy.ts) · [tests](src/services/__tests__/artifact-publication-policy.test.ts) |
@@ -48,7 +60,7 @@ Import a GitHub repository or add private notes, ask questions with traceable ci
    distinct producer/provenance class from repository reconciliation
 6. Surface every new, revised, stale, or superseded item in the review inbox while quarantining unsafe or insufficiently supported candidates
 7. Keep, edit, revert, retire, or sensitivity-classify those changes without blocking ordinary private project chat
-8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only
+8. Optionally generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only
 
 ## Local setup
 
